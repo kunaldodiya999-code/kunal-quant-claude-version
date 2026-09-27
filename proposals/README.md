@@ -41,11 +41,23 @@ KUNAL_QUANT_REPO=/path/to/KunalQuant python3 proposals/test_classifier.py
 
 Result as of 2026-09-27: **4/4 synthetic cases pass.**
 
-## To actually try this against the real 198/16 events
+## `diagnose_option_data_coverage_v2.py`
 
-In a local clone of `KunalQuant`, `diagnose_option_data_coverage.py`'s
-`except LookupError:` block could be swapped for a call to
-`classify_event(resolver, ...)` from this file, and the `unresolved`
-bucket split into `EventClassification` groups instead of one pile. Happy
-to write that patch as a diff once there's a way to test it against the
-real database rather than synthetic data.
+A complete drop-in replacement for `scripts/diagnose_option_data_coverage.py`
+that wires in `unresolved_event_classifier.py` and prints a per-category
+breakdown instead of one "unresolved" pile. Same read-only guarantee as
+the original. Syntax-checked (`py_compile`), but **not run end-to-end** —
+`load_complete_3m_bars()` and the KTMI pipeline need the real database
+this environment doesn't have. The part that changed behaviour (the
+classifier) is the part that's actually tested, in `test_classifier.py`.
+
+To try it against the real 198/16 events: drop this file and
+`unresolved_event_classifier.py` into the canonical repo's `scripts/`
+directory (or point `PYTHONPATH` at both) and run it in place of the v1
+script.
+
+## `fixes/`
+
+Two real test-suite bugs found while running `tests/` on 2026-09-27, with
+fixes and verification for each — see `fixes/README.md`. Neither has been
+applied to the canonical repo.
