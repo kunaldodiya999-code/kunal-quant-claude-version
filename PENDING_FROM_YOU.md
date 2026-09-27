@@ -42,6 +42,15 @@ you can make.
    the token to drop `KunalQuant` from its repo list, and generate a
    second, separate Read-only token just for `KunalQuant`. No rush.
 
+## Decision needed: live trading timeline
+
+6. **The 5-day plan** (`docs/5_day_plan.md`) deliberately excludes live
+   order execution — it's gated behind backtest + paper validation and an
+   explicit go/no-go from you, per section 60 of your own brief ("never
+   enable live trading by default"). If 5 days genuinely needs to include
+   live orders, that's a conversation to have explicitly, not something
+   to build by default under a deadline.
+
 ## Possible next steps once you're back (not started, no decision needed yet)
 
 - Extending the classifier past 5 of the brief's 9 categories —
