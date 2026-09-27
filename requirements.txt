@@ -1,0 +1,14 @@
+# No requirements.txt existed in the canonical kunaldodiya999-code/KunalQuant
+# repo as of 2026-09-27. These were reverse-engineered from the actual
+# `import` statements across the codebase (dotenv, fyers_apiv3, requests are
+# the only third-party deps used; everything else is stdlib or local
+# modules). Versions are the latest resolver picked on 2026-09-27, NOT
+# necessarily what's pinned in the working local environment — verify
+# against that before treating this as authoritative.
+
+fyers_apiv3==3.1.18
+python-dotenv==1.2.2
+requests==2.31.0
+
+# Dev/test only
+pytest
