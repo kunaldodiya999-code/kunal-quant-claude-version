@@ -17,39 +17,40 @@ It distinguishes:
 - `EXPIRY_NOT_FOUND` — resolver's `find_nearest_expiry()` failed
 - `CONTRACT_NOT_FOUND` — resolver's `resolve()` failed after finding an
   expiry
-- `NO_ENTRY_CANDLE` — contract resolved, but no option candle within 1h of
-  the signal (the existing script already computes this, just never
-  labeled it)
-- `UNKNOWN` — anything that doesn't match the two known resolver error
-  patterns
+- `NO_OPTION_DATA` — contract resolved, but that instrument has zero
+  candles stored at all
+- `DATA_GAP` — contract resolved, candles exist for that instrument
+  elsewhere, just not within 1h of this specific signal
+- `UNKNOWN` — a resolver LookupError that matches neither known message
+  pattern
 
-This only covers 3 of the brief's 9 categories (section 40), because
-those are the only ones the resolver + this diagnostic can currently see.
-`NO_OPTION_DATA`, `DATA_GAP`, `INVALID_SYMBOL`, `INSUFFICIENT_HISTORY`,
-and `PARSER_FAILURE` would need signal from the acquisition/parsing layer
-that this call site doesn't have.
+That's **5 of the brief's 9 categories** (section 40). `INVALID_SYMBOL`,
+`INSUFFICIENT_HISTORY`, and `PARSER_FAILURE` remain out of reach from
+this call site — they live in the acquisition/parsing layer
+(`downloader/`, `instruments/expired_contract_registry.py`), not in
+anything visible once a contract is already resolved and stored.
 
 ## `test_classifier.py`
 
 Builds a tiny synthetic database with `database.schema.initialize_database`
 (the real schema code, so it can't drift from the actual table structure)
-and 4 hand-crafted cases, one per reachable classification. Run:
+and 5 hand-crafted cases, one per reachable classification. Run:
 
 ```
 KUNAL_QUANT_REPO=/path/to/KunalQuant python3 proposals/test_classifier.py
 ```
 
-Result as of 2026-09-27: **4/4 synthetic cases pass.**
+Result as of 2026-09-27: **5/5 synthetic cases pass.**
 
 ## `diagnose_option_data_coverage_v2.py`
 
 A complete drop-in replacement for `scripts/diagnose_option_data_coverage.py`
-that wires in `unresolved_event_classifier.py` and prints a per-category
-breakdown instead of one "unresolved" pile. Same read-only guarantee as
-the original. Syntax-checked (`py_compile`), but **not run end-to-end** —
+that wires in the classifier above and prints a per-category breakdown
+instead of one "unresolved" pile. Same read-only guarantee as the
+original. Syntax-checked (`py_compile`), but **not run end-to-end** —
 `load_complete_3m_bars()` and the KTMI pipeline need the real database
 this environment doesn't have. The part that changed behaviour (the
-classifier) is the part that's actually tested, in `test_classifier.py`.
+classifier) is the part that's actually tested.
 
 To try it against the real 198/16 events: drop this file and
 `unresolved_event_classifier.py` into the canonical repo's `scripts/`

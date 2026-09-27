@@ -7,4 +7,5 @@ project. The canonical, source-of-truth repo is
 modifies it.
 
 See `docs/checkpoints/` for session-by-session notes, following the same
-convention as the canonical repo.
+convention as the canonical repo, and **`PENDING_FROM_YOU.md`** for the
+running list of what needs your local machine or a decision from you.

@@ -7,7 +7,7 @@ V2, the KTMI pipeline, and stored candle/instrument data are all read-only
 here. The only behavioural change: instead of one "unresolved" pile, the
 unresolved bucket is split using unresolved_event_classifier.py into
 EXPIRY_NOT_FOUND / CONTRACT_NOT_FOUND / UNKNOWN, and the resolved bucket is
-split into RESOLVED_WITH_CANDLE / NO_ENTRY_CANDLE.
+split into RESOLVED_WITH_CANDLE / NO_OPTION_DATA / DATA_GAP.
 
 NOT independently run end-to-end: load_complete_3m_bars() and
 run_ktmi_trigger_pipeline() need the real database this environment
@@ -91,10 +91,11 @@ def main() -> None:
         print()
 
     resolved_symbols = Counter(
-        result.detail.split(" ")[0]
+        result.detail.split(":")[0].split(" ")[0]
         for classification in (
             EventClassification.RESOLVED_WITH_CANDLE,
-            EventClassification.NO_ENTRY_CANDLE,
+            EventClassification.NO_OPTION_DATA,
+            EventClassification.DATA_GAP,
         )
         for _, _, result in buckets[classification]
     )
@@ -103,10 +104,15 @@ def main() -> None:
         print(f"{symbol:35s} {count:4d} events")
     print()
 
-    no_candle = buckets[EventClassification.NO_ENTRY_CANDLE]
-    if no_candle:
-        print("NO_ENTRY_CANDLE — SAMPLES")
-        for event, bar, result in no_candle[:20]:
+    for classification in (
+        EventClassification.NO_OPTION_DATA,
+        EventClassification.DATA_GAP,
+    ):
+        items = buckets[classification]
+        if not items:
+            continue
+        print(f"{classification.value} — SAMPLES")
+        for event, bar, result in items[:20]:
             print(f"{datetime.fromtimestamp(bar.timestamp, tz=TZ)} | {result.detail}")
         print()
 

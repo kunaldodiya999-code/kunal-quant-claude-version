@@ -3,8 +3,8 @@ Standalone test for unresolved_event_classifier.py.
 
 Builds a small synthetic database using the canonical repo's own
 `database.schema.initialize_database` (so the schema is guaranteed
-correct), inserts a handful of hand-crafted instrument/candle rows
-designed to hit each classification path, and asserts the result.
+correct), inserts hand-crafted instrument/candle rows designed to hit
+each classification path, and asserts the result.
 
 Requires KUNAL_QUANT_REPO to point at a local clone of
 kunaldodiya999-code/KunalQuant (not vendored here, since this repo does
@@ -47,35 +47,48 @@ def build_synthetic_db(db_path: Path) -> dict:
 
     conn = sqlite3.connect(db_path)
 
-    conn.execute(
-        """INSERT INTO instruments
-        (broker, exchange, segment, symbol, underlying, instrument_type,
-         expiry_date, strike, option_type, lot_size, tick_size)
-        VALUES ('FYERS','NSE','FO','NSE:NIFTY25060525000CE','NIFTY',
-                'OPTION','2026-06-05',25000,'CE',75,0.05)"""
-    )
-    iid_ce = conn.execute(
-        "SELECT id FROM instruments WHERE symbol='NSE:NIFTY25060525000CE'"
-    ).fetchone()[0]
+    def add_instrument(symbol: str, strike: int, option_type: str) -> int:
+        conn.execute(
+            """INSERT INTO instruments
+            (broker, exchange, segment, symbol, underlying, instrument_type,
+             expiry_date, strike, option_type, lot_size, tick_size)
+            VALUES ('FYERS','NSE','FO',?,'NIFTY','OPTION','2026-06-05',
+                    ?,?,75,0.05)""",
+            (symbol, strike, option_type),
+        )
+        return conn.execute(
+            "SELECT id FROM instruments WHERE symbol=?", (symbol,)
+        ).fetchone()[0]
 
-    conn.execute(
-        """INSERT INTO instruments
-        (broker, exchange, segment, symbol, underlying, instrument_type,
-         expiry_date, strike, option_type, lot_size, tick_size)
-        VALUES ('FYERS','NSE','FO','NSE:NIFTY25060525000PE','NIFTY',
-                'OPTION','2026-06-05',25000,'PE',75,0.05)"""
-    )
+    # Case A: has a candle right after the signal.
+    iid_ce_25000 = add_instrument("NSE:NIFTY25060525000CE", 25000, "CE")
+
+    # Case B: zero candles ever -> NO_OPTION_DATA.
+    add_instrument("NSE:NIFTY25060525000PE", 25000, "PE")
+
+    # Case C: candles exist, but only well before the signal -> DATA_GAP.
+    iid_ce_24900 = add_instrument("NSE:NIFTY25060524900CE", 24900, "CE")
 
     signal_ts = int(
         datetime.datetime(2026, 6, 1, 9, 18, 0, tzinfo=TZ).timestamp()
     )
+
     conn.execute(
         """INSERT INTO candles
         (instrument_id, timestamp, open, high, low, close, volume,
          open_interest, resolution, source)
         VALUES (?, ?, 120.0, 125.0, 118.0, 122.0, 500, 10000, '1',
                 'FYERS_FNO_HISTORY')""",
-        (iid_ce, signal_ts + 60),
+        (iid_ce_25000, signal_ts + 60),
+    )
+
+    conn.execute(
+        """INSERT INTO candles
+        (instrument_id, timestamp, open, high, low, close, volume,
+         open_interest, resolution, source)
+        VALUES (?, ?, 90.0, 95.0, 88.0, 92.0, 300, 8000, '1',
+                'FYERS_FNO_HISTORY')""",
+        (iid_ce_24900, signal_ts - 7200),  # 2h before the signal, not within it
     )
 
     conn.commit()
@@ -100,14 +113,24 @@ def main() -> None:
             EventClassification.RESOLVED_WITH_CANDLE,
         ),
         (
-            "PE resolves, no candle within 1h",
+            "PE resolves, zero candles exist at all",
             dict(
                 underlying_price=25000,
                 entry_date=datetime.date(2026, 6, 1),
                 direction="SHORT",
                 signal_timestamp=ctx["signal_ts"],
             ),
-            EventClassification.NO_ENTRY_CANDLE,
+            EventClassification.NO_OPTION_DATA,
+        ),
+        (
+            "CE resolves, candles exist but only 2h before signal",
+            dict(
+                underlying_price=24900,
+                entry_date=datetime.date(2026, 6, 1),
+                direction="LONG",
+                signal_timestamp=ctx["signal_ts"],
+            ),
+            EventClassification.DATA_GAP,
         ),
         (
             "entry date past every known expiry",
