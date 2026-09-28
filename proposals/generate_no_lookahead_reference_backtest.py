@@ -280,6 +280,10 @@ def run_reference(
             continue
 
         if contract.instrument_id not in option_cache:
+            # Cache the entire regular-session history for this contract.
+            # Do not bound the cache to the first signal's date: the same
+            # contract can remain active and be evaluated across multiple
+            # trading days.
             option_cache[contract.instrument_id] = tuple(
                 sorted(
                     (
@@ -289,10 +293,14 @@ def run_reference(
                             bars[0].timestamp - 3600,
                             simulation_end,
                         )
-                        if candle.timestamp
-                        >= signal_start
-                        and candle.timestamp
-                        < session_close_timestamp(signal_day)
+                        if datetime.fromtimestamp(
+                            candle.timestamp,
+                            tz=TZ,
+                        ).time() >= time(9, 15)
+                        and datetime.fromtimestamp(
+                            candle.timestamp,
+                            tz=TZ,
+                        ).time() <= time(15, 29)
                     ),
                     key=lambda candle: candle.timestamp,
                 )
@@ -304,7 +312,14 @@ def run_reference(
             (
                 candle
                 for candle in option_candles
-                if candle.timestamp > signal_available
+                if (
+                    candle.timestamp > signal_available
+                    and datetime.fromtimestamp(
+                        candle.timestamp,
+                        tz=TZ,
+                    ).date() == signal_day
+                    and candle.timestamp < session_close_timestamp(signal_day)
+                )
             ),
             None,
         )
@@ -405,6 +420,24 @@ def run_reference(
         },
         "simulation_end": simulation_end,
     }
+
+
+def max_concurrent_trades(trades) -> int:
+    timeline = []
+    for trade in trades:
+        entry_ready = int(trade.entry.entry_timestamp) + ONE_MIN_SECONDS
+        timeline.append((entry_ready, 1))
+        if trade.result.closed and trade.result.exits:
+            exit_ready = int(trade.result.exits[-1].timestamp) + ONE_MIN_SECONDS
+            timeline.append((exit_ready, -1))
+    timeline.sort(key=lambda item: (item[0], item[1]))
+
+    active = 0
+    maximum = 0
+    for _, delta in timeline:
+        active += delta
+        maximum = max(maximum, active)
+    return maximum
 
 
 def max_drawdown(pnls: Sequence[float]) -> float:
@@ -513,9 +546,8 @@ def make_report(
             ),
         },
         "portfolio": {
-            "max_concurrent_trades": (
-                2 if len(closed) + len(open_trades) > 1 else
-                len(closed) + len(open_trades)
+            "max_concurrent_trades": max_concurrent_trades(
+                closed + open_trades
             ),
             "open_trade_symbols": [
                 trade.entry.contract.symbol
