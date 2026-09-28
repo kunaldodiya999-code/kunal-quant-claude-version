@@ -77,7 +77,7 @@ from scripts.run_real_option_sample import (
 from strategies.ktmi_trigger_strategy import KTMITriggerStrategyConfig
 from strategies.option_contract_resolver import OptionContractResolver
 
-from session_calendar import (
+from proposals.session_calendar import (
     is_in_session_candle,
     option_session,
     session_close_timestamp,
