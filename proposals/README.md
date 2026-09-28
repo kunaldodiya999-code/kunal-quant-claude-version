@@ -62,3 +62,23 @@ script.
 Two real test-suite bugs found while running `tests/` on 2026-09-27, with
 fixes and verification for each — see `fixes/README.md`. Neither has been
 applied to the canonical repo.
+
+## `diagnose_required_contract_gaps.py`
+
+Read-only real-data audit for the current `CONTRACT_NOT_FOUND` events. It reconstructs the unique required `(expiry, strike, CE/PE)` contracts, checks local instrument coverage, and queries FYERS only for missing expiries. It never registers instruments or downloads candles.
+
+Run from the KunalQuant checkout with that checkout on `PYTHONPATH`:
+
+```powershell
+python .\kunal-quant-claude-version\proposals\diagnose_required_contract_gaps.py --json "$HOME\Desktop\contract_gap_audit.json"
+```
+
+## `diagnose_option_session_semantics.py`
+
+Read-only audit of daily option-candle counts and first/last timestamps. This was added because the real diagnostic shows recent FYERS option samples with 385 candles through 15:39 while older data shows 375 through 15:29. It intentionally does not change the quality engine.
+
+Run:
+
+```powershell
+python .\kunal-quant-claude-version\proposals\diagnose_option_session_semantics.py
+```
