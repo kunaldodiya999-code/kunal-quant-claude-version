@@ -98,6 +98,7 @@ class TradeState:
     candles: tuple[OptionCandle, ...]
     next_index: int = 1
     exits: list[OptionTradeExit] = field(default_factory=list)
+    audit_id: int | None = None
 
     def managed(self) -> ManagedOptionTrade:
         return ManagedOptionTrade(
@@ -327,6 +328,7 @@ def run_reference(
     closed: list[ManagedOptionTrade] = []
 
     counts = Counter()
+    event_audit: list[dict] = []
 
     selected_events = [
         event for event in pipeline.events
@@ -348,6 +350,20 @@ def run_reference(
             signal_start,
             tz=TZ,
         ).date()
+        audit_id = len(event_audit)
+        event_audit.append({
+            "event_index": int(event.index),
+            "event_timestamp": int(event.timestamp),
+            "event_timestamp_local": local_dt(event.timestamp),
+            "strategy_id": event.strategy_id.value,
+            "direction": event.direction.value,
+            "outcome": None,
+        })
+        audit = event_audit[audit_id]
+        audit["signal_start_timestamp"] = signal_start
+        audit["signal_start_local"] = local_dt(signal_start)
+        audit["signal_available_timestamp"] = signal_available
+        audit["signal_available_local"] = local_dt(signal_available)
 
         # Advance positions to the exact point where this 3M signal is known.
         for state in active:
@@ -362,7 +378,23 @@ def run_reference(
         still_active: list[TradeState] = []
         for state in active:
             if state.position.closed:
-                closed.append(state.managed())
+                trade = state.managed()
+            closed.append(trade)
+            if state.audit_id is not None:
+                event_audit[state.audit_id]["outcome"] = "closed"
+                event_audit[state.audit_id]["exits"] = [
+                    {
+                        "timestamp": int(x.timestamp),
+                        "timestamp_local": local_dt(x.timestamp),
+                        "reason": x.reason.value,
+                        "price": float(x.price),
+                        "quantity": int(x.quantity),
+                        "lots": int(x.lots),
+                        "pnl": float(x.pnl),
+                    }
+                    for x in state.exits
+                ]
+                event_audit[state.audit_id]["total_pnl"] = float(state.position.gross_pnl)
             else:
                 still_active.append(state)
         active = still_active
@@ -375,6 +407,7 @@ def run_reference(
             )
         except LookupError:
             counts["unresolved"] += 1
+            audit["outcome"] = "unresolved"
             continue
 
         decision = evaluate_signal(
@@ -392,13 +425,26 @@ def run_reference(
             config=DEFAULT_POSITION_LIFECYCLE_CONFIG,
         )
 
+        audit["lifecycle_action"] = decision.action.value
+        audit["lifecycle_reason"] = decision.reason
+        audit["active_positions_at_decision"] = [
+            {
+                "strategy_id": state.entry.event.strategy_id.value,
+                "direction": state.entry.event.direction.value,
+                "symbol": state.entry.contract.symbol,
+            }
+            for state in active
+        ]
+
         if decision.action != SignalAction.ENTER:
             counts["lifecycle_rejected"] += 1
+            audit["outcome"] = "lifecycle_rejected"
             continue
 
         session = option_session(signal_day)
         if signal_available >= session_close_timestamp(signal_day):
             counts["outside_session"] += 1
+            audit["outcome"] = "outside_session"
             continue
 
         if contract.instrument_id not in option_cache:
@@ -433,7 +479,26 @@ def run_reference(
 
         if entry_candle is None:
             counts["no_entry_candle"] += 1
+            audit["outcome"] = "no_entry_candle"
+            audit["contract"] = {
+                "instrument_id": contract.instrument_id,
+                "symbol": contract.symbol,
+                "expiry_date": str(contract.expiry_date),
+                "strike": contract.strike,
+                "option_type": contract.option_type,
+            }
             continue
+
+        audit["contract"] = {
+            "instrument_id": contract.instrument_id,
+            "symbol": contract.symbol,
+            "expiry_date": str(contract.expiry_date),
+            "strike": contract.strike,
+            "option_type": contract.option_type,
+        }
+        audit["entry_timestamp"] = int(entry_candle.timestamp)
+        audit["entry_timestamp_local"] = local_dt(entry_candle.timestamp)
+        audit["entry_price"] = float(entry_candle.close)
 
         entry = OptionEntry(
             event=event,
@@ -460,6 +525,7 @@ def run_reference(
             if str(exc) != "Allocation cannot purchase one complete lot":
                 raise
             counts["allocation_rejected"] += 1
+            audit["outcome"] = "allocation_rejected"
             continue
 
         trade_candles = tuple(
@@ -473,6 +539,7 @@ def run_reference(
 
         if not trade_candles:
             counts["no_entry_candle"] += 1
+            audit["outcome"] = "no_entry_candle"
             continue
 
         state = TradeState(
@@ -482,8 +549,10 @@ def run_reference(
             signal_direction=event.direction.value,
             candles=trade_candles,
             next_index=1,
+            audit_id=audit_id,
         )
 
+        audit["outcome"] = "entered"
         active.append(state)
 
     # Finish active positions through the final sample-day session close.
@@ -504,6 +573,16 @@ def run_reference(
         if not state.position.closed
     ]
 
+    for state in active:
+        if not state.position.closed and state.audit_id is not None:
+            event_audit[state.audit_id]["outcome"] = "open"
+            event_audit[state.audit_id]["total_pnl"] = float(state.position.gross_pnl)
+
+    if len(event_audit) != len(selected_events):
+        raise RuntimeError("Event audit length does not match selected events.")
+    if any(record["outcome"] is None for record in event_audit):
+        raise RuntimeError("At least one selected event was not assigned an audit outcome.")
+
     counts["closed"] = len(closed)
     counts["open"] = len(open_trades)
 
@@ -514,6 +593,7 @@ def run_reference(
         "open": tuple(open_trades),
         "counts": dict(counts),
         "simulation_end": simulation_end,
+        "event_audit": tuple(event_audit),
     }
 
 
