@@ -1,38 +1,35 @@
 """
 Kunal Quant — Chronological Position Lifecycle Diagnostic (PROPOSAL)
 
-This diagnostic models the intended Position Lifecycle V1 in true event
-chronological order without changing canonical KunalQuant.
+Read-only diagnostic for the bounded real-data option sample.
 
-Why this exists
----------------
-The current real-option runner simulates a complete trade before moving to
-the next KTMI event. That can remove a position from active state using a
-future exit that has not happened yet at the time of an intervening signal.
+The current runner simulates a whole trade before advancing to the next
+KTMI event. That means a position can be removed from active state using a
+future exit before intervening signals are evaluated.
 
-This proposal runner instead:
-1. Advances already-open trades only up to the current signal timestamp.
-2. Evaluates the next KTMI event against positions that are actually active
-   at that point in simulated time.
-3. Creates a new option entry at the first option candle strictly after the
-   signal timestamp.
-4. Applies the existing locked OptionTradeLifecycle V1 candle rules.
-5. Continues all active trades chronologically.
-6. Does not modify KTMI, Resolver V2, Position Lifecycle V1, or Trade
-   Lifecycle V1.
+This proposal simulates the same locked lifecycle rules in chronological
+order:
+- active trades are advanced only up to the current signal timestamp;
+- a new signal is evaluated against positions actually active then;
+- a pending accepted signal also occupies its strategy before its first
+  option entry candle, matching the existing entry bridge behavior;
+- the first option candle strictly after the signal is the entry price and
+  is not processed as an exit candle, matching the existing management code;
+- later option candles are processed once, in chronological order;
+- no new KTMI/resolver/lifecycle rules are invented.
 
-No charges or end-of-data exits are invented.
+Canonical KunalQuant is not modified.
 """
 
 from __future__ import annotations
 
 import bisect
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Sequence
 from zoneinfo import ZoneInfo
 
 from backtest.fyers_option_candles import FyersOptionCandleLoader
+from backtest.ktmi_trigger_pipeline import run_ktmi_trigger_pipeline
 from backtest.models import BacktestBar
 from backtest.option_entry_bridge import OptionCandle, OptionEntry
 from backtest.option_trade_lifecycle import (
@@ -49,7 +46,6 @@ from backtest.position_lifecycle import (
     SignalAction,
     evaluate_signal,
 )
-from backtest.ktmi_trigger_pipeline import run_ktmi_trigger_pipeline
 from config.settings import DATABASE_PATH
 from run_real_option_sample_resilient import run_resilient
 from scripts.run_real_option_sample import build_ktmi_config, load_complete_3m_bars
@@ -60,86 +56,84 @@ ALLOCATION_ERROR = "Allocation cannot purchase one complete lot"
 
 
 @dataclass
-class ActiveTradeState:
-    managed: ManagedOptionTrade
-    candles: tuple[OptionCandle, ...]
-    next_index: int
+class ChronologicalTradeState:
+    entry: OptionEntry
+    position: OptionTradePosition
+    exits: list[OptionTradeExit] = field(default_factory=list)
+    candles: tuple[OptionCandle, ...] = ()
+    next_index: int = 1
+
+    @property
+    def closed(self) -> bool:
+        return self.position.closed
+
+    def managed(self) -> ManagedOptionTrade:
+        result = OptionTradeResult(
+            position=self.position,
+            exits=tuple(self.exits),
+            total_pnl=self.position.gross_pnl,
+            closed=self.position.closed,
+        )
+        return ManagedOptionTrade(
+            entry=self.entry,
+            position=self.position,
+            result=result,
+        )
 
 
 def local_dt(ts: int) -> str:
     return datetime.fromtimestamp(ts, tz=TZ).isoformat()
 
 
-def calculate_kama(bars: Sequence[BacktestBar]):
+def make_active_position(state: ChronologicalTradeState) -> ActivePosition:
+    return ActivePosition(
+        strategy_id=state.entry.event.strategy_id.value,
+        direction=state.entry.event.direction.value,
+        symbol=state.entry.contract.symbol,
+    )
+
+
+def calculate_kama(bars: list[BacktestBar]):
     from backtest.real_option_trade_runner import calculate_nifty_kama
     return calculate_nifty_kama(bars)
 
 
-def make_active_position(trade: ManagedOptionTrade) -> ActivePosition:
-    entry = trade.entry
-    return ActivePosition(
-        strategy_id=entry.event.strategy_id.value,
-        direction=entry.event.direction.value,
-        symbol=entry.contract.symbol,
-    )
-
-
-def build_managed_trade(
-    *,
-    entry: OptionEntry,
-    position: OptionTradePosition,
-    exits: list[OptionTradeExit],
-) -> ManagedOptionTrade:
-    result = OptionTradeResult(
-        position=position,
-        exits=tuple(exits),
-        total_pnl=position.gross_pnl,
-        closed=position.closed,
-    )
-    return ManagedOptionTrade(
-        entry=entry,
-        position=position,
-        result=result,
-    )
-
-
 def advance_trade(
     *,
-    state: ActiveTradeState,
+    state: ChronologicalTradeState,
     through_timestamp: int,
-    bars: Sequence[BacktestBar],
+    bars: list[BacktestBar],
     kama_results,
-    underlying_timestamps: Sequence[int],
+    underlying_timestamps: list[int],
     lifecycle: OptionTradeLifecycle,
 ) -> None:
     """
-    Process stored option candles through the requested simulated time.
+    Process option candles strictly after entry and up to the requested time.
 
-    Entry candle itself is never processed, matching the existing trade
-    management implementation. Every later candle with timestamp <= the
-    requested boundary is processed once.
+    This reproduces the per-candle logic from option_trade_management.py
+    without using that module's all-the-way-to-end orchestration.
     """
     while (
         state.next_index < len(state.candles)
         and state.candles[state.next_index].timestamp <= through_timestamp
-        and not state.managed.position.closed
+        and not state.position.closed
     ):
         candle = state.candles[state.next_index]
         state.next_index += 1
 
-        index = bisect.bisect_right(
+        underlying_index = bisect.bisect_right(
             underlying_timestamps,
             candle.timestamp,
         ) - 1
 
-        if index < 0:
+        if underlying_index < 0:
             continue
 
-        underlying = bars[index]
-        kama = kama_results[index]
+        underlying = bars[underlying_index]
+        kama = kama_results[underlying_index]
 
         candle_exits = lifecycle.process_candle(
-            position=state.managed.position,
+            position=state.position,
             timestamp=candle.timestamp,
             option_high=candle.high,
             option_low=candle.low,
@@ -148,19 +142,12 @@ def advance_trade(
             kama_value=kama.kama,
         )
 
-        if candle_exits:
-            all_exits = list(state.managed.result.exits)
-            all_exits.extend(candle_exits)
-            state.managed = build_managed_trade(
-                entry=state.managed.entry,
-                position=state.managed.position,
-                exits=all_exits,
-            )
+        state.exits.extend(candle_exits)
 
 
 def chronological_run(
     *,
-    bars: Sequence[BacktestBar],
+    bars: list[BacktestBar],
     events,
     resolver: OptionContractResolver,
     loader: FyersOptionCandleLoader,
@@ -169,20 +156,23 @@ def chronological_run(
     kama_results = calculate_kama(bars)
     underlying_timestamps = [bar.timestamp for bar in bars]
 
-    active: list[ActiveTradeState] = []
-    all_trades: list[ManagedOptionTrade] = []
+    active: list[ChronologicalTradeState] = []
+    closed: list[ManagedOptionTrade] = []
     unresolved = 0
     no_entry_candle = 0
     allocation_rejected = 0
     lifecycle_rejected = 0
 
-    ordered_events = list(events)
-    ordered_events.sort(key=lambda e: (e.index, e.timestamp))
+    ordered_events = sorted(
+        list(events),
+        key=lambda event: (event.index, event.timestamp),
+    )
 
     for event in ordered_events:
         event_timestamp = bars[event.index].timestamp
 
-        # Advance all currently active trades to the new signal boundary.
+        # Bring existing positions up to the exact signal boundary before
+        # deciding whether this new signal may enter.
         for state in active:
             advance_trade(
                 state=state,
@@ -193,13 +183,13 @@ def chronological_run(
                 lifecycle=OptionTradeLifecycle(),
             )
 
-        # Remove only trades that actually closed at or before this signal.
-        active = [
-            state
-            for state in active
-            if not state.managed.result.closed
-            or state.managed.result.exits[-1].timestamp > event_timestamp
-        ]
+        still_active: list[ChronologicalTradeState] = []
+        for state in active:
+            if state.closed:
+                closed.append(state.managed())
+            else:
+                still_active.append(state)
+        active = still_active
 
         try:
             contract = resolver.resolve(
@@ -214,16 +204,14 @@ def chronological_run(
             unresolved += 1
             continue
 
-        active_positions = [
-            make_active_position(state.managed)
-            for state in active
-        ]
-
         decision = evaluate_signal(
             strategy_id=event.strategy_id.value,
             direction=event.direction.value,
             symbol=contract.symbol,
-            active_positions=active_positions,
+            active_positions=[
+                make_active_position(state)
+                for state in active
+            ],
             config=DEFAULT_POSITION_LIFECYCLE_CONFIG,
         )
 
@@ -242,7 +230,7 @@ def chronological_run(
             )
         )
 
-        first_later = next(
+        entry_candle = next(
             (
                 candle
                 for candle in candles
@@ -251,7 +239,7 @@ def chronological_run(
             None,
         )
 
-        if first_later is None:
+        if entry_candle is None:
             no_entry_candle += 1
             continue
 
@@ -259,22 +247,24 @@ def chronological_run(
             event=event,
             contract=contract,
             signal_timestamp=event_timestamp,
-            entry_timestamp=first_later.timestamp,
+            entry_timestamp=entry_candle.timestamp,
             underlying_price=bars[event.index].close,
-            entry_price=first_later.close,
+            entry_price=entry_candle.close,
             lifecycle_action=decision.action,
             lifecycle_reason=decision.reason,
         )
 
-        position_manager = OptionTradeLifecycle()
+        manager = OptionTradeLifecycle()
+        direction = (
+            OptionTradeDirection.LONG
+            if event.direction.value == "LONG"
+            else OptionTradeDirection.SHORT
+        )
+
         try:
-            position = position_manager.create_position(
+            position = manager.create_position(
                 strategy_id=event.strategy_id.value,
-                direction=(
-                    OptionTradeDirection.LONG
-                    if event.direction.value == "LONG"
-                    else OptionTradeDirection.SHORT
-                ),
+                direction=direction,
                 symbol=contract.symbol,
                 entry_price=entry.entry_price,
             )
@@ -284,36 +274,27 @@ def chronological_run(
             allocation_rejected += 1
             continue
 
-        # Store all candles from entry onward. The entry candle is skipped
-        # for exit processing, matching run_option_trade_management().
-        trade = build_managed_trade(
-            entry=entry,
-            position=position,
-            exits=[],
-        )
-        trade_candles = tuple(
+        entry_plus_candles = tuple(
             candle
             for candle in candles
             if candle.timestamp >= entry.entry_timestamp
         )
 
-        next_index = 1
-        # Account for any duplicate/extra timestamps defensively.
-        if len(trade_candles) <= 1:
-            next_index = len(trade_candles)
-        else:
-            next_index = 1
-
-        active.append(
-            ActiveTradeState(
-                managed=trade,
-                candles=trade_candles,
-                next_index=next_index,
-            )
+        state = ChronologicalTradeState(
+            entry=entry,
+            position=position,
+            exits=[],
+            candles=entry_plus_candles,
+            next_index=1,
         )
-        all_trades.append(trade)
 
-    # Finish all remaining active trades through the sample boundary.
+        # Accepted position is active immediately, matching the existing
+        # option entry bridge which reserves the strategy before the next
+        # event is evaluated.
+        active.append(state)
+
+    # Finish all remaining positions through the existing report boundary.
+    still_active: list[ChronologicalTradeState] = []
     for state in active:
         advance_trade(
             state=state,
@@ -323,54 +304,63 @@ def chronological_run(
             underlying_timestamps=underlying_timestamps,
             lifecycle=OptionTradeLifecycle(),
         )
+        if state.closed:
+            closed.append(state.managed())
+        else:
+            still_active.append(state)
 
-    closed = [trade for trade in all_trades if trade.result.closed]
-    open_trades = [trade for trade in all_trades if not trade.result.closed]
+    open_trades = [
+        state.managed()
+        for state in still_active
+    ]
 
-    # all_trades entries are immutable ManagedOptionTrade wrappers. Because
-    # state.managed is replaced as exits occur, refresh the collection from
-    # active/closed state by matching entry event indexes.
-    final_by_event: dict[tuple[int, str, str], ManagedOptionTrade] = {}
-    for state in active:
-        key = (
-            state.managed.entry.event.index,
-            state.managed.entry.event.strategy_id.value,
-            state.managed.entry.entry_timestamp and state.managed.entry.event.direction.value,
-        )
-        final_by_event[key] = state.managed
+    all_closed_pnl = sum(
+        float(trade.result.total_pnl)
+        for trade in closed
+    )
 
-    # Reconstruct final trades using the latest state objects. For a robust
-    # report, rebuild from both closed and open references present in active
-    # and previously closed trade snapshots.
-    # Since all trades are single-event entries, use event identity.
-    final_trades: list[ManagedOptionTrade] = []
-    active_keys = {
-        (
-            state.managed.entry.event.index,
-            state.managed.entry.event.strategy_id.value,
-            state.managed.entry.event.direction.value,
-        )
-        for state in active
-    }
-
-    # Closed trades are already reflected in all_trades as their wrapper was
-    # replaced inside the active state. Track them separately below using a
-    # chronological ledger.
-    # The simple implementation above needs a ledger to keep final wrappers.
     return {
-        "all_trades": all_trades,
-        "closed": closed,
-        "open": open_trades,
+        "closed": tuple(closed),
+        "open": tuple(open_trades),
         "unresolved": unresolved,
         "no_entry_candle": no_entry_candle,
         "allocation_rejected": allocation_rejected,
         "lifecycle_rejected": lifecycle_rejected,
+        "gross_pnl_closed": all_closed_pnl,
     }
+
+
+def find_overlaps(trades: tuple[ManagedOptionTrade, ...]) -> int:
+    overlaps = 0
+    by_strategy: dict[str, list[ManagedOptionTrade]] = {}
+
+    for trade in trades:
+        by_strategy.setdefault(
+            trade.entry.event.strategy_id.value,
+            [],
+        ).append(trade)
+
+    for strategy_trades in by_strategy.values():
+        strategy_trades.sort(
+            key=lambda trade: trade.entry.signal_timestamp
+        )
+        for i, left in enumerate(strategy_trades):
+            if not left.result.exits:
+                continue
+            left_end = left.result.exits[-1].timestamp
+            for right in strategy_trades[i + 1:]:
+                if right.entry.signal_timestamp <= left_end:
+                    overlaps += 1
+
+    return overlaps
 
 
 def main() -> None:
     bars = load_complete_3m_bars()
-    pipeline = run_ktmi_trigger_pipeline(bars, build_ktmi_config())
+    pipeline = run_ktmi_trigger_pipeline(
+        bars,
+        build_ktmi_config(),
+    )
     loader = FyersOptionCandleLoader(DATABASE_PATH)
     resolver = OptionContractResolver()
     end_timestamp = bars[-1].timestamp + 3600
@@ -383,28 +373,61 @@ def main() -> None:
         end_timestamp=end_timestamp,
     )
 
+    chrono = chronological_run(
+        bars=bars,
+        events=pipeline.events,
+        resolver=resolver,
+        loader=loader,
+        end_timestamp=end_timestamp,
+    )
+
+    current_closed = [
+        trade for trade in current.trades
+        if trade.result.closed
+    ]
+    chrono_closed = chrono["closed"]
+
+    chrono_all = chrono_closed + chrono["open"]
+
     print("=" * 100)
     print("KUNAL QUANT — CHRONOLOGICAL POSITION LIFECYCLE DIAGNOSTIC")
     print("=" * 100)
     print("PROPOSAL ONLY — read-only; canonical KunalQuant unchanged")
     print()
-    print(f"Sample                    : {local_dt(bars[0].timestamp)} -> {local_dt(bars[-1].timestamp)}")
+    print(
+        f"Sample                    : "
+        f"{local_dt(bars[0].timestamp)} -> {local_dt(bars[-1].timestamp)}"
+    )
     print(f"KTMI events               : {len(pipeline.events):,}")
     print()
     print("CURRENT RESILIENT PATH")
     print(f"Accepted trades           : {len(current.trades):,}")
-    print(f"Closed trades             : {sum(t.result.closed for t in current.trades):,}")
+    print(f"Closed trades             : {len(current_closed):,}")
     print(f"Open trades               : {current.open_trades:,}")
     print(f"Allocation rejected       : {current.allocation_rejected_events:,}")
     print(f"Unresolved                : {current.unresolved_events:,}")
     print(f"No entry candle           : {current.no_entry_candle_events:,}")
-    print(f"Closed gross P&L          : {sum(float(t.result.total_pnl) for t in current.trades if t.result.closed):,.2f}")
+    print(
+        f"Closed gross P&L          : "
+        f"{sum(float(t.result.total_pnl) for t in current_closed):,.2f}"
+    )
     print()
-    print("NOTE: this proposal file is intentionally not used for any canonical")
-    print("patch. It is a diagnostic scaffold; productionization requires a")
-    print("small follow-up refactor to retain immutable trade snapshots as they")
-    print("close.")
-    
+    print("CHRONOLOGICAL STATEFUL PATH")
+    print(f"Closed trades             : {len(chrono_closed):,}")
+    print(f"Open trades               : {len(chrono['open']):,}")
+    print(f"Lifecycle rejected        : {chrono['lifecycle_rejected']:,}")
+    print(f"Allocation rejected       : {chrono['allocation_rejected']:,}")
+    print(f"Unresolved                : {chrono['unresolved']:,}")
+    print(f"No entry candle           : {chrono['no_entry_candle']:,}")
+    print(f"Closed gross P&L          : {chrono['gross_pnl_closed']:,.2f}")
+    print()
+    print(
+        f"Chronological same-strategy overlaps : "
+        f"{find_overlaps(chrono_all):,}"
+    )
+    print()
+    print("This is a behavior diagnostic only. No canonical code was changed.")
+
 
 if __name__ == "__main__":
     main()
