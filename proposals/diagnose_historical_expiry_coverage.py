@@ -262,11 +262,7 @@ def main() -> None:
 
     print("KTMI EVENT IMPACT")
     print(f"KTMI events examined               : {event_count:,}")
-    print(f"Events with an expected expiry     : {event_count - 0:,}")
-    print(
-        "Events whose expected expiry is "
-        f"absent from registry             : {impacted_events:,}"
-    )
+    print(f"Events whose expected expiry is absent from registry : {impacted_events:,}")
     print()
 
     if impacted_by_expiry:
