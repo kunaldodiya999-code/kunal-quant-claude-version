@@ -24,9 +24,9 @@ def main():
 
     # The V2 module exposes main-level logic rather than a stable API. Reproduce
     # its event inputs through its documented helpers where available.
-    bars=v2.load_complete_3m_bars()
+    bars=v2.load_all_complete_3m_bars()
     events=v2.build_events(bars)
-    sample=bars[-args.days*125:]
+    sample=v2.select_last_days(bars, args.days)
     start=sample[0].timestamp
     end=sample[-1].timestamp
     events=[e for e in events if start <= e.timestamp <= end]
