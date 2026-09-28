@@ -219,7 +219,11 @@ def chronological_run(
             lifecycle_rejected += 1
             continue
 
-        candles = tuple(
+        # The entry bridge only needs a small window to identify the first
+        # strictly-later option candle. Once the signal is accepted, however,
+        # the trade must retain the FULL remaining option history through the
+        # sample boundary so that later lifecycle exits can actually occur.
+        entry_window = tuple(
             sorted(
                 loader.load(
                     contract.instrument_id,
@@ -233,7 +237,7 @@ def chronological_run(
         entry_candle = next(
             (
                 candle
-                for candle in candles
+                for candle in entry_window
                 if candle.timestamp > event_timestamp
             ),
             None,
@@ -274,10 +278,33 @@ def chronological_run(
             allocation_rejected += 1
             continue
 
+        # After acceptance, load all stored option candles from the entry
+        # boundary through the sample end. Do not stop at +1 hour; otherwise
+        # trades that survive the first hour would remain artificially open
+        # and block all later signals for that strategy.
+        trade_candles = tuple(
+            sorted(
+                loader.load(
+                    contract.instrument_id,
+                    entry.entry_timestamp,
+                    end_timestamp,
+                ),
+                key=lambda candle: candle.timestamp,
+            )
+        )
+
         entry_plus_candles = tuple(
             candle
-            for candle in candles
+            for candle in trade_candles
             if candle.timestamp >= entry.entry_timestamp
+        )
+
+        trade_timestamps = [
+            candle.timestamp for candle in entry_plus_candles
+        ]
+        next_index = bisect.bisect_right(
+            trade_timestamps,
+            entry.entry_timestamp,
         )
 
         state = ChronologicalTradeState(
@@ -285,7 +312,7 @@ def chronological_run(
             position=position,
             exits=[],
             candles=entry_plus_candles,
-            next_index=1,
+            next_index=next_index,
         )
 
         # Accepted position is active immediately, matching the existing
