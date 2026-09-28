@@ -1,19 +1,15 @@
 """
-Read-only audit of V2 event/lifecycle outcomes.
-
-Runs the same V2 event generation and chronological lifecycle decisions, then
-groups every accounted event by strategy and rejection reason. No DB writes.
+Read-only V2 lifecycle accounting audit.
+Uses the exact V2 reference runner; no database or canonical-code changes.
 """
 from __future__ import annotations
-import sys, argparse, json
+import argparse, json, sys
 from pathlib import Path
 HERE=Path(__file__).resolve().parent
 ROOT=HERE.parent
 CANONICAL=HERE.parents[1]
 for p in (ROOT,CANONICAL):
     if str(p) not in sys.path: sys.path.insert(0,str(p))
-
-# Import the V2 module so this audit stays coupled to the exact reference model.
 import proposals.generate_reference_backtest_v2 as v2
 
 def main():
@@ -21,39 +17,27 @@ def main():
     ap.add_argument("--days",type=int,default=20)
     ap.add_argument("--report",type=Path,default=Path.home()/"Desktop"/"reference_v2_lifecycle_audit.json")
     args=ap.parse_args()
-
-    # The V2 module exposes main-level logic rather than a stable API. Reproduce
-    # its event inputs through its documented helpers where available.
     bars=v2.load_all_complete_3m_bars()
-    events=v2.build_events(bars)
-    sample=v2.select_last_days(bars, args.days)
-    start=sample[0].timestamp
-    end=sample[-1].timestamp
-    events=[e for e in events if start <= e.timestamp <= end]
-
-    counts={}
-    event_rows=[]
-    active={}
-    for e in events:
-        key=getattr(e,"strategy",None) or getattr(e,"strategy_name",None) or "UNKNOWN"
-        d=counts.setdefault(key,{"events":0,"accepted":0,"lifecycle_rejected":0,"allocation_rejected":0,"no_entry":0,"unresolved":0,"reasons":{}})
-        d["events"]+=1
-        # Preserve event-level information even if V2 internals change slightly.
-        row={"timestamp":str(e.timestamp),"strategy":key,"direction":getattr(e,"direction",None),
-             "signal":getattr(e,"signal",None)}
-        event_rows.append(row)
-    out={"sample_start":str(start),"sample_end":str(end),"events":len(events),
-         "strategy_event_counts":counts,
-         "note":"This first audit pass records event distribution. Lifecycle reason enrichment is performed from V2 result fields when exposed; no database changes are made.",
-         "events":event_rows}
-    args.report.write_text(json.dumps(out,indent=2,default=str),encoding="utf-8")
+    sample=v2.select_last_days(bars,args.days)
+    cfg=v2.build_trigger_config(argparse.Namespace(
+        disable_speed_sources=False, disable_momentum=False,
+        long_speed_ce_trigger=0.50, short_speed_pe_trigger=0.50,
+        momentum_ce_trigger=0.50, momentum_pe_trigger=-0.50))
+    result=v2.run_reference(all_bars=bars,sample_bars=sample,trigger_config=cfg)
+    report={
+        "sample_start":str(sample[0].timestamp),
+        "sample_end":str(sample[-1].timestamp),
+        "selected_events":len(result["selected_events"]),
+        "counts":result["counts"],
+        "note":"Uses exact V2 reference runner. Detailed rejection-reason enrichment is not exposed by the current V2 runner yet."
+    }
+    args.report.write_text(json.dumps(report,indent=2,default=str),encoding="utf-8")
     print("="*100)
-    print("KUNAL QUANT — V2 EVENT / LIFECYCLE AUDIT")
+    print("KUNAL QUANT — V2 LIFECYCLE ACCOUNTING AUDIT")
     print("="*100)
-    print(f"Events in window : {len(events)}")
-    print(f"Window           : {start} -> {end}")
-    for k,v in sorted(counts.items()):
-        print(f"{k}: {v['events']} events")
+    print(f"Events in window : {report['selected_events']}")
+    for k,v in sorted(result["counts"].items()):
+        print(f"{k:24s}: {v}")
     print(f"Report: {args.report}")
     print("NO DATABASE CHANGES WERE MADE.")
 
