@@ -53,7 +53,7 @@ def strike_from_symbol(symbol: str) -> int | None:
         return None
 
     body = value[len("NSE:NIFTY") : -2]
-    match = re.search(r"(\\d{4,5})$", body)
+    match = re.search(r"(\d{4,5})$", body)
     if not match:
         return None
 
