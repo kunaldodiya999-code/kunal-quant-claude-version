@@ -69,7 +69,7 @@ def main() -> None:
         with sqlite3.connect(DATABASE_PATH) as db:
             row = db.execute(
                 """
-                SELECT id, expiry_date, strike, option_type,
+                SELECT i.id, i.expiry_date, i.strike, i.option_type,
                        COUNT(c.id)
                 FROM instruments i
                 LEFT JOIN candles c
