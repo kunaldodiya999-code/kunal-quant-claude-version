@@ -1,0 +1,23 @@
+--- a/proposals/generate_no_lookahead_reference_backtest.py
++++ b/proposals/generate_no_lookahead_reference_backtest.py
+@@ -233,13 +233,15 @@
+                 underlying_completions=underlying_completions,
+                 underlying_starts=underlying_starts,
+             )
+ 
+-        active = [
+-            state
+-            for state in active
+-            if not state.position.closed
+-        ]
++        still_active = []
++        for state in active:
++            if state.position.closed:
++                closed.append(state.managed())
++            else:
++                still_active.append(state)
++        active = still_active
+ 
+         try:
+             contract = resolver.resolve(
+                 underlying_price=bars[event.index].close,
