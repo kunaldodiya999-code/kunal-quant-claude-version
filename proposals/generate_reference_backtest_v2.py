@@ -68,11 +68,10 @@ from backtest.position_lifecycle import (
 )
 from backtest.real_option_trade_runner import calculate_nifty_kama
 from backtest.ktmi_trigger_pipeline import run_ktmi_trigger_pipeline
-from config.settings import DATABASE_PATH, PROCESSED_DATA_DIR, TIMEZONE
+from config.settings import DATABASE_PATH, TIMEZONE
 from scripts.run_real_option_sample import (
     SYMBOL,
     DERIVED_DB,
-    SOURCE,
     build_ktmi_config,
 )
 from strategies.ktmi_trigger_strategy import KTMITriggerStrategyConfig
@@ -177,41 +176,6 @@ def build_trigger_config(args: argparse.Namespace) -> KTMITriggerStrategyConfig:
         momentum_long_trigger=args.momentum_ce_trigger,
         momentum_short_trigger=args.momentum_pe_trigger,
     )
-
-
-def buy_premium_stop_target(
-    *,
-    position: OptionTradePosition,
-    option_high: float,
-    option_low: float,
-) -> tuple[OptionTradeExit, ...]:
-    """
-    Apply only the existing V1 stop/target logic through OptionTradeLifecycle.
-
-    KAMA is intentionally suppressed here and applied below using the signal
-    direction, because BUY PE is a long-premium trade but its underlying trend
-    direction is bearish.
-    """
-    exits = position_manager_process_without_kama(
-        position=position,
-        option_high=option_high,
-        option_low=option_low,
-    )
-    return tuple(exits)
-
-
-def position_manager_process_without_kama(
-    *,
-    position: OptionTradePosition,
-    option_high: float,
-    option_low: float,
-) -> list[OptionTradeExit]:
-    # A temporary lifecycle instance uses the locked V1 stop/target formulas.
-    manager = OptionTradeLifecycle()
-    # We cannot call process_candle without a timestamp/close, so this helper
-    # is retained inline in advance_trade where all required fields exist.
-    del manager, option_high, option_low
-    return []
 
 
 def process_buy_premium_candle(
