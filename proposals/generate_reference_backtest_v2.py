@@ -553,6 +553,25 @@ def run_reference(
     }
 
 
+def max_concurrent_trades(trades: Sequence[ManagedOptionTrade]) -> int:
+    timeline: list[tuple[int, int]] = []
+    for trade in trades:
+        entry_ready = trade.entry.entry_timestamp + ONE_MIN_SECONDS
+        timeline.append((entry_ready, 1))
+        if trade.result.closed and trade.result.exits:
+            exit_ready = trade.result.exits[-1].timestamp + ONE_MIN_SECONDS
+            timeline.append((exit_ready, -1))
+
+    timeline.sort(key=lambda item: (item[0], item[1]))
+
+    active = 0
+    maximum = 0
+    for _, delta in timeline:
+        active += delta
+        maximum = max(maximum, active)
+    return maximum
+
+
 def max_drawdown_by_exit_time(closed: Sequence[ManagedOptionTrade]) -> float:
     ordered = sorted(
         closed,
@@ -560,9 +579,7 @@ def max_drawdown_by_exit_time(closed: Sequence[ManagedOptionTrade]) -> float:
             trade.result.exits[-1].timestamp
             if trade.result.exits
             else trade.entry.entry_timestamp,
-            trade.entry.entry.event.index
-            if hasattr(trade.entry, "entry")
-            else trade.entry.event.index,
+            trade.entry.event.index,
         ),
     )
     equity = 0.0
@@ -670,10 +687,8 @@ def make_report(
             ),
         },
         "portfolio": {
-            "max_concurrent_trades": (
-                2
-                if len(closed) + len(open_trades) > 1
-                else len(closed) + len(open_trades)
+            "max_concurrent_trades": max_concurrent_trades(
+                closed + open_trades
             ),
             "open_trade_symbols": [
                 trade.entry.contract.symbol
