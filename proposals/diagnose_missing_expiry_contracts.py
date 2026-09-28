@@ -28,9 +28,14 @@ from zoneinfo import ZoneInfo
 # Allow execution from the proposal repository without requiring the caller
 # to set PYTHONPATH manually.
 HERE = Path(__file__).resolve().parent
+PROPOSAL_ROOT = HERE.parent
 CANONICAL_ROOT = HERE.parents[1]
-if str(CANONICAL_ROOT) not in sys.path:
-    sys.path.insert(0, str(CANONICAL_ROOT))
+
+# Make both repository roots importable when this script is executed
+# directly from the proposal repository.
+for root in (PROPOSAL_ROOT, CANONICAL_ROOT):
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
 
 from api.fyers_client import FyersClient
 from backtest.ktmi_trigger_pipeline import run_ktmi_trigger_pipeline
