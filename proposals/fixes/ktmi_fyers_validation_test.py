@@ -31,7 +31,14 @@ from indicators.ktmi.universal import (
 )
 
 
-ROOT = Path(__file__).resolve().parents[1]
+# In the canonical repo this file lives in tests/, so parents[1] is the
+# repo root. This copy lives elsewhere, so take the root from the
+# project's own settings (found via PYTHONPATH) and only fall back to
+# the original relative logic if that import isn't available.
+try:
+    from config.settings import PROJECT_ROOT as ROOT
+except ImportError:
+    ROOT = Path(__file__).resolve().parents[1]
 
 DATABASE_PATH = (
     ROOT

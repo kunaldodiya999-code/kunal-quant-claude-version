@@ -33,6 +33,16 @@ $ PYTHONPATH=<KunalQuant checkout> python3 -m pytest ktmi_fyers_validation_test.
 5 passed in 0.09s
 ```
 
+**Running it against real data (2026-09-28 update):** the first real-data
+attempt on your machine got past the old `fixture 'bars' not found` error
+(so the wiring fix works there too) but then failed with
+`Database not found`, because the original file finds the database via
+`Path(__file__).parents[1]` — correct inside `tests/`, wrong in this
+copy. This copy now takes the root from `config.settings.PROJECT_ROOT`
+instead, so it works from any location as long as `PYTHONPATH` points at
+the KunalQuant repo. The change to the file *in the canonical repo* is
+still only the 3-line fixture addition.
+
 This proves the *fixture wiring* is fixed. It says nothing about whether
 the KTMI output matches a reference — that needs the real database, which
 this environment doesn't have.
