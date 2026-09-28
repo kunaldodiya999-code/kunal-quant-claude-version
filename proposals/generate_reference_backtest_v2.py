@@ -379,22 +379,24 @@ def run_reference(
         for state in active:
             if state.position.closed:
                 trade = state.managed()
-            closed.append(trade)
-            if state.audit_id is not None:
-                event_audit[state.audit_id]["outcome"] = "closed"
-                event_audit[state.audit_id]["exits"] = [
-                    {
-                        "timestamp": int(x.timestamp),
-                        "timestamp_local": local_dt(x.timestamp),
-                        "reason": x.reason.value,
-                        "price": float(x.price),
-                        "quantity": int(x.quantity),
-                        "lots": int(x.lots),
-                        "pnl": float(x.pnl),
-                    }
-                    for x in state.exits
-                ]
-                event_audit[state.audit_id]["total_pnl"] = float(state.position.gross_pnl)
+                closed.append(trade)
+                if state.audit_id is not None:
+                    event_audit[state.audit_id]["outcome"] = "closed"
+                    event_audit[state.audit_id]["exits"] = [
+                        {
+                            "timestamp": int(x.timestamp),
+                            "timestamp_local": local_dt(x.timestamp),
+                            "reason": x.reason.value,
+                            "price": float(x.price),
+                            "quantity": int(x.quantity),
+                            "lots": int(x.lots),
+                            "pnl": float(x.pnl),
+                        }
+                        for x in state.exits
+                    ]
+                    event_audit[state.audit_id]["total_pnl"] = float(
+                        state.position.gross_pnl
+                    )
             else:
                 still_active.append(state)
         active = still_active
@@ -566,6 +568,23 @@ def run_reference(
         )
         if state.position.closed:
             closed.append(state.managed())
+            if state.audit_id is not None:
+                event_audit[state.audit_id]["outcome"] = "closed"
+                event_audit[state.audit_id]["exits"] = [
+                    {
+                        "timestamp": int(x.timestamp),
+                        "timestamp_local": local_dt(x.timestamp),
+                        "reason": x.reason.value,
+                        "price": float(x.price),
+                        "quantity": int(x.quantity),
+                        "lots": int(x.lots),
+                        "pnl": float(x.pnl),
+                    }
+                    for x in state.exits
+                ]
+                event_audit[state.audit_id]["total_pnl"] = float(
+                    state.position.gross_pnl
+                )
 
     open_trades = [
         state.managed()
