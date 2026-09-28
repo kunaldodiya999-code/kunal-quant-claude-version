@@ -29,7 +29,9 @@ from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
 from config.settings import DATABASE_PATH, TIMEZONE
-from scripts.run_real_option_sample import DERIVED_DB, SYMBOL, SOURCE
+from scripts.run_real_option_sample import DERIVED_DB, SYMBOL
+
+RAW_SOURCE = "FYERS_HISTORY"
 
 TZ = ZoneInfo(TIMEZONE)
 CUTOFF = time(15, 29)
@@ -48,7 +50,7 @@ def main() -> None:
               AND c.source = ?
             ORDER BY c.timestamp
             """,
-            (SYMBOL, SOURCE),
+            (SYMBOL, RAW_SOURCE),
         ).fetchall()
 
     raw_by_day: dict[str, list[int]] = defaultdict(list)
