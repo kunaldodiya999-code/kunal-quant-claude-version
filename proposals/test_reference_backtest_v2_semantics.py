@@ -141,8 +141,10 @@ def main() -> None:
         underlying_close=23900.0,
         kama_value=24000.0,
     )
-    pe_reasons = [exit.reason for exit in pe.exits]
-    check("BUY PE is long-premium: rising PE premium does not stop out at +20%", pe.position.gross_pnl > 0)
+    check(
+        "BUY PE is long-premium: rising PE premium does not hit the 20% premium stop",
+        not pe.position.closed and pe.position.gross_pnl == 0.0,
+    )
 
     # For a bearish BUY PE, underlying below KAMA should HOLD, not KAMA-exit.
     pe_hold = make_state("SHORT")
