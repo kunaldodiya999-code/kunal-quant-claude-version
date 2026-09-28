@@ -23,7 +23,7 @@ from collections import Counter
 from pathlib import Path
 
 from config.settings import DATABASE_PATH
-from proposals.diagnose_required_contract_gaps import (
+from diagnose_required_contract_gaps import (
     build_required_contracts,
 )
 
