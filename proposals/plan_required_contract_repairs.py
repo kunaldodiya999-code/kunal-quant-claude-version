@@ -187,7 +187,7 @@ def main() -> None:
         print("METADATA REPAIRS")
         for item in report["metadata_repairs"]:
             print(
-                f"{item['expiry']} | {int(item['expected_strike']):>6} | "
+                f"{item['expected_expiry']} | {int(item['expected_strike']):>6} | "
                 f"{item['expected_option_type']} | events={int(item['event_count']):>3} | "
                 f"id={int(item['instrument_id'])} | {item['symbol']} | "
                 f"stored_strike={item['strike']} | candles={int(item['candle_count'])}"
