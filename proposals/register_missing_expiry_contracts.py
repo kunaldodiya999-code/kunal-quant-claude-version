@@ -32,7 +32,6 @@ for root in (PROPOSAL_ROOT, CANONICAL_ROOT):
         sys.path.insert(0, str(root))
 
 from config.settings import DATABASE_PATH
-from instruments.expired_contract_registry import ExpiredContractRegistry
 from database.repository import DatabaseRepository
 
 
@@ -82,13 +81,33 @@ def validate_records(records: list[dict]) -> None:
 
 
 def build_instrument(record: dict) -> dict:
-    registry = ExpiredContractRegistry(database_path=DATABASE_PATH)
-    return registry._build_instrument(
-        symbol=str(record["fyers_symbol"]),
-        underlying="NIFTY",
-        expiry_date=str(record["expiry"]),
-        broker_token=None,
-    )
+    # FYERS' historical weekly symbols can use compact numeric encodings
+    # (for example NIFTY2690124000CE for 2026-09-01).  The canonical
+    # registry decoder intentionally derives metadata from the symbol, but
+    # this gated repair already has independently verified authoritative
+    # expiry/strike/type fields from the FYERS discovery audit.  Do not
+    # re-decode those fields from the symbol.
+    symbol = str(record["fyers_symbol"]).strip()
+    option_type = str(record["option_type"]).upper()
+    exchange, _ticker = symbol.split(":", 1)
+
+    return {
+        "broker": "FYERS",
+        "exchange": exchange,
+        "segment": 10,
+        "symbol": symbol,
+        "broker_token": None,
+        "security_id": None,
+        "underlying": "NIFTY",
+        "instrument_type": 14,
+        "expiry_date": str(record["expiry"]),
+        "strike": float(record["strike"]),
+        "option_type": option_type,
+        "lot_size": None,
+        "tick_size": None,
+        "currency": "INR",
+        "is_active": 0,
+    }
 
 
 def verify(records: list[dict]) -> list[dict]:
