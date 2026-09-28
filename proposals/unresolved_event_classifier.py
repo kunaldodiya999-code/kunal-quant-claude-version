@@ -43,6 +43,7 @@ canonical repo's own `database.schema.initialize_database`) -- see
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import date
@@ -59,10 +60,22 @@ class EventClassification(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
+_MISSING_CONTRACT_RE = re.compile(
+    r"NIFTY (\d{4}-\d{2}-\d{2}) (\d+) (CE|PE)"
+)
+
+
 @dataclass(frozen=True)
 class ClassificationResult:
     classification: EventClassification
     detail: str
+    # Structured fields, so reports can group by contract/expiry instead
+    # of parsing `detail` text. None when not knowable for that outcome
+    # (e.g. EXPIRY_NOT_FOUND has no expiry by definition).
+    symbol: str | None = None
+    expiry: date | None = None
+    strike: int | None = None
+    option_type: str | None = None
 
 
 def classify_event(
@@ -95,6 +108,15 @@ def classify_event(
                 EventClassification.EXPIRY_NOT_FOUND, message
             )
         if message.startswith("Exact option contract not found"):
+            match = _MISSING_CONTRACT_RE.search(message)
+            if match:
+                return ClassificationResult(
+                    EventClassification.CONTRACT_NOT_FOUND,
+                    message,
+                    expiry=date.fromisoformat(match.group(1)),
+                    strike=int(match.group(2)),
+                    option_type=match.group(3),
+                )
             return ClassificationResult(
                 EventClassification.CONTRACT_NOT_FOUND, message
             )
@@ -118,6 +140,10 @@ def classify_event(
             return ClassificationResult(
                 EventClassification.RESOLVED_WITH_CANDLE,
                 f"{contract.symbol} ({candle_near_signal} candle(s) within 1h)",
+                symbol=contract.symbol,
+                expiry=contract.expiry_date,
+                strike=contract.strike,
+                option_type=contract.option_type,
             )
 
         candle_anywhere = db.execute(
@@ -135,10 +161,18 @@ def classify_event(
         return ClassificationResult(
             EventClassification.NO_OPTION_DATA,
             f"{contract.symbol}: 0 candles exist for this instrument at all",
+            symbol=contract.symbol,
+            expiry=contract.expiry_date,
+            strike=contract.strike,
+            option_type=contract.option_type,
         )
 
     return ClassificationResult(
         EventClassification.DATA_GAP,
         f"{contract.symbol}: {candle_anywhere} candle(s) exist elsewhere, "
         "none within 1h of this signal",
+        symbol=contract.symbol,
+        expiry=contract.expiry_date,
+        strike=contract.strike,
+        option_type=contract.option_type,
     )
