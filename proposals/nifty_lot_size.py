@@ -1,35 +1,50 @@
 """
 Date-aware NIFTY lot size (PROPOSAL, pure function, no I/O).
 
-Why: `proposals/diagnose_option_allocation_failures.py` hard-codes
-LOT_SIZE = 65, and the canonical repo's `instruments/contract_specs.py`
-hard-codes lot_size=25 -- two different constants in two places, and
-NEITHER is correct across the full history the brief wants (5-year NIFTY
-1-minute data, and the earlier commits show historical option data going
-back to Nov 2024). NSE revises the NIFTY lot size periodically per SEBI's
-minimum-contract-value rule. 65 is only correct for trades from
-2025-12-31 onward; 25 is only correct for 2024-04-26 through 2025-01-01.
-Applying either constant to the rest of the history misstates quantity,
-capital deployed, and P&L for every historical trade outside its window.
+Why: two different hard-coded constants existed in this project (65 in
+`diagnose_option_allocation_failures.py`, 25 in canonical
+`instruments/contract_specs.py`) and neither is correct across the full
+history the brief wants (5-year NIFTY data). NSE revises the NIFTY lot
+size periodically under SEBI's minimum-contract-value rule.
 
-Sources (cross-checked across NSE circular summaries and 3+ independent
-broker/community posts, listed oldest to newest; verify the exact
-circular numbers before relying on this for the 5-year run):
-  - 2021-04-30: NSE/F&O/028/2021 -> 50
-  - 2024-04-26: NSE circular (FAOP61415-referenced) -> 25
-  - 2025-01-02: reported lot size increase -> 75 (source: community
-    report; the exact circular was not found in this search pass --
-    verify before relying on it)
-  - 2025-12-31: NSE circular dated 2025-10-03, effective for Jan-2026-
-    onward expiries -> 65 (implemented from 2025-10-28 for new contracts;
-    final old-lot contract expired 2025-12-30)
+Sources -- primary NSE circulars found and read directly where marked
+[PRIMARY]; correctly-dated major financial press otherwise. All checked
+2026-09-28.
 
-BANK NIFTY / SENSEX are NOT included: sources only confirm Bank Nifty was
-15 as of mid-2023 and 30 as of late 2025, with no confirmed date for the
-transition between those two points, and Sensex lot-size history wasn't
-searched at all. Calling lot_size_for() with those underlyings raises
-NotImplementedError rather than guess. The current codebase only trades
-NIFTY, so this doesn't block anything today.
+  - [PRIMARY] NSE/FAOP/47854, Circular Ref. 28/2021, 31-Mar-2021:
+    NIFTY 75 -> 50. "Contracts with August 2021 Weekly expiry & beyond
+    will have revised market lots"; monthly from July 2021. This era
+    predates this project's actual data (which starts ~Nov 2024), so the
+    exact date has no impact on current results -- included for
+    completeness/correctness only.
+  - Business Standard, correctly dated 02-Apr-2024: NIFTY 50 -> 25,
+    "available for trading from the trade date of April 26, 2024,
+    onwards will be with the revised market lot size" (i.e. immediate
+    for ALL contract types, not just new listings).
+  - Business Standard, correctly dated 19-Oct-2024, reporting the SEBI
+    Rs-15-lakh-minimum mandate: NIFTY 25 -> 75, effective for NEW
+    contracts from 20-Nov-2024. Existing weekly/monthly contracts
+    continued at the OLD lot (25) until their own expiry -- so both lot
+    sizes traded simultaneously for roughly the following 1-2 weeks.
+    Quarterly/half-yearly transitioned on 26-Dec-2024 (EOD).
+  - [PRIMARY] NSE/FAOP/70616, Circular Ref. 176/2025, 03-Oct-2025:
+    NIFTY 75 -> 65. Last weekly expiry at the old lot: 23-Dec-2025;
+    first weekly expiry at the new lot: 06-Jan-2026. Quarterly/
+    half-yearly transitioned 30-Dec-2025 (EOD). Matches the current lot
+    size of 65 the user confirmed directly.
+
+IMPORTANT CAVEAT this table does NOT fully capture: each transition
+applies to *new* contract listings, while contracts already listed
+before the change keep the old lot until their own expiry. That creates
+a roughly 1-2 week window around every boundary where BOTH lot sizes are
+simultaneously live, depending on which specific contract (by its own
+listing date) a trade actually touches -- not just the trade's entry
+date. This module answers "what lot size was standard for freshly-listed
+NIFTY contracts on this date", which is the right answer for the large
+majority of historical trades, but a trade whose entry falls within ~2
+weeks of a boundary above should have its actual resolved contract's
+lot size cross-checked individually rather than trusted from this table
+alone.
 """
 
 from __future__ import annotations
@@ -49,18 +64,26 @@ class LotSizeEra:
 # Sorted ascending by effective_from. The era in effect on a given date is
 # the last one whose effective_from is <= that date.
 _NIFTY_ERAS: tuple[LotSizeEra, ...] = (
-    LotSizeEra(date(2021, 4, 30), 50, "NSE/F&O/028/2021"),
-    LotSizeEra(date(2024, 4, 26), 25, "NSE circular, ~FAOP61415"),
-    LotSizeEra(date(2025, 1, 2), 75, "reported increase -- circular not confirmed, verify"),
-    LotSizeEra(date(2025, 12, 31), 65, "NSE circular dated 2025-10-03"),
+    LotSizeEra(date(2021, 8, 1), 50, "NSE/FAOP/47854 (28/2021), 31-Mar-2021 [PRIMARY]; predates project data range"),
+    LotSizeEra(date(2024, 4, 26), 25, "Reported effective 26-Apr-2024, immediate for all contract types"),
+    LotSizeEra(date(2024, 11, 20), 75, "Effective for NEW contracts from 20-Nov-2024; ~1-2wk mixed-lot window follows"),
+    LotSizeEra(date(2025, 12, 31), 65, "NSE/FAOP/70616 (176/2025), 03-Oct-2025 [PRIMARY]; user-confirmed current value"),
 )
 
 _ERA_STARTS = [era.effective_from for era in _NIFTY_ERAS]
 
+# Boundaries where a ~1-2 week window can have BOTH the old and new lot
+# simultaneously live (new listings vs. already-listed contracts still
+# running to their own expiry). See module docstring.
+MIXED_LOT_WINDOWS: tuple[tuple[date, date], ...] = (
+    (date(2024, 11, 20), date(2024, 12, 26)),
+)
+
 
 def nifty_lot_size(trade_date: date) -> int:
-    """Lot size in effect on `trade_date` (the date a contract's quantity
-    is set at entry, i.e. the historical trade date -- NOT today's date)."""
+    """Lot size standard for FRESHLY-LISTED NIFTY contracts on
+    `trade_date` (the historical trade date, not today's date). See the
+    module docstring's caveat for trades near a transition boundary."""
 
     if trade_date < _ERA_STARTS[0]:
         raise ValueError(
@@ -70,6 +93,14 @@ def nifty_lot_size(trade_date: date) -> int:
         )
     idx = bisect_right(_ERA_STARTS, trade_date) - 1
     return _NIFTY_ERAS[idx].lot_size
+
+
+def in_mixed_lot_window(trade_date: date) -> bool:
+    """True if `trade_date` falls in a window where relying on
+    nifty_lot_size() alone is risky -- the actual resolved contract's lot
+    size should be cross-checked individually instead."""
+
+    return any(start <= trade_date <= end for start, end in MIXED_LOT_WINDOWS)
 
 
 def lot_size_for(underlying: str, trade_date: date) -> int:
