@@ -24,7 +24,7 @@ Do not patch canonical KunalQuant until every item below is green.
 - [ ] No missing entry candles in the final reference sample.
 - [ ] Session policy is date-aware and does not fabricate missing underlying data.
 - [ ] Special sessions are handled explicitly.
-- [ ] Historical lot sizes are date-aware before the 5-year run.
+- [x] Historical lot sizes are date-aware before the 5-year run -- proposals/nifty_lot_size.py, 11/11 tests pass. Only NIFTY is covered (confirmed sources); BankNifty/Sensex raise NotImplementedError rather than guess. One era boundary (2025-01-02, lot 75) is from a single community report, not a confirmed circular -- flagged in the module docstring for verification.
 
 ## Strategy semantics
 
