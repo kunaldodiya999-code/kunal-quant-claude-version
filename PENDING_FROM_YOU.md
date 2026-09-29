@@ -27,27 +27,47 @@ _Updated 2026-09-28 after the latest engineering review._
 - Closed trades must never be dropped from the reference ledger.
 - Event accounting must equal total KTMI events exactly.
 - Session behavior must be date-aware and must not fabricate missing underlying data.
-- Historical NIFTY lot size must be date-aware before the 5-year run.
+- ~~Historical NIFTY lot size must be date-aware before the 5-year run.~~
+  Done: `proposals/nifty_lot_size.py`, 11/11 tests pass. NIFTY only
+  (confirmed sources); one boundary (2025-01-02 -> lot 75) is from a
+  single community report, not a confirmed circular -- verify before
+  the 5-year run. BankNifty/Sensex raise `NotImplementedError` rather
+  than guess.
 - Same-timestamp event ordering must be explicit and tested.
 
 ## Current data/session note
 
 NSE's current equity-derivatives session is 09:15–15:40. The local raw NIFTY 1M dataset, however, has no normal 2026 candles after 15:29. Therefore the reference model must not fabricate post-15:29 NIFTY bars. Option data can be evaluated only where the underlying reference required by a rule is legitimately available.
 
-## Current running work
+## Current running work (updated 2026-09-28, later same day)
 
-A no-lookahead chronological reference implementation exists in the proposal repository. Claude's static review found a critical closed-trade ledger defect (C1) that must be fixed before its result is trusted.
+The C1 closed-trade ledger defect is fixed in V2
+(`generate_reference_backtest_v2.py`). The bounded run in
+`docs/REFERENCE_RUN_V2_2026-09-28.md` passed its accounting check
+(301/301 events) -- 39 closed, 2 open, 69.2% win rate, net P&L 28,457.
 
-The warm-up audit also proved that calculating KTMI/KAMA on only the 2,500-bar sample changes indicator state.
+**But that run is not the baseline yet.** The same day's
+`docs/HISTORICAL_MISSING_EXPIRY_AUDIT_2026-09-28.md` found the resolver
+was missing 3 weekly expiries the bounded sample actually needed,
+affecting 143 of the 300 events (FYERS has all 30 required contracts;
+they just aren't registered locally yet). The V2 run above used the
+resolver *before* that registration, so it will change again once fixed.
 
-Do not use earlier 239-trade or 41-trade outputs as the final baseline.
+Do not use the 239-trade, 41-trade, OR the 39-trade V2 numbers as the
+final baseline yet.
 
 ## Next execution sequence
 
-1. Finish the proposal/reference-model corrections and tests.
-2. Run the bounded reference model again.
-3. Inspect the final accounting, timing, session and lifecycle invariants.
-4. Only then move the validated behavior into canonical KunalQuant with explicit approval.
+1. Register the 30 missing-expiry contracts found in the audit and
+   acquire their candles (scripts for this already exist in
+   `proposals/`: `register_missing_expiry_contracts.py`,
+   `acquire_missing_expiry_required_candles.py`).
+2. Re-run `diagnose_instrument_registry.py` to confirm no more gaps in
+   the sample window.
+3. Re-run the bounded V2 reference model with the completed registry.
+4. Inspect the final accounting, timing, session and lifecycle invariants.
+5. Only then move the validated behavior into canonical KunalQuant with
+   explicit approval.
 
 ## GitHub token hygiene
 
