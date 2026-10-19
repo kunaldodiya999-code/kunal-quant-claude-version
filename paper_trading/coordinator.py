@@ -51,6 +51,11 @@ class PaperExecutionCoordinator:
     ) -> PaperEntryAttempt:
         """Attempt exactly one paper entry; repeated signal IDs are rejected."""
         key = self._key(signal)
+        if int(decision_timestamp) <= int(signal.timestamp):
+            return PaperEntryAttempt(
+                signal=signal, candidate=None, trade=None,
+                rejection_reason="Entry decision must occur after the signal timestamp.",
+            )
         if key in self._seen_signals:
             return PaperEntryAttempt(
                 signal=signal, candidate=None, trade=None,
