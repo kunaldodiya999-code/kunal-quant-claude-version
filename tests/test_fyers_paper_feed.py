@@ -76,6 +76,25 @@ class FyersPaperFeedTests(unittest.TestCase):
         )
         self.assertEqual(self.feed.status().messages_received, 1)
 
+    def test_tick_callback_runs_after_signal_callback_and_cache_update(self):
+        order = []
+        tick = {"symbol": "NSE:NIFTY50-INDEX", "ltp": 25000, "exch_feed_time": 1000}
+        feed = FyersPaperFeed(
+            client=self.client,
+            pipeline=self.pipeline,
+            quote_cache=self.cache,
+            underlying_symbols=["NSE:NIFTY50-INDEX"],
+            on_signals=lambda signals: order.append("signals"),
+            on_tick=lambda message: order.append(
+                "tick" if self.cache.snapshot(message["symbol"]) is not None else "cache-missing"
+            ),
+        )
+        # Make the fake pipeline emit a signal so callback ordering is covered.
+        self.pipeline.on_message = lambda message: [object()]
+        feed.start()
+        self.client.socket.callbacks["on_message"](tick)
+        self.assertEqual(order, ["signals", "tick"])
+
     def test_option_symbol_subscription_is_deduplicated(self):
         self.feed.start()
         added = self.feed.subscribe_symbols(["NSE:NIFTY2610025000PE", "NSE:NIFTY2610025000PE"])
