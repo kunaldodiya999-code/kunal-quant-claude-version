@@ -18,7 +18,7 @@ from backtest.option_trade_lifecycle import (
     OptionTradeLifecycleConfig,
     OptionTradePosition,
 )
-from paper_trading.recorder import PaperTradeRecorder\nfrom paper_trading.buyer_lifecycle import BuyerOptionTradeLifecycle
+from paper_trading.recorder import PaperTradeRecorder
 
 
 class PaperStrategyId(str, Enum):
@@ -82,7 +82,12 @@ class PaperTradingEngine:
     ) -> None:
         self.config = config or PaperEngineConfig()
         self.recorder = recorder
-        # Default remains the locked V1 lifecycle. Buyer-only paper behaviour\n        # must be explicitly injected; historical V1 is never rewritten.\n        self.lifecycle = lifecycle if lifecycle is not None else OptionTradeLifecycle(self.config.lifecycle_config)
+        # Default remains the locked V1 lifecycle. Buyer-only paper behaviour
+        # must be explicitly injected; historical V1 is never rewritten.
+        self.lifecycle = (
+            lifecycle if lifecycle is not None
+            else OptionTradeLifecycle(self.config.lifecycle_config)
+        )
         self.trade_logs: dict[PaperStrategyId, list[PaperTradeRecord]] = {
             strategy_id: [] for strategy_id in PaperStrategyId
         }
