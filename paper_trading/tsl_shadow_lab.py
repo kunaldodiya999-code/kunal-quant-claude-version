@@ -183,7 +183,9 @@ class TslShadowLab:
     def on_candle(self, *, symbol: str, candle: OptionCandle) -> None:
         """Advance all still-open shadow candidates for this option symbol."""
         for trade in self.trades.values():
-            if trade["symbol"] != symbol or candle.timestamp <= trade["last_timestamp"]:
+            if (trade["symbol"] != symbol
+                    or candle.timestamp <= trade["last_timestamp"]
+                    or all(candidate.exited for candidate in trade["candidates"].values())):
                 continue
             trade["last_timestamp"] = candle.timestamp
             bars: list[OptionCandle] = trade["bars"]
@@ -198,7 +200,9 @@ class TslShadowLab:
                 # A stop calculated at this candle's close can only protect the
                 # next candle; use the previously known stop for intrabar hits.
                 prior_stop = candidate.stop
-                stop = self._candidate_stop(name, bars, candidate)
+                # Freeze a candidate after its hypothetical exit; do not mutate its
+                # indicator state or stop while the other candidates keep running.
+                stop = None if candidate.exited else self._candidate_stop(name, bars, candidate)
                 if not candidate.exited and prior_stop is not None and candle.low <= prior_stop:
                     self._finish_candidate(trade, candidate, candle, prior_stop, "OPTION_LOW_HIT_TRAILING_STOP", len(bars))
                 elif not candidate.exited and candidate.state.pop("exit_signal", False):
