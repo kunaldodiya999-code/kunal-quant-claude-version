@@ -257,7 +257,10 @@ class TslShadowLab:
             atr = self._atr_wilder(bars, 9)
             if atr is None:
                 return None
-            raw = max(b.high for b in bars) - 1.5*atr
+            # Chandelier's highest-high lookback matches its ATR period.
+            # Using the entire trade history would turn this into a lifetime-high
+            # trail and can materially delay exits after an older price spike.
+            raw = max(b.high for b in bars[-9:]) - 1.5*atr
             return raw if c.stop is None else max(c.stop, raw)
         if name.startswith("supertrend_atr5"):
             raw = self._supertrend(bars, 5, 1.0, c.state)
