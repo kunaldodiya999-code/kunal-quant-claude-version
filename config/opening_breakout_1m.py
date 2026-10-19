@@ -1,0 +1,35 @@
+"""Experimental 1-minute Opening Breakout Strategy V1 configuration.
+
+This module is isolated from locked KTMI, Option Contract Resolver V2,
+Option Trade Management V1, and the existing HFT 10S strategy.
+"""
+from __future__ import annotations
+
+MARKET_BIAS = "NEUTRAL"          # UP / DOWN / NEUTRAL
+TRADE_INSTRUMENT = "CALL"       # CALL / PUT
+
+FILTER_OPEN_HIGH = False
+FILTER_OPEN_LOW = True
+OPEN_EQUAL_TOLERANCE_POINTS = 0.05
+
+BREAKOUT_TRIGGER = "1_MIN_HIGH" # 1_MIN_HIGH / 1_MIN_LOW
+
+SL_MODE = "CUSTOM_POINTS"        # OFF / CUSTOM_POINTS / CANDLE_1_LOW / CANDLE_1_HIGH / CANDLE_1_MIDPOINT / VWAP
+CUSTOM_SL_POINTS = 20.0
+
+TP_MODE = "RR_RATIO"             # OFF / CUSTOM_POINTS / RR_RATIO
+CUSTOM_TP_POINTS = 40.0
+RR_MULTIPLIER = 2.0
+
+ENTRY_LIMIT_BUFFER_POINTS = 2.0
+EXIT_LIMIT_BUFFER_POINTS = 2.0
+MAX_SLIPPAGE_POINTS = 2.0
+ENTRY_FILL_TIMEOUT_SECONDS = 10
+ENTRY_CUTOFF_MINUTES = 5
+
+RISK_METHOD = "FIXED_AMOUNT"     # FIXED_AMOUNT / PERCENT_OF_CAPITAL
+FIXED_RISK_AMOUNT = 2000.0
+RISK_PERCENT = 1.0
+
+# Research-only feature switch. Disabled until separately validated.
+OPENING_BREAKOUT_ENABLED_DEFAULT = False

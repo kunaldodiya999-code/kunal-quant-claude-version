@@ -1,0 +1,93 @@
+name: Kunal Quant — 5Y NIFTY 1M Historical Data
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/download_nifty_5y.yml"
+      - "scripts/download_nifty_5y.py"
+      - "downloader/**"
+      - "api/fyers_client.py"
+      - "config/settings.py"
+      - "database/schema.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kunal-quant-nifty-5y-download
+  cancel-in-progress: false
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    env:
+      FYERS_CLIENT_ID: ${{ secrets.FYERS_CLIENT_ID }}
+      FYERS_ACCESS_TOKEN: ${{ secrets.FYERS_ACCESS_TOKEN }}
+
+    steps:
+      - name: Checkout KunalQuant
+        uses: actions/checkout@v4
+
+      - name: Validate FYERS secrets
+        shell: bash
+        run: |
+          test -n "$FYERS_CLIENT_ID" || {
+            echo "::error::Missing repository secret FYERS_CLIENT_ID"
+            exit 1
+          }
+          test -n "$FYERS_ACCESS_TOKEN" || {
+            echo "::error::Missing repository secret FYERS_ACCESS_TOKEN"
+            exit 1
+          }
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install fyers-apiv3 python-dotenv
+
+      - name: Prepare FYERS credentials
+        shell: bash
+        run: |
+          printf 'FYERS_CLIENT_ID=%s\n' "$FYERS_CLIENT_ID" > .env
+          printf '%s\n' "$FYERS_ACCESS_TOKEN" > fyers_access_token.txt
+          chmod 600 .env fyers_access_token.txt
+
+      - name: Initialize database
+        run: python -m database.schema
+
+      - name: Download 5 years of NIFTY 1-minute data
+        run: python scripts/download_nifty_5y.py
+
+      - name: Remove raw broker responses
+        if: always()
+        run: |
+          rm -rf data/raw/historical
+          rm -f .env fyers_access_token.txt
+
+      - name: Compress database
+        if: success()
+        run: |
+          mkdir -p export
+          cp data/database/kunal_quant.db export/kunal_quant_nifty_1m_2021-09-24_2026-09-23.db
+          gzip -9 -c export/kunal_quant_nifty_1m_2021-09-24_2026-09-23.db > export/kunal_quant_nifty_1m_2021-09-24_2026-09-23.db.gz
+          sha256sum export/kunal_quant_nifty_1m_2021-09-24_2026-09-23.db.gz > export/SHA256SUMS.txt
+          ls -lh export/
+
+      - name: Upload NIFTY database artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kunal-quant-nifty-1m-5y
+          path: export/
+          retention-days: 90
+          compression-level: 0
+          if-no-files-found: error
