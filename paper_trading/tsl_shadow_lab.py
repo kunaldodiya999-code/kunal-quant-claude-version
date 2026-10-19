@@ -136,10 +136,16 @@ class TslShadowLab:
         upper, lower = mid + factor*atr, mid - factor*atr
         prev_upper, prev_lower = state.get("st_upper"), state.get("st_lower")
         prev_close = bars[-2].close if len(bars) > 1 else c.close
-        if prev_upper is not None and prev_close <= prev_upper:
-            upper = min(upper, prev_upper)
-        if prev_lower is not None and prev_close >= prev_lower:
-            lower = max(lower, prev_lower)
+
+        # Standard final-band recurrence: a band may reset to its basic value
+        # when price crosses the prior band, otherwise it carries forward unless
+        # the new basic band tightens it. The previous implementation used the
+        # inverse close comparisons, which could ratchet bands in the wrong cases.
+        if prev_upper is not None:
+            upper = upper if (upper < prev_upper or prev_close > prev_upper) else prev_upper
+        if prev_lower is not None:
+            lower = lower if (lower > prev_lower or prev_close < prev_lower) else prev_lower
+
         trend = state.get("st_trend", 1)
         if trend == 1 and c.close < lower:
             trend = -1
