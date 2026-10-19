@@ -42,6 +42,7 @@ class FyersPaperFeed:
         quote_cache: FyersQuoteCache,
         underlying_symbols: Iterable[str],
         on_signals: Callable[[tuple[PaperSignal, ...]], None] | None = None,
+        on_tick: Callable[[Any], None] | None = None,
         socket_factory: Callable[..., Any] | None = None,
     ) -> None:
         symbols = tuple(dict.fromkeys(str(s).strip() for s in underlying_symbols if str(s).strip()))
@@ -52,6 +53,7 @@ class FyersPaperFeed:
         self.quote_cache = quote_cache
         self.underlying_symbols = symbols
         self.on_signals = on_signals
+        self.on_tick = on_tick
         self.socket_factory = socket_factory or client.create_data_socket
         self._lock = threading.RLock()
         self._socket: Any | None = None
@@ -123,6 +125,10 @@ class FyersPaperFeed:
         signals = self.pipeline.on_message(message)
         if signals and self.on_signals is not None:
             self.on_signals(tuple(signals))
+        # Run after signal callbacks so newly queued option contracts can also
+        # be checked against this tick; option ticks then release pending entries.
+        if self.on_tick is not None:
+            self.on_tick(message)
 
     def on_error(self, error: Any, *_args: Any, **_kwargs: Any) -> None:
         with self._lock:
