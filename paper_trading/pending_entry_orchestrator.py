@@ -147,7 +147,7 @@ class PendingEntryOrchestrator:
         payload = {"key": list(self._key(signal)), "status": status,
                    "recorded_at": self._now().isoformat(timespec="seconds")}
         with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, separators=(",", ":")) + "\\n")
+            handle.write(json.dumps(payload, separators=(",", ":")) + "\n")
             handle.flush()
 
     def _record(self, event: PendingEntryEvent) -> None:
