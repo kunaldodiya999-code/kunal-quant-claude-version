@@ -7,6 +7,7 @@ open a simulated position. No broker order API is called.
 from __future__ import annotations
 
 import csv
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -159,7 +160,7 @@ class PendingEntryOrchestrator:
                         continue
                     self._pending[key] = pending
                 event = PendingEntryEvent(signal, "PENDING", contract.symbol, decision_ts)
-            except (LookupError, ValueError, TypeError, KeyError, RuntimeError) as exc:
+            except (LookupError, ValueError, TypeError, KeyError, RuntimeError, sqlite3.Error) as exc:
                 event = PendingEntryEvent(signal, "REJECTED", None, decision_ts, str(exc))
                 with self._lock:
                     self._completed.add(key)
