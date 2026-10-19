@@ -63,6 +63,15 @@ class PaperExecutionCoordinatorTests(unittest.TestCase):
         self.assertIn("Duplicate", second.rejection_reason)
         self.assertEqual(len(self.engine.all_trades()), 1)
 
+    def test_entry_decision_must_follow_signal_timestamp(self):
+        attempt = self.coordinator.process_signal(
+            signal=self.signal, underlying_price=25000,
+            option_quote={"symbol":"NSE:NIFTY2610025000PE","lp":100,"exch_feed_time":TS},
+            decision_timestamp=self.signal.timestamp,
+        )
+        self.assertIn("after the signal", attempt.rejection_reason)
+        self.assertEqual(self.engine.all_trades(), ())
+
     def test_stale_quote_is_rejected_without_opening_trade(self):
         attempt = self.coordinator.process_signal(
             signal=self.signal, underlying_price=25000,
