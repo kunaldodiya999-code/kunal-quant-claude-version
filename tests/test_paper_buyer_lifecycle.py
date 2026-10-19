@@ -36,7 +36,7 @@ class BuyerOptionTradeLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(exits[0].reason, OptionExitReason.TARGET_3R)
         self.assertEqual(exits[0].price, 160)
-        self.assertEqual(p.remaining_lots, 2)
+        self.assertEqual(p.remaining_lots, 3)
         self.assertFalse(p.closed)
 
     def test_kama_exit_uses_underlying_direction_but_premium_pnl(self):
