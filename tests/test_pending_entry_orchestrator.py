@@ -123,5 +123,22 @@ class PendingEntryOrchestratorTests(unittest.TestCase):
         self.assertIn("No FYERS quote", result[0].reason)
 
 
+    def test_restart_does_not_replay_previously_journaled_signal(self):
+        self.orchestrator.on_signals([self.signal])
+        restarted = PendingEntryOrchestrator(
+            resolver=Resolver(), quote_cache=self.cache,
+            coordinator=self.coordinator,
+            subscribe_symbols=lambda symbols: self.subscriptions.extend(symbols),
+            config=PendingEntryConfig(
+                timeout_seconds=8,
+                journal_path=Path(self.temp_dir.name) / "pending.csv",
+            ),
+            clock=lambda: self.now,
+        )
+        self.assertEqual(restarted.pending(), ())
+        self.assertEqual(restarted.on_signals([self.signal]), ())
+        self.assertEqual(self.subscriptions, [OPTION_SYMBOL])
+
+
 if __name__ == "__main__":
     unittest.main()
