@@ -39,3 +39,26 @@ def test_candle_at_or_before_entry_is_ignored(tmp_path):
     )
     assert lab.trades["t1"]["bars"] == []
     assert not (tmp_path / "tsl_shadow_bars.csv").exists()
+
+
+
+def test_exited_candidate_is_frozen_while_other_candidates_continue(tmp_path):
+    lab = TslShadowLab(tmp_path)
+    lab.register_trade(
+        trade_id="t1", symbol="NSE:NIFTY26100CE", direction="LONG",
+        entry_timestamp=100, entry_price=100.0, quantity=25,
+    )
+    trade = lab.trades["t1"]
+    candidate = trade["candidates"]["chandelier_atr9_mult1.5"]
+    candidate.exited = True
+    candidate.stop = 95.0
+    candidate.state["sentinel"] = "unchanged"
+
+    lab.on_candle(
+        symbol="NSE:NIFTY26100CE",
+        candle=OptionCandle(timestamp=160, open=100, high=102, low=99, close=101),
+    )
+
+    assert candidate.stop == 95.0
+    assert candidate.state == {"sentinel": "unchanged"}
+    assert not all(item.exited for item in trade["candidates"].values())
