@@ -195,31 +195,39 @@ class TslShadowLab:
                 "open": candle.open, "high": candle.high, "low": candle.low, "close": candle.close,
             }
             for name, candidate in trade["candidates"].items():
+                # A stop calculated at this candle's close can only protect the
+                # next candle; use the previously known stop for intrabar hits.
+                prior_stop = candidate.stop
                 stop = self._candidate_stop(name, bars, candidate)
+                if not candidate.exited and prior_stop is not None and candle.low <= prior_stop:
+                    self._finish_candidate(trade, candidate, candle, prior_stop, "OPTION_LOW_HIT_TRAILING_STOP", len(bars))
+                elif not candidate.exited and candidate.state.pop("exit_signal", False):
+                    self._finish_candidate(trade, candidate, candle, candle.close, "INDICATOR_CLOSE_REVERSAL", len(bars))
                 if stop is not None:
                     candidate.stop = stop
                 row[f"{name}_stop"] = candidate.stop
                 row[f"{name}_status"] = "EXITED" if candidate.exited else ("ACTIVE" if candidate.stop is not None else "WARMUP")
-                if not candidate.exited and candidate.stop is not None and candle.low <= candidate.stop:
-                    # Option premium is bought for both bullish CE and bearish PE signals.
-                    candidate.exited = True
-                    candidate.exit_timestamp = candle.timestamp
-                    candidate.exit_price = min(candle.open, candidate.stop) if candle.open < candidate.stop else candidate.stop
-                    candidate.exit_reason = "OPTION_LOW_HIT_TRAILING_STOP"
-                    candidate.bars_to_exit = len(bars)
-                    candidate.pnl = (candidate.exit_price-trade["entry_price"])*trade["quantity"]
-                    self._append(self.exits_path, {
-                        "recorded_at": datetime.now(IST).isoformat(timespec="seconds"),
-                        "trade_id": trade["trade_id"], "symbol": symbol, "candidate": name,
-                        "entry_timestamp": trade["entry_timestamp"], "entry_price": trade["entry_price"],
-                        "quantity": trade["quantity"], "exit_timestamp": candidate.exit_timestamp,
-                        "exit_price": candidate.exit_price, "exit_reason": candidate.exit_reason,
-                        "bars_to_exit": candidate.bars_to_exit, "gross_pnl": candidate.pnl,
-                    }, "_exits_written", self)
-                row[f"{name}_status"] = "EXITED" if candidate.exited else row[f"{name}_status"]
             self._append(self.bars_path, row, "_bars_written", self)
-            if all(c.exited for c in trade["candidates"].values()):
+            if all(c.exited for c in trade["candidates"].values()) and not trade.get("summary_written"):
                 self._write_summary(trade)
+                trade["summary_written"] = True
+
+    def _finish_candidate(self, trade: dict, candidate: _Candidate, candle: OptionCandle,
+                          price: float, reason: str, bars_to_exit: int) -> None:
+        candidate.exited = True
+        candidate.exit_timestamp = candle.timestamp
+        candidate.exit_price = min(candle.open, price) if reason == "OPTION_LOW_HIT_TRAILING_STOP" and candle.open < price else price
+        candidate.exit_reason = reason
+        candidate.bars_to_exit = bars_to_exit
+        candidate.pnl = (candidate.exit_price-trade["entry_price"])*trade["quantity"]
+        self._append(self.exits_path, {
+            "recorded_at": datetime.now(IST).isoformat(timespec="seconds"),
+            "trade_id": trade["trade_id"], "symbol": trade["symbol"], "candidate": candidate.name,
+            "entry_timestamp": trade["entry_timestamp"], "entry_price": trade["entry_price"],
+            "quantity": trade["quantity"], "exit_timestamp": candidate.exit_timestamp,
+            "exit_price": candidate.exit_price, "exit_reason": candidate.exit_reason,
+            "bars_to_exit": candidate.bars_to_exit, "gross_pnl": candidate.pnl,
+        }, "_exits_written", self)
 
     def _candidate_stop(self, name: str, bars: list[OptionCandle], c: _Candidate) -> float | None:
         if name.startswith("chandelier"):
@@ -236,9 +244,15 @@ class TslShadowLab:
             return raw if raw is None or c.stop is None else max(c.stop, raw)
         if name.startswith("psar_start0.02"):
             raw = self._psar(bars, .02, .02, .20, c.state)
+            if c.state.get("psar") is not None and not c.state.get("psar_bull", True):
+                c.state["exit_signal"] = True
+                return None
             return raw
         if name.startswith("psar_start0.04"):
             raw = self._psar(bars, .04, .04, .10, c.state)
+            if c.state.get("psar") is not None and not c.state.get("psar_bull", True):
+                c.state["exit_signal"] = True
+                return None
             return raw
         return self._structure(bars, c.state)
 
