@@ -7,6 +7,7 @@ open a simulated position. No broker order API is called.
 from __future__ import annotations
 
 import csv
+import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
@@ -31,6 +32,7 @@ class PendingEntryConfig:
     max_quote_age_seconds: int = 5
     max_receive_age_seconds: float = 5.0
     journal_path: str | Path = "data/paper_trading/pending_entries.csv"
+    state_path: str | Path | None = None
 
     def __post_init__(self) -> None:
         if self.timeout_seconds < 1:
@@ -88,6 +90,7 @@ class PendingEntryOrchestrator:
         self._completed: set[tuple[str, str, int, int]] = set()
         self.events: list[PendingEntryEvent] = []
         self._ensure_journal()
+        self._load_processed_keys()
 
     @staticmethod
     def _key(signal: PaperSignal) -> tuple[str, str, int, int]:
@@ -110,8 +113,46 @@ class PendingEntryOrchestrator:
                      "option_symbol", "status", "event_timestamp", "reason"]
                 )
 
+    def _state_file(self) -> Path:
+        if self.config.state_path is not None:
+            return Path(self.config.state_path)
+        return Path(self.config.journal_path).with_suffix(".signals.jsonl")
+
+    def _load_processed_keys(self) -> None:
+        """Fail closed on restart: never replay a signal already journaled.
+
+        Pending signals are intentionally not resumed because their quote age,
+        subscription state, and queued-at deadline cannot be trusted after a
+        process restart. Their key is consumed to prevent accidental re-entry.
+        """
+        path = self._state_file()
+        if not path.exists():
+            return
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    payload = json.loads(line)
+                    raw_key = payload.get("key")
+                    if isinstance(raw_key, list) and len(raw_key) == 4:
+                        self._completed.add(
+                            (str(raw_key[0]), str(raw_key[1]), int(raw_key[2]), int(raw_key[3]))
+                        )
+                except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
+                    # Ignore a malformed/torn final line; CSV remains the audit log.
+                    continue
+
+    def _persist_signal_key(self, signal: PaperSignal, status: str) -> None:
+        path = self._state_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"key": list(self._key(signal)), "status": status,
+                   "recorded_at": self._now().isoformat(timespec="seconds")}
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, separators=(",", ":")) + "\\n")
+            handle.flush()
+
     def _record(self, event: PendingEntryEvent) -> None:
         self.events.append(event)
+        self._persist_signal_key(event.signal, event.status)
         strategy = getattr(event.signal.strategy_id, "value", event.signal.strategy_id)
         path = Path(self.config.journal_path)
         with path.open("a", newline="", encoding="utf-8") as handle:
