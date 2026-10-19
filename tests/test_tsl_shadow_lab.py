@@ -62,3 +62,17 @@ def test_exited_candidate_is_frozen_while_other_candidates_continue(tmp_path):
     assert candidate.stop == 95.0
     assert candidate.state == {"sentinel": "unchanged"}
     assert not all(item.exited for item in trade["candidates"].values())
+
+
+
+def test_wilder_atr_uses_rma_after_initial_sma(tmp_path):
+    lab = TslShadowLab(tmp_path)
+    bars = [
+        OptionCandle(timestamp=60, open=10, high=12, low=10, close=11),
+        OptionCandle(timestamp=120, open=11, high=14, low=11, close=13),
+        OptionCandle(timestamp=180, open=13, high=17, low=13, close=16),
+        OptionCandle(timestamp=240, open=16, high=21, low=16, close=20),
+    ]
+    # TRs are 2, 3, 4, 5; seed SMA(3)=3, then RMA=(2*3+5)/3.
+    assert lab._atr_wilder(bars[:3], 3) == 3
+    assert abs(lab._atr_wilder(bars, 3) - (11 / 3)) < 1e-9
