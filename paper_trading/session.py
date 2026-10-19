@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 from api.fyers_client import FyersClient
 from market_data.fyers_quote_cache import FyersQuoteCache
+from market_data.live_ticks import LiveMinuteBarBuilder
 from paper_trading.buyer_lifecycle import BuyerLifecycleConfig, BuyerOptionTradeLifecycle
 from paper_trading.coordinator import PaperExecutionCoordinator
 from paper_trading.engine import PaperEngineConfig, PaperTradingEngine
@@ -20,6 +21,7 @@ from paper_trading.fyers_feed import FyersPaperFeed
 from paper_trading.market_data_pipeline import PaperMarketDataPipeline
 from paper_trading.pending_entry_orchestrator import PendingEntryConfig, PendingEntryOrchestrator
 from paper_trading.recorder import PaperTradeRecorder
+from paper_trading.tsl_shadow_lab import OptionCandle, TslShadowLab
 from strategies.option_contract_resolver import OptionContractResolver
 
 
@@ -58,6 +60,7 @@ class PaperSession:
     coordinator: PaperExecutionCoordinator
     orchestrator: PendingEntryOrchestrator
     recorder: PaperTradeRecorder
+    tsl_shadow: TslShadowLab
 
     def start(self) -> None:
         """Start market-data streaming only; no broker orders are submitted."""
@@ -110,8 +113,10 @@ def build_paper_session(
     )
     coordinator = PaperExecutionCoordinator(adapter=adapter, engine=engine)
 
-    # Late-bound callbacks resolve the feed/orchestrator dependency cycle.
+    # Late-bound callbacks resolve entry wiring and shadow exit tracking.
     holder: dict[str, PendingEntryOrchestrator] = {}
+    tsl_shadow = TslShadowLab(Path(config.output_dir) / "tsl_shadow")
+    option_tick_builder = LiveMinuteBarBuilder()
 
     def on_signals(signals) -> None:
         orchestrator = holder.get("orchestrator")
@@ -122,6 +127,32 @@ def build_paper_session(
         orchestrator = holder.get("orchestrator")
         if orchestrator is not None:
             orchestrator.on_tick(message)
+
+        # Register each accepted paper entry with independent shadow candidates.
+        for trade in engine.all_trades():
+            position = trade.position
+            trade_id = f"{trade.strategy_id.value}:{trade.entry_timestamp}:{position.symbol}"
+            tsl_shadow.register_trade(
+                trade_id=trade_id,
+                symbol=position.symbol,
+                direction=getattr(position.direction, "value", position.direction),
+                entry_timestamp=trade.entry_timestamp,
+                entry_price=position.entry_price,
+                quantity=position.quantity,
+            )
+
+        # Only completed candles from option symbols are used by the shadow lab.
+        if isinstance(message, dict):
+            symbol = message.get("symbol")
+            if isinstance(symbol, str) and symbol.strip() != config.underlying_symbol:
+                for candle in option_tick_builder.on_message(message):
+                    tsl_shadow.on_candle(
+                        symbol=symbol.strip(),
+                        candle=OptionCandle(
+                            timestamp=candle.timestamp, open=candle.open,
+                            high=candle.high, low=candle.low, close=candle.close,
+                        ),
+                    )
 
     feed = FyersPaperFeed(
         client=client,
@@ -156,6 +187,7 @@ def build_paper_session(
         coordinator=coordinator,
         orchestrator=orchestrator,
         recorder=recorder,
+        tsl_shadow=tsl_shadow,
     )
 
 
