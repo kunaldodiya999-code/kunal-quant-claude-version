@@ -108,9 +108,27 @@ class TslShadowLab:
         return sum(trs[-period:]) / period
 
     @staticmethod
+    def _atr_wilder(bars: list[OptionCandle], period: int) -> float | None:
+        """TradingView-style ATR smoothing: seed with SMA, then Wilder RMA.
+
+        Keep _atr() unchanged for the existing Kunal Quant structural method,
+        whose research implementation explicitly uses a rolling SMA of TR.
+        """
+        if len(bars) < period:
+            return None
+        trs = []
+        for i, bar in enumerate(bars):
+            prev_close = bars[i - 1].close if i else None
+            trs.append(TslShadowLab._tr(bar, prev_close))
+        atr = sum(trs[:period]) / period
+        for tr in trs[period:]:
+            atr = ((period - 1) * atr + tr) / period
+        return atr
+
+    @staticmethod
     def _supertrend(bars: list[OptionCandle], period: int, factor: float,
                     state: dict) -> float | None:
-        atr = TslShadowLab._atr(bars, period)
+        atr = TslShadowLab._atr_wilder(bars, period)
         if atr is None:
             return None
         c = bars[-1]
@@ -235,7 +253,8 @@ class TslShadowLab:
 
     def _candidate_stop(self, name: str, bars: list[OptionCandle], c: _Candidate) -> float | None:
         if name.startswith("chandelier"):
-            atr = self._atr(bars, 9)
+            # TradingView's built-in ATR uses Wilder/RMA smoothing.
+            atr = self._atr_wilder(bars, 9)
             if atr is None:
                 return None
             raw = max(b.high for b in bars) - 1.5*atr
