@@ -122,7 +122,10 @@ class FyersPaperFeed:
         with self._lock:
             self._messages_received += 1
         self.quote_cache.update(message)
-        signals = self.pipeline.on_message(message)
+        # Only underlying symbols drive KTMI entries. Option symbols are fed
+        # to the shadow TSL candle builder via on_tick, never to the signal pipeline.
+        symbol = message.get("symbol") if isinstance(message, dict) else None
+        signals = self.pipeline.on_message(message) if symbol in self.underlying_symbols else []
         if signals and self.on_signals is not None:
             self.on_signals(tuple(signals))
         # Run after signal callbacks so newly queued option contracts can also
