@@ -131,3 +131,23 @@ class FyersPaperFeedTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_option_tick_does_not_drive_ktmi_pipeline(self):
+        seen = []
+        feed = FyersPaperFeed(
+            client=self.client,
+            pipeline=self.pipeline,
+            quote_cache=self.cache,
+            underlying_symbols=["NSE:NIFTY50-INDEX"],
+            on_tick=lambda message: seen.append(message["symbol"]),
+        )
+        feed.start()
+        tick = {
+            "symbol": "NSE:NIFTY2610025000PE",
+            "ltp": 125.0,
+            "exch_feed_time": 1000,
+        }
+        self.client.socket.callbacks["on_message"](tick)
+        self.assertEqual(self.pipeline.messages, [])
+        self.assertEqual(seen, ["NSE:NIFTY2610025000PE"])
