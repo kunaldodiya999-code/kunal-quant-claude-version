@@ -79,6 +79,7 @@ class PaperTradingEngine:
         config: Optional[PaperEngineConfig] = None,
         *,
         recorder: PaperTradeRecorder | None = None,
+        lifecycle: object | None = None,
     ) -> None:
         self.config = config or PaperEngineConfig()
         self.recorder = recorder
