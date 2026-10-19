@@ -130,6 +130,10 @@ def build_paper_session(
 
         # Register each accepted paper entry with independent shadow candidates.
         for trade in engine.all_trades():
+            # Historical closed records must not be enrolled as fresh shadow trades.
+            # Entries are registered on the tick immediately after paper acceptance.
+            if trade.closed:
+                continue
             position = trade.position
             trade_id = f"{trade.strategy_id.value}:{trade.entry_timestamp}:{position.symbol}"
             tsl_shadow.register_trade(
