@@ -35,6 +35,15 @@ class PaperExecutionCoordinator:
         self.adapter = adapter
         self.engine = engine
         self._seen_signals: set[tuple[str, str, int, int]] = set()
+        # Signals journaled before a restart, keyed without the bar index
+        # because bar indexes are not stable across a rebuilt history.
+        self._restored_bar_keys: set[tuple[str, str, int]] = set()
+
+    def restore_seen_signals(self, keys) -> None:
+        """Remember signals journaled before a restart so they are never re-entered."""
+        self._restored_bar_keys.update(
+            (str(s), str(d), int(t)) for s, d, t in keys
+        )
 
     @staticmethod
     def _key(signal: PaperSignal) -> tuple[str, str, int, int]:
@@ -55,6 +64,11 @@ class PaperExecutionCoordinator:
             return PaperEntryAttempt(
                 signal=signal, candidate=None, trade=None,
                 rejection_reason="Entry decision must occur after the signal timestamp.",
+            )
+        if (key[0], key[1], key[2]) in self._restored_bar_keys:
+            return PaperEntryAttempt(
+                signal=signal, candidate=None, trade=None,
+                rejection_reason="Duplicate signal already processed before restart.",
             )
         if key in self._seen_signals:
             return PaperEntryAttempt(

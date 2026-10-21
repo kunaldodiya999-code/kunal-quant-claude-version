@@ -21,6 +21,7 @@ from paper_trading.fyers_feed import FyersPaperFeed
 from paper_trading.market_data_pipeline import PaperMarketDataPipeline
 from paper_trading.pending_entry_orchestrator import PendingEntryConfig, PendingEntryOrchestrator
 from paper_trading.recorder import PaperTradeRecorder
+from paper_trading.recovery import RecoveryReport, restore_from_journal
 from paper_trading.tsl_shadow_lab import OptionCandle, TslShadowLab
 from strategies.option_contract_resolver import OptionContractResolver
 
@@ -40,6 +41,7 @@ class PaperSessionConfig:
     stop_loss_pct: float = 0.20
     target_rr: float = 3.0
     target_enabled: bool = True
+    restore_from_journal: bool = True
 
     def __post_init__(self) -> None:
         if self.lot_size < 1:
@@ -61,6 +63,7 @@ class PaperSession:
     orchestrator: PendingEntryOrchestrator
     recorder: PaperTradeRecorder
     tsl_shadow: TslShadowLab
+    recovery: RecoveryReport | None = None
 
     def start(self) -> None:
         """Start market-data streaming only; no broker orders are submitted."""
@@ -112,6 +115,9 @@ def build_paper_session(
         ),
     )
     coordinator = PaperExecutionCoordinator(adapter=adapter, engine=engine)
+    # Rebuild open positions and seen signals from the journal so a restart
+    # cannot lose a position or enter the same signal twice.
+    recovery = restore_from_journal(engine, coordinator) if config.restore_from_journal else None
 
     # Late-bound callbacks resolve entry wiring and shadow exit tracking.
     holder: dict[str, PendingEntryOrchestrator] = {}
@@ -192,6 +198,7 @@ def build_paper_session(
         orchestrator=orchestrator,
         recorder=recorder,
         tsl_shadow=tsl_shadow,
+        recovery=recovery,
     )
 
 
