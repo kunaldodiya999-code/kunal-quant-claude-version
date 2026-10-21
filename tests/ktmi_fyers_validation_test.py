@@ -60,6 +60,38 @@ def load_fyers_bars() -> list[OHLCData]:
     connection = sqlite3.connect(DATABASE_PATH)
 
     try:
+        # This is an integration/validation test over locally stored FYERS
+        # candles, not a self-contained unit test. A clean checkout may not
+        # include the user's local database or its candles table.
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+
+        if "candles" not in tables:
+            pytest.skip(
+                "FYERS candle database unavailable: required table "
+                "'candles' is missing. Populate the local database to run "
+                "real-data KTMI validation."
+            )
+
+        columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(candles)")
+        }
+        required_columns = {
+            "open", "high", "low", "close",
+            "instrument_id", "resolution", "timestamp",
+        }
+        missing_columns = required_columns - columns
+        if missing_columns:
+            pytest.skip(
+                "FYERS candle database schema is incompatible; missing "
+                "columns: " + ", ".join(sorted(missing_columns))
+            )
+
         rows = connection.execute(
             """
             SELECT
@@ -84,9 +116,10 @@ def load_fyers_bars() -> list[OHLCData]:
         connection.close()
 
     if not rows:
-        raise RuntimeError(
-            f"No candles found for {SYMBOL} "
-            f"(instrument_id={INSTRUMENT_ID})."
+        pytest.skip(
+            f"No local FYERS candles available for {SYMBOL} "
+            f"(instrument_id={INSTRUMENT_ID}, resolution={TIMEFRAME}); "
+            "populate the database to run real-data KTMI validation."
         )
 
     return [

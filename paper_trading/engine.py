@@ -79,10 +79,16 @@ class PaperTradingEngine:
         config: Optional[PaperEngineConfig] = None,
         *,
         recorder: PaperTradeRecorder | None = None,
+        lifecycle: object | None = None,
     ) -> None:
         self.config = config or PaperEngineConfig()
         self.recorder = recorder
-        self.lifecycle = OptionTradeLifecycle(self.config.lifecycle_config)
+        # Default remains the locked V1 lifecycle. Buyer-only paper behaviour
+        # must be explicitly injected; historical V1 is never rewritten.
+        self.lifecycle = (
+            lifecycle if lifecycle is not None
+            else OptionTradeLifecycle(self.config.lifecycle_config)
+        )
         self.trade_logs: dict[PaperStrategyId, list[PaperTradeRecord]] = {
             strategy_id: [] for strategy_id in PaperStrategyId
         }
