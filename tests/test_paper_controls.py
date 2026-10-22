@@ -8,6 +8,8 @@ from zoneinfo import ZoneInfo
 
 from backtest.option_trade_lifecycle import OptionExitReason
 from paper_trading.buyer_lifecycle import BuyerLifecycleConfig, BuyerOptionTradeLifecycle
+from paper_trading.account import PaperAccount
+from paper_trading.costs import OptionCostModel
 from paper_trading.controls import (
     ALL_SEGMENTS, Segment, SegmentRules, SessionControls, SessionControlsConfig,
 )
@@ -57,7 +59,9 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(str(rules[FNO].force_exit), "15:10:00")
         self.assertIsNone(rules[COM].force_exit)
         self.assertIsNone(rules[CUR].force_exit)
-        self.assertIsNone(SessionControlsConfig().daily_loss_limit, "loss cap is off by default")
+        self.assertEqual(str(rules[EQ].force_exit), "15:10:00")
+        self.assertFalse(SessionControlsConfig().loss_cap_enabled, "loss cap is off by default")
+        self.assertIsNone(SessionControlsConfig().daily_loss_limit(100_000.0))
 
     def test_invalid_config_is_rejected(self):
         bad = [
@@ -65,8 +69,8 @@ class ConfigTests(unittest.TestCase):
             lambda: SessionControlsConfig.from_hhmm("09:30", "15:20", "15:10"),
             lambda: SessionControlsConfig.from_hhmm("9h30", "15:00", "15:10"),
             lambda: SessionControlsConfig(max_daily_loss_amount=0),
-            lambda: SessionControlsConfig(max_daily_loss_pct=5),                 # no capital
-            lambda: SessionControlsConfig(capital=50_000, max_daily_loss_pct=150),
+            lambda: SessionControlsConfig(max_daily_loss_pct=0),
+            lambda: SessionControlsConfig(max_daily_loss_pct=150),
             lambda: SessionControlsConfig(kill_hours=0),
             lambda: SegmentRules(force_exit=time(9, 30)),
         ]
@@ -75,12 +79,12 @@ class ConfigTests(unittest.TestCase):
                 build()
 
     def test_loss_limit_amount_percent_or_both_stricter_wins(self):
-        self.assertEqual(SessionControlsConfig(max_daily_loss_amount=3000).daily_loss_limit, 3000)
-        self.assertEqual(SessionControlsConfig(capital=50_000, max_daily_loss_pct=4).daily_loss_limit, 2000)
-        both = SessionControlsConfig(capital=50_000, max_daily_loss_amount=3000, max_daily_loss_pct=4)
-        self.assertEqual(both.daily_loss_limit, 2000)
-        both = SessionControlsConfig(capital=50_000, max_daily_loss_amount=1500, max_daily_loss_pct=4)
-        self.assertEqual(both.daily_loss_limit, 1500)
+        self.assertEqual(SessionControlsConfig(max_daily_loss_amount=3000).daily_loss_limit(100_000), 3000)
+        self.assertEqual(SessionControlsConfig(max_daily_loss_pct=4).daily_loss_limit(50_000), 2000)
+        both = SessionControlsConfig(max_daily_loss_amount=3000, max_daily_loss_pct=4)
+        self.assertEqual(both.daily_loss_limit(50_000), 2000)
+        both = SessionControlsConfig(max_daily_loss_amount=1500, max_daily_loss_pct=4)
+        self.assertEqual(both.daily_loss_limit(50_000), 1500)
 
 
 class EntryWindowTests(unittest.TestCase):
@@ -182,42 +186,83 @@ class KillSwitchTests(unittest.TestCase):
         self.assertEqual(c.close_due_positions(engine, timestamp=at(11, 1), prices={A: 90.0}).closed, ())
 
 
+def make_big_engine(directory):
+    """Sizing used by the owner's example: 5 lots of 50 = 250 units at a premium of 100."""
+    lifecycle = BuyerOptionTradeLifecycle(BuyerLifecycleConfig(allocation=25_000.0, lot_size=50))
+    return PaperTradingEngine(recorder=PaperTradeRecorder(directory), lifecycle=lifecycle)
+
+
 class DailyLossTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
-        self.engine = make_engine(Path(self._tmp.name))
+        self.engine = make_big_engine(Path(self._tmp.name))
+        self.account = PaperAccount(self.engine, starting_capital=100_000.0,
+                                    cost_model=OptionCostModel.zero())
 
     def tearDown(self):
         self._tmp.cleanup()
 
     def _controls(self, **kwargs):
         c = SessionControls(SessionControlsConfig(**kwargs))
-        c.bind(self.engine)
+        c.bind(self.engine, self.account)
         return c
 
-    def test_off_by_default_even_after_a_loss(self):
+    def test_off_by_default_even_with_a_big_open_drawdown(self):
         c = self._controls()
-        enter(self.engine); stop_out(self.engine)
-        self.assertIsNone(c.entry_block_reason(at(10, 5), FNO))
+        enter(self.engine)
+        self.assertIsNone(c.entry_block_reason(at(10, 5), FNO, marks={A: 40.0}))
 
-    def test_absolute_amount_blocks_at_the_limit(self):
-        c = self._controls(max_daily_loss_amount=2_000.0)
-        enter(self.engine); stop_out(self.engine)
-        self.assertEqual(round(c.realized_pnl_today(at(10, 5))), -2600)
-        self.assertIn("Daily loss limit", c.entry_block_reason(at(10, 5), FNO))
+    def test_realised_loss_blocks_at_the_limit(self):
+        c = self._controls(max_daily_loss_amount=4_000.0)
+        enter(self.engine); stop_out(self.engine)                       # -5,000 realised
+        self.assertIn("Daily loss limit", c.entry_block_reason(at(10, 5), FNO, marks={}))
 
-    def test_percent_of_capital_blocks_at_the_limit(self):
-        c = self._controls(capital=50_000.0, max_daily_loss_pct=5.0)     # 2,500
-        enter(self.engine); stop_out(self.engine)
-        self.assertIn("Daily loss limit", c.entry_block_reason(at(10, 5), FNO))
-        roomy = self._controls(capital=50_000.0, max_daily_loss_pct=6.0)  # 3,000 > 2,600 loss
-        self.assertIsNone(roomy.entry_block_reason(at(10, 5), FNO))
+    def test_open_unrealised_drawdown_counts_toward_the_cap(self):
+        c = self._controls(max_daily_loss_amount=3_000.0)
+        enter(self.engine)                                              # 250 units at 100
+        self.assertIsNone(c.entry_block_reason(at(10, 5), FNO, marks={A: 95.0}))    # -1,250
+        self.assertIn("Daily loss limit", c.entry_block_reason(at(10, 6), FNO, marks={A: 85.0}))  # -3,750
+        self.assertIsNone(c.entry_block_reason(at(10, 7), FNO, marks={A: 98.0}), "recovers when the price does")
 
-    def test_only_todays_trades_count(self):
-        c = self._controls(max_daily_loss_amount=2_000.0)
-        enter(self.engine, ts=at(10, 0, day=20))
-        self.engine.force_close(A, timestamp=at(11, 0, day=20), price=50.0)
-        self.assertIsNone(c.entry_block_reason(at(10, 5), FNO))
+    def test_unrealised_profit_offsets_a_realised_loss(self):
+        c = self._controls(max_daily_loss_amount=4_000.0)
+        enter(self.engine, A); stop_out(self.engine, A)                 # -5,000 realised
+        enter(self.engine, B, ts=at(10, 2))
+        self.assertIn("Daily loss limit", c.entry_block_reason(at(10, 3), FNO, marks={B: 100.0}))
+        self.assertIsNone(c.entry_block_reason(at(10, 4), FNO, marks={B: 130.0}), "+7,500 open covers it")
+
+    def test_percent_is_of_the_days_opening_equity(self):
+        c = self._controls(max_daily_loss_pct=3.0)                      # 3,000 on 100,000
+        enter(self.engine); 
+        self.assertIsNone(c.entry_block_reason(at(10, 5), FNO, marks={A: 90.0}))     # -2,500
+        self.assertIn("Daily loss limit", c.entry_block_reason(at(10, 6), FNO, marks={A: 87.0}))  # -3,250
+
+    def test_percent_cap_follows_the_balance_after_a_losing_day(self):
+        c = self._controls(max_daily_loss_pct=3.0)
+        enter(self.engine, ts=at(10, 0, day=20)); stop_out(self.engine, ts=at(10, 1, day=20))   # opening today: 95,000
+        enter(self.engine, B, ts=at(10, 2))
+        # 3% of 95,000 = 2,850. A 2,900 drawdown trips it; 3% of the original 100,000 (3,000) would not.
+        self.assertIn("Daily loss limit", c.entry_block_reason(at(10, 3), FNO, marks={B: 88.4}))
+        self.assertIsNone(c.entry_block_reason(at(10, 4), FNO, marks={B: 89.0}))             # -2,750
+
+    def test_missing_price_for_an_open_position_fails_closed_only_when_the_cap_is_on(self):
+        enter(self.engine)
+        on = self._controls(max_daily_loss_amount=3_000.0)
+        self.assertIn("no live price", on.entry_block_reason(at(10, 5), FNO, marks={}))
+        off = self._controls()
+        self.assertIsNone(off.entry_block_reason(at(10, 5), FNO, marks={}))
+
+    def test_cap_without_an_account_fails_closed(self):
+        c = SessionControls(SessionControlsConfig(max_daily_loss_amount=1_000.0))
+        self.assertIn("no account", c.entry_block_reason(at(10, 5), FNO))
+
+    def test_a_new_day_starts_from_the_closing_balance(self):
+        c = self._controls(max_daily_loss_amount=4_000.0)
+        enter(self.engine, ts=at(10, 0, day=20)); stop_out(self.engine, ts=at(10, 1, day=20))   # -5,000 yesterday
+        self.assertIsNone(c.entry_block_reason(at(10, 5), FNO, marks={}), "yesterday's loss is not today's")
+        snap = c.live_snapshot(at(10, 5), {})
+        self.assertEqual(snap.opening_equity, 95_000.0)
+        self.assertEqual(snap.day_pnl, 0.0)
 
 
 class ForcedExitTests(unittest.TestCase):
@@ -241,6 +286,16 @@ class ForcedExitTests(unittest.TestCase):
         restored = make_engine(self.dir)
         restore_engine_from_journal(restored, today=datetime(2026, 10, 21, 15, 20, tzinfo=IST))
         self.assertIsNone(restored.open_trade(A))
+
+    def test_equity_segment_is_also_force_exited_at_1510(self):
+        engine = make_engine(self.dir)
+        c = SessionControls(journal_dir=self.dir)
+        c.bind(engine)
+        enter(engine, A)
+        before = c.close_due_positions(engine, timestamp=at(15, 9), prices={A: 90.0}, segment_of=lambda s: EQ)
+        self.assertEqual(before.closed, ())
+        after = c.close_due_positions(engine, timestamp=at(15, 10), prices={A: 90.0}, segment_of=lambda s: EQ)
+        self.assertEqual(len(after.closed), 1)
 
     def test_commodity_position_is_never_force_exited(self):
         engine = make_engine(self.dir)
@@ -301,6 +356,18 @@ class CoordinatorTests(unittest.TestCase):
         c = SessionControls(); c.bind(self.engine)
         coordinator = PaperExecutionCoordinator(adapter=ProbeAdapter(), engine=self.engine, controls=c)
         self.assertEqual(self._attempt(coordinator, at(10, 3)).rejection_reason, "adapter reached")
+
+    def test_loss_cap_uses_the_marks_provider(self):
+        engine = make_big_engine(Path(self._tmp.name) / "big")
+        account = PaperAccount(engine, starting_capital=100_000.0, cost_model=OptionCostModel.zero())
+        c = SessionControls(SessionControlsConfig(max_daily_loss_amount=3_000.0)); c.bind(engine, account)
+        enter(engine)
+        marks = {"v": 95.0}
+        coordinator = PaperExecutionCoordinator(adapter=ProbeAdapter(), engine=engine, controls=c,
+                                                marks_provider=lambda: {A: marks["v"]})
+        self.assertEqual(self._attempt(coordinator, at(10, 3)).rejection_reason, "adapter reached")
+        marks["v"] = 80.0
+        self.assertIn("Daily loss limit", self._attempt(coordinator, at(10, 8)).rejection_reason)
 
     def test_kill_switch_blocks_only_the_killed_segment(self):
         c = SessionControls(); c.bind(self.engine)

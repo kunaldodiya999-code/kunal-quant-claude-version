@@ -34,11 +34,15 @@ class PaperExecutionCoordinator:
         engine: PaperTradingEngine,
         controls: Any = None,
         segment: Segment = Segment.FNO,
+        marks_provider: Any = None,
     ) -> None:
         self.adapter = adapter
         self.engine = engine
         # Optional SessionControls: entry window, daily loss cap and kill switch.
         self.controls = controls
+        # Optional callable returning the latest option price per open strategy, so the
+        # live-equity loss limit can value open positions.
+        self.marks_provider = marks_provider
         self.segment = Segment(segment)   # NIFTY options trade in NSE & BSE F&O
         self._seen_signals: set[tuple[str, str, int, int]] = set()
         # Signals journaled before a restart, keyed without the bar index
@@ -85,7 +89,10 @@ class PaperExecutionCoordinator:
         # tick with the same signal. A new signal event is required.
         self._seen_signals.add(key)
         if self.controls is not None:
-            blocked = self.controls.entry_block_reason(int(decision_timestamp), self.segment)
+            blocked = self.controls.entry_block_reason(
+                int(decision_timestamp), self.segment,
+                marks=self.marks_provider() if self.marks_provider else None,
+            )
             if blocked:
                 return PaperEntryAttempt(
                     signal=signal, candidate=None, trade=None, rejection_reason=blocked,

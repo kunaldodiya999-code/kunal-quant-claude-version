@@ -21,6 +21,8 @@ from paper_trading.fyers_feed import FyersPaperFeed
 from paper_trading.market_data_pipeline import PaperMarketDataPipeline
 from paper_trading.pending_entry_orchestrator import PendingEntryConfig, PendingEntryOrchestrator
 from paper_trading.recorder import PaperTradeRecorder
+from paper_trading.account import PaperAccount
+from paper_trading.costs import OptionCostModel
 from paper_trading.controls import SessionControls, SessionControlsConfig
 from paper_trading.recovery import RecoveryReport, restore_from_journal
 from paper_trading.tsl_shadow_lab import OptionCandle, TslShadowLab
@@ -47,9 +49,10 @@ class PaperSessionConfig:
     entry_start_hhmm: str = "09:30"
     entry_end_hhmm: str = "15:00"
     force_exit_hhmm: str = "15:10"
-    capital: float | None = None                  # needed only for a percent loss limit
+    starting_capital: float = 100_000.0           # paper account opening balance
+    cost_model: OptionCostModel = OptionCostModel()
     max_daily_loss_amount: float | None = None    # rupees; None = off
-    max_daily_loss_pct: float | None = None       # percent of capital; None = off
+    max_daily_loss_pct: float | None = None       # percent of the day's opening equity; None = off
     kill_hours: float = 12.0
 
     def __post_init__(self) -> None:
@@ -74,6 +77,7 @@ class PaperSession:
     tsl_shadow: TslShadowLab
     recovery: RecoveryReport | None = None
     controls: SessionControls | None = None
+    account: PaperAccount | None = None
 
     def start(self) -> None:
         """Start market-data streaming only; no broker orders are submitted."""
@@ -127,14 +131,14 @@ def build_paper_session(
     controls = SessionControls(
         SessionControlsConfig.from_hhmm(
             config.entry_start_hhmm, config.entry_end_hhmm, config.force_exit_hhmm,
-            capital=config.capital,
             max_daily_loss_amount=config.max_daily_loss_amount,
             max_daily_loss_pct=config.max_daily_loss_pct,
             kill_hours=config.kill_hours,
         ),
         journal_dir=config.output_dir,
     )
-    controls.bind(engine)
+    account = PaperAccount(engine, starting_capital=config.starting_capital, cost_model=config.cost_model)
+    controls.bind(engine, account)
     coordinator = PaperExecutionCoordinator(adapter=adapter, engine=engine, controls=controls)
     # Rebuild open positions and seen signals from the journal so a restart
     # cannot lose a position or enter the same signal twice.
@@ -221,6 +225,7 @@ def build_paper_session(
         tsl_shadow=tsl_shadow,
         recovery=recovery,
         controls=controls,
+        account=account,
     )
 
 

@@ -9,13 +9,15 @@ Rules (owner-specified, all configurable):
   deleting ``controls_state.json`` by hand. An unreadable state file fails
   closed (all entries blocked).
 * Entry window per segment. F&O default 09:30 to 15:00 IST, forced exit 15:10 IST.
-  Commodity and Currency have no forced exit and no entry cutoff set here.
-  Equity gets the F&O entry window and no forced exit (not specified by the owner).
-  These defaults are the owner's starting values and are meant to be edited.
+  Equity has the same window and the same 15:10 forced exit. Commodity and Currency have
+  no forced exit and no entry cutoff set here. All values are meant to be edited.
 * Forced exit applies ONLY to segments with a ``force_exit`` time (F&O by default).
-* Daily loss cap is OFF by default. It can be an absolute rupee amount, a percent of
-  ``capital``, or both (the stricter limit applies). It counts REALISED gross P&L of
-  trades entered today (IST): no costs yet and no mark-to-market of open positions.
+* Daily loss cap is OFF by default. It can be an absolute rupee amount, a percent of the
+  day's OPENING equity, or both (the stricter limit applies). It watches live net
+  liquidation value (see account.py): realised + unrealised mark-to-market - costs. An open
+  drawdown counts. When it trips, NEW entries stop for the rest of the IST day; open
+  positions are left to their own stops. With the cap on, entries are also blocked if an
+  open position has no live price, because the account cannot be valued.
 
 Nothing here contacts a broker.
 """
@@ -32,6 +34,7 @@ from typing import Callable, Iterable, Mapping, Optional
 from zoneinfo import ZoneInfo
 
 from backtest.option_trade_lifecycle import OptionTradeExit
+from paper_trading.account import EquitySnapshot, PaperAccount
 from paper_trading.engine import PaperStrategyId, PaperTradingEngine
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -79,7 +82,7 @@ class SegmentRules:
 def default_rules() -> dict[Segment, SegmentRules]:
     return {
         Segment.FNO: SegmentRules(time(9, 30), time(15, 0), time(15, 10)),
-        Segment.EQUITY: SegmentRules(time(9, 30), time(15, 0), None),
+        Segment.EQUITY: SegmentRules(time(9, 30), time(15, 0), time(15, 10)),
         Segment.CURRENCY: SegmentRules(time(9, 30), None, None),
         Segment.COMMODITY: SegmentRules(time(9, 30), None, None),
     }
@@ -88,9 +91,8 @@ def default_rules() -> dict[Segment, SegmentRules]:
 @dataclass(frozen=True)
 class SessionControlsConfig:
     rules: Mapping[Segment, SegmentRules] = field(default_factory=default_rules)
-    capital: Optional[float] = None
     max_daily_loss_amount: Optional[float] = None   # rupees
-    max_daily_loss_pct: Optional[float] = None      # percent of capital
+    max_daily_loss_pct: Optional[float] = None      # percent of the day's opening equity
     kill_hours: float = 12.0
 
     def __post_init__(self) -> None:
@@ -98,35 +100,33 @@ class SessionControlsConfig:
             raise ValueError("rules must define every segment.")
         if not (isfinite(self.kill_hours) and self.kill_hours > 0):
             raise ValueError("kill_hours must be positive.")
-        if self.capital is not None and not (isfinite(self.capital) and self.capital > 0):
-            raise ValueError("capital must be positive.")
         amount, pct = self.max_daily_loss_amount, self.max_daily_loss_pct
         if amount is not None and not (isfinite(amount) and amount > 0):
             raise ValueError("max_daily_loss_amount must be positive or None.")
-        if pct is not None:
-            if not (isfinite(pct) and 0 < pct <= 100):
-                raise ValueError("max_daily_loss_pct must be above 0 and at most 100.")
-            if self.capital is None:
-                raise ValueError("A percent loss limit needs capital to be set.")
+        if pct is not None and not (isfinite(pct) and 0 < pct <= 100):
+            raise ValueError("max_daily_loss_pct must be above 0 and at most 100.")
 
     @property
-    def daily_loss_limit(self) -> Optional[float]:
-        """Effective rupee limit: the stricter of the amount and the percent-of-capital value."""
+    def loss_cap_enabled(self) -> bool:
+        return self.max_daily_loss_amount is not None or self.max_daily_loss_pct is not None
+
+    def daily_loss_limit(self, opening_equity: float) -> Optional[float]:
+        """Rupee limit for a day: the stricter of the amount and the percent of opening equity."""
         limits = []
         if self.max_daily_loss_amount is not None:
             limits.append(self.max_daily_loss_amount)
         if self.max_daily_loss_pct is not None:
-            limits.append(self.capital * self.max_daily_loss_pct / 100.0)
+            limits.append(opening_equity * self.max_daily_loss_pct / 100.0)
         return min(limits) if limits else None
 
     @classmethod
     def from_hhmm(cls, entry_start: str, entry_end: str, force_exit: str, **kwargs
                   ) -> "SessionControlsConfig":
-        """Set the F&O window (and the equity entry window); other segments keep defaults."""
+        """Set the F&O and equity window and forced exit; other segments keep defaults."""
         rules = default_rules()
         start, end = parse_hhmm(entry_start), parse_hhmm(entry_end)
         rules[Segment.FNO] = SegmentRules(start, end, parse_hhmm(force_exit))
-        rules[Segment.EQUITY] = SegmentRules(start, end, None)
+        rules[Segment.EQUITY] = SegmentRules(start, end, parse_hhmm(force_exit))
         return cls(rules=rules, **kwargs)
 
 
@@ -153,6 +153,7 @@ class SessionControls:
                  journal_dir: str | Path | None = None) -> None:
         self.config = config or SessionControlsConfig()
         self.engine: PaperTradingEngine | None = None
+        self.account: PaperAccount | None = None
         self._kills: dict[Segment, int] = {}   # segment -> epoch second the kill ends
         self._corrupt = False
         self._dir = Path(journal_dir) if journal_dir is not None else None
@@ -160,8 +161,13 @@ class SessionControls:
             self._dir.mkdir(parents=True, exist_ok=True)
             self._load_state()
 
-    def bind(self, engine: PaperTradingEngine) -> None:
+    def bind(self, engine: PaperTradingEngine, account: PaperAccount | None = None) -> None:
         self.engine = engine
+        self.account = account
+
+    def live_snapshot(self, timestamp: int, marks=None) -> EquitySnapshot | None:
+        """Live equity for the UI and the loss cap, or None if no account is attached."""
+        return None if self.account is None else self.account.snapshot(timestamp, marks)
 
     # ---- persistence --------------------------------------------------
     @property
@@ -224,16 +230,8 @@ class SessionControls:
         return {s: u for s, u in self._kills.items() if int(timestamp) < u}
 
     # ---- rules --------------------------------------------------------
-    def realized_pnl_today(self, timestamp: int) -> float:
-        if self.engine is None:
-            return 0.0
-        day = self._ist(timestamp).date()
-        return sum(
-            record.position.gross_pnl for record in self.engine.all_trades()
-            if self._ist(record.entry_timestamp).date() == day
-        )
-
-    def entry_block_reason(self, timestamp: int, segment: Segment | str = Segment.FNO) -> Optional[str]:
+    def entry_block_reason(self, timestamp: int, segment: Segment | str = Segment.FNO,
+                           marks=None) -> Optional[str]:
         """Return why a new entry in ``segment`` is not allowed now, or None if it is."""
         if self._corrupt:
             return "controls_state.json is unreadable; entries are blocked until it is repaired or removed."
@@ -247,11 +245,21 @@ class SessionControls:
             return f"Before entry window for {seg.label} (opens {rules.entry_start:%H:%M} IST)."
         if rules.entry_end is not None and clock >= rules.entry_end:
             return f"After entry cutoff for {seg.label} ({rules.entry_end:%H:%M} IST)."
-        limit = self.config.daily_loss_limit
-        if limit is not None:
-            pnl = self.realized_pnl_today(timestamp)
-            if pnl <= -limit:
-                return f"Daily loss limit reached (realised {pnl:,.0f} against a limit of {limit:,.0f})."
+        return self._loss_cap_reason(timestamp, marks)
+
+    def _loss_cap_reason(self, timestamp: int, marks) -> Optional[str]:
+        if not self.config.loss_cap_enabled:
+            return None
+        if self.account is None:
+            return "Daily loss limit is on but no account is attached; entries are blocked."
+        snap = self.account.snapshot(timestamp, marks)
+        if snap.marks_missing:
+            names = ", ".join(s.value for s in snap.marks_missing)
+            return f"Daily loss limit is on but open position(s) have no live price ({names}); account cannot be valued."
+        limit = self.config.daily_loss_limit(snap.opening_equity)
+        if snap.day_pnl <= -limit:
+            return (f"Daily loss limit reached (today {snap.day_pnl:,.0f} on opening equity "
+                    f"{snap.opening_equity:,.0f}; limit {limit:,.0f}).")
         return None
 
     def exits_due(self, timestamp: int, segment: Segment | str = Segment.FNO) -> bool:
