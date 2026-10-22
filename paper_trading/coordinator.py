@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
+from paper_trading.controls import Segment
 from paper_trading.entry_adapter import PaperEntryAdapter, PaperEntryCandidate
 from paper_trading.engine import PaperTradeRecord, PaperTradingEngine
 from paper_trading.signals import PaperSignal
@@ -32,11 +33,13 @@ class PaperExecutionCoordinator:
         adapter: PaperEntryAdapter,
         engine: PaperTradingEngine,
         controls: Any = None,
+        segment: Segment = Segment.FNO,
     ) -> None:
         self.adapter = adapter
         self.engine = engine
         # Optional SessionControls: entry window, daily loss cap and kill switch.
         self.controls = controls
+        self.segment = Segment(segment)   # NIFTY options trade in NSE & BSE F&O
         self._seen_signals: set[tuple[str, str, int, int]] = set()
         # Signals journaled before a restart, keyed without the bar index
         # because bar indexes are not stable across a rebuilt history.
@@ -82,7 +85,7 @@ class PaperExecutionCoordinator:
         # tick with the same signal. A new signal event is required.
         self._seen_signals.add(key)
         if self.controls is not None:
-            blocked = self.controls.entry_block_reason(int(decision_timestamp))
+            blocked = self.controls.entry_block_reason(int(decision_timestamp), self.segment)
             if blocked:
                 return PaperEntryAttempt(
                     signal=signal, candidate=None, trade=None, rejection_reason=blocked,

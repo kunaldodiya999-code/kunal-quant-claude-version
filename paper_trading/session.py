@@ -43,11 +43,14 @@ class PaperSessionConfig:
     target_rr: float = 3.0
     target_enabled: bool = True
     restore_from_journal: bool = True
-    # Candidate session rules (unverified until the owner approves them).
-    entry_start_hhmm: str = "09:45"
+    # Session rules (owner-configurable). Window and forced exit apply to NSE & BSE F&O.
+    entry_start_hhmm: str = "09:30"
     entry_end_hhmm: str = "15:00"
     force_exit_hhmm: str = "15:10"
-    max_daily_loss: float | None = None
+    capital: float | None = None                  # needed only for a percent loss limit
+    max_daily_loss_amount: float | None = None    # rupees; None = off
+    max_daily_loss_pct: float | None = None       # percent of capital; None = off
+    kill_hours: float = 12.0
 
     def __post_init__(self) -> None:
         if self.lot_size < 1:
@@ -123,8 +126,11 @@ def build_paper_session(
     )
     controls = SessionControls(
         SessionControlsConfig.from_hhmm(
-            config.entry_start_hhmm, config.entry_end_hhmm,
-            config.force_exit_hhmm, config.max_daily_loss,
+            config.entry_start_hhmm, config.entry_end_hhmm, config.force_exit_hhmm,
+            capital=config.capital,
+            max_daily_loss_amount=config.max_daily_loss_amount,
+            max_daily_loss_pct=config.max_daily_loss_pct,
+            kill_hours=config.kill_hours,
         ),
         journal_dir=config.output_dir,
     )
