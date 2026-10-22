@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from math import isfinite
 from typing import Optional
 
 from backtest.option_trade_lifecycle import (
+    OptionExitReason,
     OptionTradeDirection,
     OptionTradeExit,
     OptionTradeLifecycle,
@@ -190,6 +192,49 @@ class PaperTradingEngine:
             for exit_event in exits:
                 self.recorder.record_trade_exit(record, exit_event)
         return exits
+
+    def force_close(
+        self,
+        strategy_id: PaperStrategyId | str | Enum,
+        *,
+        timestamp: int,
+        price: float,
+        reason: OptionExitReason = OptionExitReason.END_OF_DATA,
+    ) -> Optional[OptionTradeExit]:
+        """Close the whole remaining position at ``price`` (forced exit or kill switch).
+
+        Uses the existing END_OF_DATA reason so the locked lifecycle enum is not
+        changed; the cause is recorded separately by SessionControls.
+        """
+        strategy = self._strategy_id(strategy_id)
+        record = self.active_positions.get(strategy)
+        if record is None or record.closed:
+            return None
+        price = float(price)
+        if not isfinite(price) or price <= 0:
+            raise ValueError("A forced exit needs a finite, positive price.")
+        ts = int(timestamp)
+        if record.last_processed_timestamp is not None and ts <= record.last_processed_timestamp:
+            raise ValueError("Forced exit must be later than the last processed candle.")
+        position = record.position
+        quantity, lots = position.remaining_quantity, position.remaining_lots
+        pnl = self.lifecycle.calculate_pnl(
+            direction=position.direction, entry_price=position.entry_price,
+            exit_price=price, quantity=quantity,
+        )
+        position.gross_pnl += pnl
+        position.remaining_quantity = 0
+        position.remaining_lots = 0
+        position.closed = True
+        exit_event = OptionTradeExit(
+            timestamp=ts, reason=reason, price=price, quantity=quantity, lots=lots,
+            pnl=pnl, remaining_quantity=0, remaining_lots=0,
+        )
+        record.exits.append(exit_event)
+        record.last_processed_timestamp = ts
+        if self.recorder is not None:
+            self.recorder.record_trade_exit(record, exit_event)
+        return exit_event
 
     def open_trade(self, strategy_id: PaperStrategyId | str | Enum) -> Optional[PaperTradeRecord]:
         """Return the selected strategy's active trade, if any."""

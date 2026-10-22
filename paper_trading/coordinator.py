@@ -31,9 +31,12 @@ class PaperExecutionCoordinator:
         *,
         adapter: PaperEntryAdapter,
         engine: PaperTradingEngine,
+        controls: Any = None,
     ) -> None:
         self.adapter = adapter
         self.engine = engine
+        # Optional SessionControls: entry window, daily loss cap and kill switch.
+        self.controls = controls
         self._seen_signals: set[tuple[str, str, int, int]] = set()
         # Signals journaled before a restart, keyed without the bar index
         # because bar indexes are not stable across a rebuilt history.
@@ -78,6 +81,12 @@ class PaperExecutionCoordinator:
         # Mark before validation: a rejected signal must not be retried on each
         # tick with the same signal. A new signal event is required.
         self._seen_signals.add(key)
+        if self.controls is not None:
+            blocked = self.controls.entry_block_reason(int(decision_timestamp))
+            if blocked:
+                return PaperEntryAttempt(
+                    signal=signal, candidate=None, trade=None, rejection_reason=blocked,
+                )
         try:
             candidate = self.adapter.prepare_entry(
                 signal=signal,

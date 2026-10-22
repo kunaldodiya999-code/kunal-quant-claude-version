@@ -21,6 +21,7 @@ from paper_trading.fyers_feed import FyersPaperFeed
 from paper_trading.market_data_pipeline import PaperMarketDataPipeline
 from paper_trading.pending_entry_orchestrator import PendingEntryConfig, PendingEntryOrchestrator
 from paper_trading.recorder import PaperTradeRecorder
+from paper_trading.controls import SessionControls, SessionControlsConfig
 from paper_trading.recovery import RecoveryReport, restore_from_journal
 from paper_trading.tsl_shadow_lab import OptionCandle, TslShadowLab
 from strategies.option_contract_resolver import OptionContractResolver
@@ -42,6 +43,11 @@ class PaperSessionConfig:
     target_rr: float = 3.0
     target_enabled: bool = True
     restore_from_journal: bool = True
+    # Candidate session rules (unverified until the owner approves them).
+    entry_start_hhmm: str = "09:45"
+    entry_end_hhmm: str = "15:00"
+    force_exit_hhmm: str = "15:10"
+    max_daily_loss: float | None = None
 
     def __post_init__(self) -> None:
         if self.lot_size < 1:
@@ -64,6 +70,7 @@ class PaperSession:
     recorder: PaperTradeRecorder
     tsl_shadow: TslShadowLab
     recovery: RecoveryReport | None = None
+    controls: SessionControls | None = None
 
     def start(self) -> None:
         """Start market-data streaming only; no broker orders are submitted."""
@@ -114,7 +121,15 @@ def build_paper_session(
             max_quote_age_seconds=config.max_quote_age_seconds
         ),
     )
-    coordinator = PaperExecutionCoordinator(adapter=adapter, engine=engine)
+    controls = SessionControls(
+        SessionControlsConfig.from_hhmm(
+            config.entry_start_hhmm, config.entry_end_hhmm,
+            config.force_exit_hhmm, config.max_daily_loss,
+        ),
+        journal_dir=config.output_dir,
+    )
+    controls.bind(engine)
+    coordinator = PaperExecutionCoordinator(adapter=adapter, engine=engine, controls=controls)
     # Rebuild open positions and seen signals from the journal so a restart
     # cannot lose a position or enter the same signal twice.
     recovery = restore_from_journal(engine, coordinator) if config.restore_from_journal else None
@@ -199,6 +214,7 @@ def build_paper_session(
         recorder=recorder,
         tsl_shadow=tsl_shadow,
         recovery=recovery,
+        controls=controls,
     )
 
 
