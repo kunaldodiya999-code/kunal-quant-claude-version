@@ -24,6 +24,7 @@ from paper_trading.recorder import PaperTradeRecorder
 import time
 
 from paper_trading.account import PaperAccount
+from paper_trading.sizing import AllocationSetting, AllocationStore
 from paper_trading.exit_manager import DEFAULT_TSL, ExitManager, ExitRules
 from paper_trading.costs import OptionCostModel
 from paper_trading.controls import SessionControls, SessionControlsConfig
@@ -35,7 +36,8 @@ from strategies.option_contract_resolver import OptionContractResolver
 @dataclass(frozen=True)
 class PaperSessionConfig:
     lot_size: int
-    allocation: float = 15_000.0
+    allocation: float = 15_000.0          # starting budget per trade (rupees); the saved choice wins on restart
+    allocation_percent: float | None = None   # if set, start in PERCENT mode (of the account balance)
     resolution_minutes: int = 3
     underlying_symbol: str = "NSE:NIFTY50-INDEX"
     database_path: str | Path | None = None
@@ -44,7 +46,7 @@ class PaperSessionConfig:
     pending_timeout_seconds: int = 8
     max_quote_age_seconds: int = 5
     max_receive_age_seconds: float = 5.0
-    stop_loss_pct: float = 0.20
+    stop_loss_pct: float = 0.30           # initial stop: 30% below the premium paid (owner default)
     target_rr: float = 3.0
     target_enabled: bool = True
     restore_from_journal: bool = True
@@ -85,6 +87,7 @@ class PaperSession:
     recovery: RecoveryReport | None = None
     controls: SessionControls | None = None
     account: PaperAccount | None = None
+    allocation_store: AllocationStore | None = None
     exit_manager: ExitManager | None = None
 
     def start(self) -> None:
@@ -147,6 +150,18 @@ def build_paper_session(
     )
     account = PaperAccount(engine, starting_capital=config.starting_capital, cost_model=config.cost_model)
     controls.bind(engine, account)
+    default_setting = (AllocationSetting.from_percent(config.allocation_percent)
+                       if config.allocation_percent is not None
+                       else AllocationSetting.from_amount(config.allocation))
+    allocation_store = AllocationStore(default_setting, journal_dir=config.output_dir)
+
+    def entry_budget(*, timestamp: int, entry_price: float) -> float:
+        """Rupee budget for the next entry: the chosen allocation, capped by balance and free cash."""
+        snap = account.snapshot(timestamp)
+        return allocation_store.setting.budget(
+            balance=snap.balance, available_cash=snap.available_cash).budget
+
+    engine.allocation_provider = entry_budget
     coordinator = PaperExecutionCoordinator(adapter=adapter, engine=engine, controls=controls)
     # Rebuild open positions and seen signals from the journal so a restart
     # cannot lose a position or enter the same signal twice.
@@ -246,6 +261,7 @@ def build_paper_session(
         recovery=recovery,
         controls=controls,
         account=account,
+        allocation_store=allocation_store,
         exit_manager=exit_manager,
     )
 

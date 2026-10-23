@@ -40,6 +40,9 @@ class EquitySnapshot:
     opening_equity: float        # balance at the start of this IST day
     day_pnl: float               # equity - opening_equity
     marks_missing: tuple[PaperStrategyId, ...]
+    balance: float = 0.0         # book balance: starting capital + realised - costs (no unrealised)
+    deployed: float = 0.0        # premium paid for what is still open
+    available_cash: float = 0.0  # balance - deployed
 
 
 class PaperAccount:
@@ -59,7 +62,7 @@ class PaperAccount:
                  ) -> EquitySnapshot:
         by_value = {getattr(k, "value", k): v for k, v in (marks or {}).items()}
         today = self._day(timestamp)
-        realized = costs = unrealized = 0.0
+        realized = costs = unrealized = deployed = 0.0
         opening = self.starting_capital
         missing: list[PaperStrategyId] = []
         for record in self.engine.all_trades():
@@ -77,6 +80,7 @@ class PaperAccount:
                 if self._day(event.timestamp) < today:
                     opening += event.pnl - exit_cost
             if not record.closed:
+                deployed += position.entry_price * position.remaining_quantity
                 mark = by_value.get(record.strategy_id.value)
                 if mark is None or not isfinite(float(mark)) or float(mark) <= 0:
                     missing.append(record.strategy_id)
@@ -84,11 +88,13 @@ class PaperAccount:
                     unrealized += self.engine.lifecycle.calculate_pnl(
                         direction=position.direction, entry_price=position.entry_price,
                         exit_price=float(mark), quantity=position.remaining_quantity)
-        equity = self.starting_capital + realized + unrealized - costs
+        balance = self.starting_capital + realized - costs
+        equity = balance + unrealized
         return EquitySnapshot(
             timestamp=int(timestamp), starting_capital=self.starting_capital,
             realized_pnl=realized, unrealized_pnl=unrealized, costs=costs, equity=equity,
             opening_equity=opening, day_pnl=equity - opening, marks_missing=tuple(missing),
+            balance=balance, deployed=deployed, available_cash=balance - deployed,
         )
 
 

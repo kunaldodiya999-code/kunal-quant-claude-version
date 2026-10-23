@@ -68,6 +68,26 @@ class PaperExecutionCoordinator:
         option_quote: Mapping[str, Any],
         decision_timestamp: int,
     ) -> PaperEntryAttempt:
+        """Attempt one paper entry and journal the reason when no trade results."""
+        attempt = self._decide(
+            signal=signal, underlying_price=underlying_price,
+            option_quote=option_quote, decision_timestamp=decision_timestamp,
+        )
+        reason = attempt.rejection_reason
+        recorder = getattr(self.engine, "recorder", None)
+        if attempt.trade is None and reason and recorder is not None and not reason.startswith("Duplicate"):
+            recorder.record_rejection(
+                signal=signal, decision_timestamp=int(decision_timestamp), reason=reason)
+        return attempt
+
+    def _decide(
+        self,
+        *,
+        signal: PaperSignal,
+        underlying_price: float,
+        option_quote: Mapping[str, Any],
+        decision_timestamp: int,
+    ) -> PaperEntryAttempt:
         """Attempt exactly one paper entry; repeated signal IDs are rejected."""
         key = self._key(signal)
         if int(decision_timestamp) <= int(signal.timestamp):

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import isfinite
+
+from paper_trading.sizing import calculate_lots, sizing_warning
 from typing import Optional
 
 from backtest.option_trade_lifecycle import (
@@ -22,11 +24,11 @@ from backtest.option_trade_lifecycle import (
 
 @dataclass(frozen=True)
 class BuyerLifecycleConfig:
-    """Paper buyer controls. Defaults mirror V1 sizing/management values."""
+    """Paper buyer controls. Owner defaults: 30% initial stop, 3R target on that risk."""
 
     allocation: float = 15_000.0
     lot_size: int = 65
-    stop_loss_pct: float = 0.20
+    stop_loss_pct: float = 0.30      # owner default: initial stop 30% below the premium paid
     target_rr: float = 3.0
     partial_exit_fraction: float = 0.50
     target_enabled: bool = True
@@ -57,14 +59,15 @@ class BuyerOptionTradeLifecycle:
 
     def create_position(
         self, *, strategy_id: str, direction: OptionTradeDirection,
-        symbol: str, entry_price: float,
+        symbol: str, entry_price: float, allocation: float | None = None,
     ) -> OptionTradePosition:
         if not isfinite(entry_price) or entry_price <= 0:
             raise ValueError("entry_price must be finite and positive")
-        lots = int(self.config.allocation // (entry_price * self.config.lot_size))
-        if lots < 1:
-            raise ValueError("Allocation cannot purchase one complete lot")
-        quantity = lots * self.config.lot_size
+        budget = self.config.allocation if allocation is None else float(allocation)
+        sizing = calculate_lots(budget, entry_price, self.config.lot_size)
+        if not sizing.tradable:
+            raise ValueError(sizing_warning(sizing))
+        lots, quantity = sizing.lots, sizing.quantity
         stop = entry_price * (1.0 - self.config.stop_loss_pct)
         target = entry_price + (entry_price - stop) * self.config.target_rr
         return OptionTradePosition(

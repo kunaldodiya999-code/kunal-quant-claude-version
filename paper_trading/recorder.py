@@ -20,6 +20,15 @@ SIGNAL_FIELDS = (
     "reason",
 )
 
+REJECTION_FIELDS = (
+    "recorded_at",
+    "decision_timestamp",
+    "signal_timestamp",
+    "strategy_id",
+    "direction",
+    "reason",
+)
+
 TRADE_FIELDS = (
     "recorded_at",
     "event_type",
@@ -83,6 +92,22 @@ class PaperTradeRecorder:
                 "direction": getattr(signal, "direction", ""),
                 "bar_index": getattr(signal, "index", ""),
                 "reason": getattr(signal, "reason", ""),
+            },
+        )
+
+    def record_rejection(self, *, signal: Any, decision_timestamp: int, reason: str) -> None:
+        """Journal a signal that did not become a trade, with the reason."""
+        strategy = getattr(signal.strategy_id, "value", signal.strategy_id)
+        self._append(
+            self.output_dir / "rejections.csv",
+            REJECTION_FIELDS,
+            {
+                "recorded_at": self._now_iso(),
+                "decision_timestamp": int(decision_timestamp),
+                "signal_timestamp": int(signal.timestamp),
+                "strategy_id": strategy,
+                "direction": signal.direction,
+                "reason": reason,
             },
         )
 

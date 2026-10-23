@@ -3,6 +3,25 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/allocation-sizing (on top of claude/switchable-exits)
+- New `paper_trading/sizing.py`: budget -> whole lots. `lots = floor(budget / (premium x lot size))`,
+  deployed = lots x cost per lot, budget is a hard ceiling (Decimal math: plain float division
+  loses a lot in some exact cases, e.g. 402.50 at 16.10 x 25). Budget below one lot: no trade and a clear
+  message with the shortfall. Percent presets 10..100 and a rupee box are two views of one setting
+  (`AllocationSetting`): the last input used decides the mode, the other is derived. PERCENT follows the
+  balance, AMOUNT stays fixed. Saved in `allocation.json`.
+- Budget = chosen allocation capped by the balance and by cash not already deployed. Account snapshot now
+  has `balance` (starting + realised - costs), `deployed` and `available_cash`.
+- Initial stop default is now 30% below the premium paid (was 20%, the V1 value); the 3R target follows
+  (entry + 3 x risk, i.e. 1.9 x entry). Both calls and bought puts have the stop BELOW entry. A stop above
+  entry would only fit a short-sold option, which this engine never does.
+- Refused entries are journaled in `rejections.csv` with the reason (duplicates are not repeated).
+- New `paper_trading/overlays.py`: chart data per trade (entry marker LONG/SHORT, entry, initial stop,
+  effective trailing stop, target, exit, R:R). The UI draws the box from this; nothing is drawn here.
+- Tests: 26 new (sizing, two-way sync, engine sizing, overlays, rejection journal). Existing tests that
+  assumed the 20% default now pin it explicitly. Suite 427 passed, 5 need local DB.
+- Not done: the UI controls and the chart box themselves (next step), nothing yet calls the forced exit on a timer.
+
 ## claude/switchable-exits (on top of claude/live-equity-loss-cap)
 - New `paper_trading/exit_manager.py`: exit rules as checkboxes. Tick any of the six trailing-stop
   methods (default: Chandelier ATR 9 x1.5 on the option premium). All six keep running in the shadow

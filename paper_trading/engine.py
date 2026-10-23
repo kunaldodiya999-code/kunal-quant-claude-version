@@ -95,6 +95,8 @@ class PaperTradingEngine:
             strategy_id: [] for strategy_id in PaperStrategyId
         }
         self.active_positions: dict[PaperStrategyId, PaperTradeRecord] = {}
+        # Optional callable(timestamp=, entry_price=) -> budget in rupees for this entry.
+        self.allocation_provider = None
 
     @staticmethod
     def _strategy_id(value: PaperStrategyId | str | Enum) -> PaperStrategyId:
@@ -134,11 +136,16 @@ class PaperTradingEngine:
         if current is not None and not current.closed:
             return None
 
+        extra = {}
+        if self.allocation_provider is not None:
+            extra["allocation"] = self.allocation_provider(
+                timestamp=int(timestamp), entry_price=float(entry_price))
         position = self.lifecycle.create_position(
             strategy_id=strategy.value,
             direction=self._direction(direction),
             symbol=symbol,
             entry_price=entry_price,
+            **extra,
         )
         record = PaperTradeRecord(
             strategy_id=strategy,

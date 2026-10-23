@@ -30,7 +30,7 @@ def at(h, m, s=0, day=21):
 
 
 def make_engine(directory):
-    lifecycle = BuyerOptionTradeLifecycle(BuyerLifecycleConfig(allocation=15_000.0, lot_size=65))
+    lifecycle = BuyerOptionTradeLifecycle(BuyerLifecycleConfig(allocation=15_000.0, lot_size=65, stop_loss_pct=0.20))
     return PaperTradingEngine(recorder=PaperTradeRecorder(directory), lifecycle=lifecycle)
 
 
@@ -188,7 +188,7 @@ class KillSwitchTests(unittest.TestCase):
 
 def make_big_engine(directory):
     """Sizing used by the owner's example: 5 lots of 50 = 250 units at a premium of 100."""
-    lifecycle = BuyerOptionTradeLifecycle(BuyerLifecycleConfig(allocation=25_000.0, lot_size=50))
+    lifecycle = BuyerOptionTradeLifecycle(BuyerLifecycleConfig(allocation=25_000.0, lot_size=50, stop_loss_pct=0.20))
     return PaperTradingEngine(recorder=PaperTradeRecorder(directory), lifecycle=lifecycle)
 
 

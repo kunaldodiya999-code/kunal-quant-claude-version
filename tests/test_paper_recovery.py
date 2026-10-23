@@ -22,7 +22,7 @@ ENTRY_TS = int(datetime(2026, 10, 21, 10, 0, tzinfo=IST).timestamp())
 
 
 def make_engine(directory):
-    lifecycle = BuyerOptionTradeLifecycle(BuyerLifecycleConfig(allocation=15_000.0, lot_size=65))
+    lifecycle = BuyerOptionTradeLifecycle(BuyerLifecycleConfig(allocation=15_000.0, lot_size=65, stop_loss_pct=0.20))
     return PaperTradingEngine(recorder=PaperTradeRecorder(directory), lifecycle=lifecycle)
 
 

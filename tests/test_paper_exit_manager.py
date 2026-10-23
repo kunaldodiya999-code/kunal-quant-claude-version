@@ -35,7 +35,7 @@ def candles(path):
 
 
 def make_engine(directory):
-    lifecycle = BuyerOptionTradeLifecycle(BuyerLifecycleConfig(allocation=25_000.0, lot_size=50))
+    lifecycle = BuyerOptionTradeLifecycle(BuyerLifecycleConfig(allocation=25_000.0, lot_size=50, stop_loss_pct=0.20))
     return PaperTradingEngine(recorder=PaperTradeRecorder(directory), lifecycle=lifecycle)
 
 

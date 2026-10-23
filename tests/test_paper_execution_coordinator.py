@@ -30,7 +30,7 @@ class PaperExecutionCoordinatorTests(unittest.TestCase):
     def setUp(self):
         self.engine = PaperTradingEngine(
             lifecycle=BuyerOptionTradeLifecycle(
-                BuyerLifecycleConfig(allocation=15000, lot_size=25)
+                BuyerLifecycleConfig(allocation=15000, lot_size=25, stop_loss_pct=0.20)
             )
         )
         self.coordinator = PaperExecutionCoordinator(
