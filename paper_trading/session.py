@@ -15,13 +15,16 @@ from market_data.fyers_quote_cache import FyersQuoteCache
 from market_data.live_ticks import LiveMinuteBarBuilder
 from paper_trading.buyer_lifecycle import BuyerLifecycleConfig, BuyerOptionTradeLifecycle
 from paper_trading.coordinator import PaperExecutionCoordinator
-from paper_trading.engine import PaperEngineConfig, PaperTradingEngine
+from paper_trading.engine import PaperStrategyId, PaperEngineConfig, PaperTradingEngine
 from paper_trading.entry_adapter import PaperEntryAdapter, PaperEntryAdapterConfig
 from paper_trading.fyers_feed import FyersPaperFeed
 from paper_trading.market_data_pipeline import PaperMarketDataPipeline
 from paper_trading.pending_entry_orchestrator import PendingEntryConfig, PendingEntryOrchestrator
 from paper_trading.recorder import PaperTradeRecorder
+import time
+
 from paper_trading.account import PaperAccount
+from paper_trading.exit_manager import DEFAULT_TSL, ExitManager, ExitRules
 from paper_trading.costs import OptionCostModel
 from paper_trading.controls import SessionControls, SessionControlsConfig
 from paper_trading.recovery import RecoveryReport, restore_from_journal
@@ -54,6 +57,10 @@ class PaperSessionConfig:
     max_daily_loss_amount: float | None = None    # rupees; None = off
     max_daily_loss_pct: float | None = None       # percent of the day's opening equity; None = off
     kill_hours: float = 12.0
+    # Exit rules (checkboxes). A saved choice in exit_rules.json wins over these on restart.
+    active_tsl: tuple[str, ...] = DEFAULT_TSL
+    kama_exit_enabled: bool = False
+    mark_max_age_seconds: int = 30   # option price older than this cannot value an open position
 
     def __post_init__(self) -> None:
         if self.lot_size < 1:
@@ -78,6 +85,7 @@ class PaperSession:
     recovery: RecoveryReport | None = None
     controls: SessionControls | None = None
     account: PaperAccount | None = None
+    exit_manager: ExitManager | None = None
 
     def start(self) -> None:
         """Start market-data streaming only; no broker orders are submitted."""
@@ -147,6 +155,32 @@ def build_paper_session(
     # Late-bound callbacks resolve entry wiring and shadow exit tracking.
     holder: dict[str, PendingEntryOrchestrator] = {}
     tsl_shadow = TslShadowLab(Path(config.output_dir) / "tsl_shadow")
+    exit_manager = ExitManager(
+        engine, tsl_shadow,
+        rules=ExitRules(active_tsl=config.active_tsl, partial_target=config.target_enabled,
+                        kama_exit=config.kama_exit_enabled),
+        journal_dir=config.output_dir,
+    )
+
+    def current_marks() -> dict:
+        """Latest fresh option price per open paper position; stale or missing prices are omitted."""
+        marks = {}
+        for strategy in PaperStrategyId:
+            record = engine.open_trade(strategy)
+            if record is None:
+                continue
+            try:
+                quote = quote_cache.get_quote(
+                    record.position.symbol, decision_timestamp=int(time.time()),
+                    max_exchange_age_seconds=config.mark_max_age_seconds,
+                    max_receive_age_seconds=float(config.mark_max_age_seconds),
+                )
+            except (LookupError, ValueError):
+                continue
+            marks[strategy] = float(quote["lp"])
+        return marks
+
+    coordinator.marks_provider = current_marks
     option_tick_builder = LiveMinuteBarBuilder()
 
     def on_signals(signals) -> None:
@@ -159,29 +193,15 @@ def build_paper_session(
         if orchestrator is not None:
             orchestrator.on_tick(message)
 
-        # Register each accepted paper entry with independent shadow candidates.
-        for trade in engine.all_trades():
-            # Historical closed records must not be enrolled as fresh shadow trades.
-            # Entries are registered on the tick immediately after paper acceptance.
-            if trade.closed:
-                continue
-            position = trade.position
-            trade_id = f"{trade.strategy_id.value}:{trade.entry_timestamp}:{position.symbol}"
-            tsl_shadow.register_trade(
-                trade_id=trade_id,
-                symbol=position.symbol,
-                direction=getattr(position.direction, "value", position.direction),
-                entry_timestamp=trade.entry_timestamp,
-                entry_price=position.entry_price,
-                quantity=position.quantity,
-            )
+        # Enrol each accepted paper entry with every trailing-stop method (shadow lab).
+        exit_manager.enroll_open_trades()
 
-        # Only completed candles from option symbols are used by the shadow lab.
+        # Only completed candles from option symbols drive the exit rules.
         if isinstance(message, dict):
             symbol = message.get("symbol")
             if isinstance(symbol, str) and symbol.strip() != config.underlying_symbol:
                 for candle in option_tick_builder.on_message(message):
-                    tsl_shadow.on_candle(
+                    exit_manager.on_option_candle(
                         symbol=symbol.strip(),
                         candle=OptionCandle(
                             timestamp=candle.timestamp, open=candle.open,
@@ -226,6 +246,7 @@ def build_paper_session(
         recovery=recovery,
         controls=controls,
         account=account,
+        exit_manager=exit_manager,
     )
 
 

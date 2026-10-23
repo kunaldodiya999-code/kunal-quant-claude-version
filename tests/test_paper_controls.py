@@ -327,7 +327,7 @@ class ForcedExitTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 engine.force_close(A, timestamp=at(11, 0), price=bad)
         with self.assertRaises(ValueError):
-            engine.force_close(A, timestamp=at(10, 0), price=90.0)
+            engine.force_close(A, timestamp=at(9, 59), price=90.0)   # before the entry
         self.assertIsNotNone(engine.force_close(A, timestamp=at(11, 0), price=90.0))
         self.assertIsNone(engine.force_close(A, timestamp=at(11, 1), price=90.0))
 

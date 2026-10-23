@@ -3,6 +3,24 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/switchable-exits (on top of claude/live-equity-loss-cap)
+- New `paper_trading/exit_manager.py`: exit rules as checkboxes. Tick any of the six trailing-stop
+  methods (default: Chandelier ATR 9 x1.5 on the option premium). All six keep running in the shadow
+  lab for every trade, so switching takes effect on the next candle with no warm-up. Also checkboxes:
+  3R partial target (default on) and KAMA exit (default off). Choices persist in `exit_rules.json`,
+  every change and trailing exit is logged in `exit_events.csv`.
+- Rules: effective stop = tighter of initial stop and every ticked trailing stop; stop fills at the
+  stop or the open if it gapped; highest stop wins when several hit; stop beats target in one candle;
+  PSAR flips exit at the candle close; a method that already stopped out in shadow is "spent" and
+  cannot drive the live trade. Trailing exits are journaled as STOP_LOSS (locked enum unchanged).
+- Session now feeds completed option candles to the exit manager and supplies live option prices
+  (freshness-checked) to the loss cap. `catch_up` rebuilds trailing state after a restart.
+- `PaperTradingEngine.force_close` now accepts a timestamp equal to the last processed candle.
+- Tests: 16 new. Suite 401 passed, 5 need local DB. Deliberate-break checks catch looser-stop-wins,
+  lowest-stop-fills, spent methods, and ignored checkboxes.
+- Limits: trailing methods only see candles from entry, so Chandelier has no stop for 9 candles.
+  Nothing yet calls `close_due_positions` (forced 15:10 exit) on a timer; the runner will.
+
 ## claude/live-equity-loss-cap (on top of claude/kill-switch-segments)
 - New `paper_trading/account.py`: live net liquidation value
   `equity = starting capital + realised + unrealised mark-to-market - costs`.

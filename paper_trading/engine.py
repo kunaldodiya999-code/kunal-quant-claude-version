@@ -214,8 +214,8 @@ class PaperTradingEngine:
         if not isfinite(price) or price <= 0:
             raise ValueError("A forced exit needs a finite, positive price.")
         ts = int(timestamp)
-        if record.last_processed_timestamp is not None and ts <= record.last_processed_timestamp:
-            raise ValueError("Forced exit must be later than the last processed candle.")
+        if record.last_processed_timestamp is not None and ts < record.last_processed_timestamp:
+            raise ValueError("Forced exit cannot be earlier than the last processed candle.")
         position = record.position
         quantity, lots = position.remaining_quantity, position.remaining_lots
         pnl = self.lifecycle.calculate_pnl(
