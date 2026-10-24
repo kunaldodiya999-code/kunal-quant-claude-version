@@ -14,6 +14,7 @@ from pathlib import Path
 from paper_trading.controls import SessionControlsConfig
 from paper_trading.coordinator import TRADE_DIRECTIONS
 from paper_trading.market_data_pipeline import SUPPORTED_RESOLUTIONS
+from strategies.strike_ladder import STRIKE_CHOICES
 
 SETTINGS_FILE = "strategy_settings.json"
 
@@ -25,14 +26,39 @@ class StrategySettings:
     entry_start: str = "09:30"        # first new entry allowed, HH:MM IST
     entry_end: str = "15:00"          # no new entries from this time
     force_exit: str = "15:10"         # open positions closed at this time
+    # Order window. Dropdowns: which of the 5 strikes to buy.
+    call_strike: str = "ATM"          # ITM1, ATM, OTM1, OTM2, OTM3
+    put_strike: str = "ATM"
+    # Checkboxes. When either is ticked they decide the strike(s) instead of the
+    # dropdowns; both ticked = two trades per signal (ATM and ATM+1).
+    use_atm: bool = False
+    use_atm_plus_1: bool = False
 
     def __post_init__(self) -> None:
+        for name in (self.call_strike, self.put_strike):
+            if name not in STRIKE_CHOICES:
+                raise ValueError(f"strike choice must be one of {tuple(STRIKE_CHOICES)}")
+        if not isinstance(self.use_atm, bool) or not isinstance(self.use_atm_plus_1, bool):
+            raise ValueError("use_atm and use_atm_plus_1 must be true or false")
         if self.timeframe_minutes not in SUPPORTED_RESOLUTIONS:
             raise ValueError(f"timeframe must be one of {SUPPORTED_RESOLUTIONS} minutes")
         if self.trade_direction not in TRADE_DIRECTIONS:
             raise ValueError(f"trade direction must be one of {TRADE_DIRECTIONS}")
         # Reuses the session-controls rules: valid HH:MM, start < end <= force exit.
         SessionControlsConfig.from_hhmm(self.entry_start, self.entry_end, self.force_exit)
+
+
+def entry_strike_offsets(settings: StrategySettings, direction: str) -> list[tuple[str, int]]:
+    """(label, offset) for every trade one signal should open, in slot order."""
+    if settings.use_atm or settings.use_atm_plus_1:
+        plan = []
+        if settings.use_atm:
+            plan.append(("ATM", 0))
+        if settings.use_atm_plus_1:
+            plan.append(("ATM+1", 1))
+        return plan
+    choice = settings.call_strike if direction == "LONG" else settings.put_strike
+    return [(choice, STRIKE_CHOICES[choice])]
 
 
 class StrategySettingsStore:
@@ -45,6 +71,24 @@ class StrategySettingsStore:
                 self._settings = replace(default, **data)
             except (ValueError, TypeError) as exc:
                 raise ValueError(f"{self._path} is invalid ({exc}); fix or delete it to use the defaults.") from exc
+            self._mtime = self._path.stat().st_mtime
+        else:
+            self._mtime = None
+
+    def refresh(self) -> StrategySettings:
+        """Pick up a change saved by another program (the dashboard). A broken
+        file keeps the last good settings instead of stopping a live session."""
+        if self._path is None or not self._path.exists():
+            return self._settings
+        mtime = self._path.stat().st_mtime
+        if mtime != self._mtime:
+            self._mtime = mtime
+            try:
+                data = json.loads(self._path.read_text(encoding="utf-8"))
+                self._settings = replace(self._settings, **data)
+            except (ValueError, TypeError):
+                pass
+        return self._settings
 
     @property
     def settings(self) -> StrategySettings:
@@ -59,7 +103,8 @@ class StrategySettingsStore:
         if self._path is not None:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             self._path.write_text(json.dumps(asdict(self._settings), indent=2), encoding="utf-8")
+            self._mtime = self._path.stat().st_mtime
         return self._settings
 
 
-__all__ = ["SETTINGS_FILE", "StrategySettings", "StrategySettingsStore"]
+__all__ = ["SETTINGS_FILE", "StrategySettings", "StrategySettingsStore", "entry_strike_offsets"]

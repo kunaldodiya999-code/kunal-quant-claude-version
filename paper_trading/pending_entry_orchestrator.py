@@ -189,7 +189,9 @@ class PendingEntryOrchestrator:
                     max_receive_age_seconds=self.config.max_receive_age_seconds,
                 )
                 underlying_price = float(underlying_quote["lp"])
+                offset = int(getattr(signal, "strike_offset", 0) or 0)
                 contract = self.resolver.resolve(
+                    **({"strike_offset": offset} if offset else {}),
                     underlying_price=underlying_price,
                     entry_date=now.date(),
                     direction=signal.direction,

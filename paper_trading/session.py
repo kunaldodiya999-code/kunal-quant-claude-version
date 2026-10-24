@@ -6,7 +6,7 @@ by the caller after checking the selected contract specification.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable
@@ -34,7 +34,8 @@ from paper_trading.costs import OptionCostModel
 from paper_trading.controls import SessionControls, SessionControlsConfig
 from paper_trading.recovery import RecoveryReport, restore_from_journal
 from paper_trading.market_data_pipeline import SUPPORTED_RESOLUTIONS
-from paper_trading.strategy_settings import StrategySettings, StrategySettingsStore
+from paper_trading.strategy_settings import StrategySettings, StrategySettingsStore, entry_strike_offsets
+from strategies.strike_ladder import StrikeLadderResolver
 from paper_trading.tsl_shadow_lab import OptionCandle, TslShadowLab
 from strategies.option_contract_resolver import OptionContractResolver
 
@@ -133,9 +134,9 @@ def build_paper_session(
     recorder = PaperTradeRecorder(config.output_dir)
     quote_cache = FyersQuoteCache()
     if resolver is None:
-        resolver = OptionContractResolver(
+        resolver = StrikeLadderResolver(OptionContractResolver(
             database_path=config.database_path
-        ) if config.database_path is not None else OptionContractResolver()
+        ) if config.database_path is not None else OptionContractResolver())
 
     # Timeframe, Long/Short/Both and the entry window come from
     # strategy_settings.json when it exists (owner's saved choice), else from config.
@@ -150,11 +151,33 @@ def build_paper_session(
         journal_dir=config.output_dir,
     )
     settings = settings_store.settings
+    base_evaluator = SIGNAL_PROFILES[config.signal_profile]
+    late: dict[str, Any] = {}
+
+    def planned_evaluator(bars, *, paper_config):
+        """Split each Strategy A signal into one entry per chosen strike.
+
+        Settings are re-read here so a change saved from the dashboard (strike
+        dropdowns, ATM / ATM+1 boxes, Long/Short/Both) applies to the next signal.
+        """
+        current = settings_store.refresh()
+        if "coordinator" in late:
+            late["coordinator"].trade_direction = current.trade_direction
+        out = []
+        for signal in base_evaluator(bars, paper_config=paper_config):
+            if signal.strategy_id != PaperStrategyId.STRATEGY_A:
+                out.append(signal)
+                continue
+            slots = (PaperStrategyId.STRATEGY_A, PaperStrategyId.STRATEGY_A_2)
+            for slot, (label, offset) in zip(slots, entry_strike_offsets(current, signal.direction)):
+                out.append(replace(signal, strategy_id=slot, strike_offset=offset,
+                                   reason=f"{signal.reason}|{label}"))
+        return out
 
     pipeline = PaperMarketDataPipeline(
         resolution_minutes=settings.timeframe_minutes,
         paper_config=engine_config,
-        signal_evaluator=SIGNAL_PROFILES[config.signal_profile],
+        signal_evaluator=planned_evaluator,
         recorder=recorder,
     )
     lifecycle = BuyerOptionTradeLifecycle(
@@ -203,6 +226,7 @@ def build_paper_session(
     coordinator = PaperExecutionCoordinator(
         adapter=adapter, engine=engine, controls=controls, trade_direction=settings.trade_direction,
     )
+    late["coordinator"] = coordinator
     # Rebuild open positions and seen signals from the journal so a restart
     # cannot lose a position or enter the same signal twice.
     recovery = restore_from_journal(engine, coordinator) if config.restore_from_journal else None

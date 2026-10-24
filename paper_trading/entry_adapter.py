@@ -130,7 +130,9 @@ class PaperEntryAdapter:
         local_entry_date = datetime.fromtimestamp(
             timestamp, tz=MARKET_TZ
         ).date()
+        offset = int(getattr(signal, "strike_offset", 0) or 0)
         contract = self.resolver.resolve(
+            **({"strike_offset": offset} if offset else {}),
             underlying_price=float(underlying_price),
             entry_date=local_entry_date,
             direction=signal.direction,

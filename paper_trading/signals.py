@@ -38,6 +38,8 @@ class PaperSignal:
     # When the signal candle closed (IST epoch seconds). Entries are only
     # allowed at or after this moment. Set by the market-data pipeline.
     close_timestamp: int | None = None
+    # Strikes away from ATM, out-of-the-money direction (-1 ITM1, 0 ATM, +1 OTM1...).
+    strike_offset: int = 0
 
 
 def _bar_value(bar: object, name: str) -> float:

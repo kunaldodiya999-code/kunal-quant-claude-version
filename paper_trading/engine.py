@@ -27,6 +27,8 @@ class PaperStrategyId(str, Enum):
     STRATEGY_A = "KTMI_LONG_SHORT_SPEED"
     STRATEGY_B = "KTMI_MOMENTUM_ONLY"
     MODULE_CONFLUENCE = "KTMI_MODULE_CONFLUENCE"
+    # Second slot of Strategy A: lets "ATM" and "ATM+1" both be open from one signal.
+    STRATEGY_A_2 = "KTMI_LONG_SHORT_SPEED_SLOT2"
 
 
 @dataclass(frozen=True)
@@ -43,6 +45,7 @@ class PaperEngineConfig:
     def is_enabled(self, strategy_id: PaperStrategyId) -> bool:
         return {
             PaperStrategyId.STRATEGY_A: self.strategy_a_enabled,
+            PaperStrategyId.STRATEGY_A_2: self.strategy_a_enabled,
             PaperStrategyId.STRATEGY_B: self.strategy_b_enabled,
             PaperStrategyId.MODULE_CONFLUENCE: self.module_confluence_enabled,
         }[strategy_id]
