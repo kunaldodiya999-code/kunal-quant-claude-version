@@ -7,6 +7,7 @@ by the caller after checking the selected contract specification.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Any, Callable
 
@@ -21,6 +22,9 @@ from paper_trading.fyers_feed import FyersPaperFeed
 from paper_trading.market_data_pipeline import PaperMarketDataPipeline
 from paper_trading.pending_entry_orchestrator import PendingEntryConfig, PendingEntryOrchestrator
 from paper_trading.recorder import PaperTradeRecorder
+from paper_trading.signals import evaluate_latest_paper_signals
+from paper_trading.uni_lite_signals import evaluate_uni_lite_paper_signals
+from indicators.ktmi_uni_lite import UNI_LITE_CORE, UNI_LITE_DEFAULTS
 import time
 
 from paper_trading.account import PaperAccount
@@ -33,12 +37,25 @@ from paper_trading.tsl_shadow_lab import OptionCandle, TslShadowLab
 from strategies.option_contract_resolver import OptionContractResolver
 
 
+SIGNAL_PROFILES = {
+    "UNI_LITE_CORE": partial(evaluate_uni_lite_paper_signals, uni_lite_config=UNI_LITE_CORE),
+    "UNI_LITE_DEFAULTS": partial(evaluate_uni_lite_paper_signals, uni_lite_config=UNI_LITE_DEFAULTS),
+    "LEGACY_UNIVERSAL": evaluate_latest_paper_signals,
+}
+
+
 @dataclass(frozen=True)
 class PaperSessionConfig:
     lot_size: int
     allocation: float = 15_000.0          # starting budget per trade (rupees); the saved choice wins on restart
     allocation_percent: float | None = None   # if set, start in PERCENT mode (of the account balance)
     resolution_minutes: int = 3
+    # Which entry rules drive the paper engine:
+    #   UNI_LITE_CORE     owner's current rules: Long Speed crosses above +0.5 -> BUY CE,
+    #                     Short Speed crosses above +0.5 -> BUY PE (all other arrows silent)
+    #   UNI_LITE_DEFAULTS every arrow of the Pine script with its default trigger
+    #   LEGACY_UNIVERSAL  the earlier KTMI Universal Strategy A/B + confluence evaluator
+    signal_profile: str = "UNI_LITE_CORE"
     underlying_symbol: str = "NSE:NIFTY50-INDEX"
     database_path: str | Path | None = None
     output_dir: str | Path = "data/paper_trading"
@@ -71,6 +88,8 @@ class PaperSessionConfig:
             raise ValueError("allocation must be positive.")
         if self.resolution_minutes not in (1, 3, 5):
             raise ValueError("resolution_minutes must be 1, 3, or 5.")
+        if self.signal_profile not in SIGNAL_PROFILES:
+            raise ValueError(f"signal_profile must be one of {sorted(SIGNAL_PROFILES)}.")
 
 
 @dataclass
@@ -117,6 +136,7 @@ def build_paper_session(
     pipeline = PaperMarketDataPipeline(
         resolution_minutes=config.resolution_minutes,
         paper_config=engine_config,
+        signal_evaluator=SIGNAL_PROFILES[config.signal_profile],
         recorder=recorder,
     )
     lifecycle = BuyerOptionTradeLifecycle(

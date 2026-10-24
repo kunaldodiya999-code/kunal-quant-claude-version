@@ -3,6 +3,20 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls (on top of claude/allocation-sizing), 2026-10-24
+- KTMI Uni Lite saved and LOCKED in `indicators/ktmi_uni_lite/`: original Pine (SHA-256 test),
+  compact Pine (139 vs 866 lines, same 32 inputs/plots/fills/arrows/alerts, test-compared),
+  Python mirror (`config.py`, `signals.py`) checked against a line-by-line Pine transcription.
+- Paper engine now uses Uni Lite: `PaperSessionConfig.signal_profile` default `UNI_LITE_CORE`
+  (Long Speed crosses above +0.5 -> BUY CE, Short Speed crosses above +0.5 -> BUY PE, all else
+  silent). Fixes 3 differences vs the chart: Long line on High (was Close), speed>signal and
+  speed>0 required, TradingView crossover at the trigger. `LEGACY_UNIVERSAL` keeps the old path.
+- Opening Breakout V2: bought PUTs were simulated as short premium (fixed); real VWAP/BB/KTMI/DMI
+  values plus `scripts/run_opening_breakout_v2_backtest.py`.
+- `CLAUDE.md` (session memory), `docs/KUNAL_QUANT_MASTER_SPEC.md`, `docs/AUDIT_2026-10-24.md`.
+- Tests: 12 Uni Lite + 17 V2 new. Suite 456 passed, 5 need local DB.
+- Open: no indicator warm-up at session start (audit section 8.1), next step.
+
 ## claude/allocation-sizing (on top of claude/switchable-exits)
 - New `paper_trading/sizing.py`: budget -> whole lots. `lots = floor(budget / (premium x lot size))`,
   deployed = lots x cost per lot, budget is a hard ceiling (Decimal math: plain float division
