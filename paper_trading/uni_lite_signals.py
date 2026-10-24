@@ -16,10 +16,10 @@ With ``UNI_LITE_CORE`` only the first two can fire.
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Callable, Sequence
 
 from indicators.ktmi.universal import OHLCData
-from indicators.ktmi_uni_lite import UNI_LITE_CORE, UniLiteConfig, calculate_uni_lite
+from indicators.ktmi_uni_lite import UNI_LITE_CORE, UniLiteBar, UniLiteConfig, calculate_uni_lite
 from paper_trading.engine import PaperEngineConfig, PaperStrategyId
 from paper_trading.signals import PaperSignal, _timestamp, _to_ohlc
 
@@ -33,13 +33,20 @@ def evaluate_uni_lite_paper_signals(
     *,
     paper_config: PaperEngineConfig | None = None,
     uni_lite_config: UniLiteConfig = UNI_LITE_CORE,
+    bar_sink: Callable[[object, UniLiteBar], None] | None = None,
 ) -> list[PaperSignal]:
-    """Signals on the latest completed bar only (full history keeps warm-up)."""
+    """Signals on the latest completed bar only (full history keeps warm-up).
+
+    ``bar_sink`` receives (latest bar, its Uni Lite values) for every closed bar,
+    arrow or not, so the values can be journaled and compared with TradingView.
+    """
     if len(bars) < 2:
         return []
     paper_config = paper_config or PaperEngineConfig()
     ohlc: list[OHLCData] = _to_ohlc(bars)
     latest = calculate_uni_lite(ohlc, uni_lite_config)[-1]
+    if bar_sink is not None:
+        bar_sink(bars[-1], latest)
     index = len(bars) - 1
     timestamp = _timestamp(bars[-1])
     c = uni_lite_config

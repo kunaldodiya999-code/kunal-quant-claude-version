@@ -24,6 +24,7 @@ from paper_trading.pending_entry_orchestrator import PendingEntryConfig, Pending
 from paper_trading.recorder import PaperTradeRecorder
 from paper_trading.signals import evaluate_latest_paper_signals
 from paper_trading.uni_lite_signals import evaluate_uni_lite_paper_signals
+from paper_trading.ktmi_journal import KtmiBarJournal
 from indicators.ktmi_uni_lite import UNI_LITE_CORE, UNI_LITE_DEFAULTS
 import time
 
@@ -152,6 +153,10 @@ def build_paper_session(
     )
     settings = settings_store.settings
     base_evaluator = SIGNAL_PROFILES[config.signal_profile]
+    # Signal checker: every closed candle's KTMI values go to ktmi_bars.csv.
+    ktmi_journal = KtmiBarJournal(config.output_dir, timeframe_minutes=settings.timeframe_minutes,
+                                  symbol=config.underlying_symbol)
+    sink = {"bar_sink": ktmi_journal.record} if config.signal_profile.startswith("UNI_LITE") else {}
     late: dict[str, Any] = {}
 
     def planned_evaluator(bars, *, paper_config):
@@ -164,7 +169,7 @@ def build_paper_session(
         if "coordinator" in late:
             late["coordinator"].trade_direction = current.trade_direction
         out = []
-        for signal in base_evaluator(bars, paper_config=paper_config):
+        for signal in base_evaluator(bars, paper_config=paper_config, **sink):
             if signal.strategy_id != PaperStrategyId.STRATEGY_A:
                 out.append(signal)
                 continue

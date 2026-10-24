@@ -68,7 +68,7 @@ def test_missing_login_files_give_plain_instructions(tmp_path):
 
 def test_paper_day_end_to_end(tmp_path, monkeypatch):
     # Fire one LONG signal on the first live 3-minute bar (Uni Lite maths is tested elsewhere).
-    def one_signal(bars, *, paper_config):
+    def one_signal(bars, *, paper_config, **kwargs):
         last = bars[-1]
         if last.timestamp == int(datetime(2026, 10, 26, 10, 0, tzinfo=IST).timestamp()):
             return [PaperSignal(PaperStrategyId.STRATEGY_A, "LONG", last.timestamp, len(bars) - 1, "TEST")]
