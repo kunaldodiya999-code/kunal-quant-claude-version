@@ -8,8 +8,8 @@ __pycache__/
 .env
 fyers_access_token.txt
 
-# Local data
-data/
+# Local data (root folder only: dashboard/data/ is code and must be committed)
+/data/
 *.db
 *.sqlite
 *.sqlite3
