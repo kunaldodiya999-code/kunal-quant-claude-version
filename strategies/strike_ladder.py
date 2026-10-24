@@ -49,38 +49,55 @@ def strike_ladder(spot: float, option_type: str, step: int = 50) -> list[tuple[s
 
 
 class StrikeLadderResolver:
-    """Resolve the exact contract for a strike offset; offset 0 = the locked ATM rule."""
+    """Resolve the exact contract for an index and strike offset.
 
-    def __init__(self, base: OptionContractResolver) -> None:
+    NIFTY at offset 0 goes through the locked ``OptionContractResolver``
+    unchanged. Every other case uses the same rules (nearest expiry on/after the
+    entry date, exact strike, CE/PE) for the chosen underlying and strike gap.
+    """
+
+    def __init__(self, base: OptionContractResolver, *, underlying: str = "NIFTY",
+                 strike_step: int | None = None) -> None:
         self.base = base
+        self.underlying = underlying.upper()
+        self.strike_step = int(strike_step or base.config.strike_step)
 
     def __getattr__(self, name):  # calculate_atm_strike, find_nearest_expiry, ...
         return getattr(self.base, name)
 
+    def _nearest_expiry(self, connection, entry_date: date, option_type: str) -> date:
+        row = connection.execute(
+            "SELECT MIN(expiry_date) FROM instruments WHERE broker = 'FYERS' AND underlying = ? "
+            "AND option_type = ? AND expiry_date >= ?",
+            (self.underlying, option_type, entry_date.isoformat()),
+        ).fetchone()
+        if row is None or row[0] is None:
+            raise LookupError(f"No {self.underlying} {option_type} expiry found on/after {entry_date}.")
+        return date.fromisoformat(row[0])
+
     def resolve(
         self, *, underlying_price: float, entry_date: date, direction: str, strike_offset: int = 0,
     ) -> ResolvedOptionContract:
-        if strike_offset == 0:
+        if strike_offset == 0 and self.underlying == "NIFTY" and self.strike_step == self.base.config.strike_step:
             return self.base.resolve(
                 underlying_price=underlying_price, entry_date=entry_date, direction=direction
             )
         option_type = option_type_for(direction)
-        step = self.base.config.strike_step
-        strike = strike_for_offset(underlying_price, option_type, strike_offset, step)
-        expiry = self.base.find_nearest_expiry(entry_date=entry_date, option_type=option_type)
+        strike = strike_for_offset(underlying_price, option_type, strike_offset, self.strike_step)
         with sqlite3.connect(self.base.database_path) as connection:
+            expiry = self._nearest_expiry(connection, entry_date, option_type)
             row = connection.execute(
                 """
                 SELECT id, symbol, underlying, expiry_date, strike, option_type
                 FROM instruments
-                WHERE broker = 'FYERS' AND underlying = 'NIFTY'
+                WHERE broker = 'FYERS' AND underlying = ?
                   AND expiry_date = ? AND strike = ? AND option_type = ?
                 ORDER BY symbol
                 """,
-                (expiry.isoformat(), strike, option_type),
+                (self.underlying, expiry.isoformat(), strike, option_type),
             ).fetchone()
         if row is None:
-            raise LookupError(f"Exact option contract not found: NIFTY {expiry} {strike} {option_type}")
+            raise LookupError(f"Exact option contract not found: {self.underlying} {expiry} {strike} {option_type}")
         return ResolvedOptionContract(
             instrument_id=int(row[0]), symbol=str(row[1]), underlying=str(row[2]),
             expiry_date=date.fromisoformat(row[3]), strike=int(row[4]), option_type=str(row[5]),

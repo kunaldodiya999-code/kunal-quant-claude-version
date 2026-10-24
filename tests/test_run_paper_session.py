@@ -26,8 +26,15 @@ def master():
             rows[sym] = {"symTicker": sym, "underSym": "NIFTY", "exInstType": 14, "expiryDate": str(EXPIRY_EPOCH),
                          "strikePrice": float(strike), "optType": typ, "minLotSize": 65, "tickSize": 0.05,
                          "exchange": 10, "exchangeName": "NSE", "fyToken": sym}
-    rows["NSE:BANKNIFTY26O2750000CE"] = dict(rows["NSE:NIFTY26O2722000CE"], underSym="BANKNIFTY",
-                                             symTicker="NSE:BANKNIFTY26O2750000CE")
+    for und, prefix, strikes, lot in (("BANKNIFTY", "NSE:BANKNIFTY26O27", range(49500, 50601, 100), 30),
+                                      ("SENSEX", "BSE:SENSEX26O29", range(74500, 75701, 100), 20)):
+        expiry = EXPIRY_EPOCH if und == "BANKNIFTY" else EXPIRY_EPOCH + 2 * 86400
+        for strike in strikes:
+            for typ in ("CE", "PE"):
+                sym = f"{prefix}{strike}{typ}"
+                rows[sym] = {"symTicker": sym, "underSym": und, "exInstType": 14, "expiryDate": str(expiry),
+                             "strikePrice": float(strike), "optType": typ, "minLotSize": lot, "tickSize": 0.05,
+                             "exchange": 10, "exchangeName": sym[:3], "fyToken": sym}
     return rows
 
 
@@ -67,7 +74,10 @@ def test_missing_login_files_give_plain_instructions(tmp_path):
         main(["--credentials-folder", str(tmp_path), "--data-folder", str(tmp_path)])
 
 
-def run_day(tmp_path, monkeypatch, extra_args=(), client=None):
+SPOTS = {"NSE:NIFTY50-INDEX": 22010, "NSE:NIFTYBANK-INDEX": 50040, "BSE:SENSEX-INDEX": 75060}
+
+
+def run_day(tmp_path, monkeypatch, extra_args=(), client=None, index="NIFTY"):
     """Pretend Monday 10:00-10:12 with one LONG signal on the 10:00 3-minute bar."""
     def one_signal(bars, *, paper_config, **kwargs):
         last = bars[-1]
@@ -98,13 +108,15 @@ def run_day(tmp_path, monkeypatch, extra_args=(), client=None):
         if not sockets:
             return
         on_message = sockets[0].cb["on_message"]
-        on_message(tick("NSE:NIFTY50-INDEX", 22010, t["now"]))
+        for spot, price in SPOTS.items():
+            on_message(tick(spot, price, t["now"]))
         for sym in sockets[0].subscribed:
             if sym.endswith(("CE", "PE")):
                 on_message(tick(sym, 101.5, t["now"]))
         t["now"] += timedelta(minutes=1)
 
-    main(["--data-folder", str(tmp_path), "--stop-at", "10:12", "--status-every", "0", *extra_args],
+    main(["--index", index, "--data-folder", str(tmp_path), "--stop-at", "10:12", "--status-every", "0",
+          *extra_args],
          client=client or FakeClient(), raw_master=master(), socket_factory=socket_factory,
          clock=lambda: t["now"], sleep=sleep)
     return sockets
@@ -116,20 +128,21 @@ def rows(path):
 
 def test_paper_day_end_to_end(tmp_path, monkeypatch):
     sockets = run_day(tmp_path, monkeypatch)
-    status = json.loads((tmp_path / "paper_trading" / "live_status.json").read_text())
+    status = json.loads((tmp_path / "paper_trading" / "NIFTY" / "live_status.json").read_text())
+    assert status["index"] == "NIFTY"
     assert status["mode"] == "PAPER" and status["orders_mode"] == "DRY_RUN"
     assert status["contracts"] == {"nearest_expiry": "2026-10-27", "lot_size": 65}
     assert status["ladders"]["call"][1] == {"choice": "ATM", "strike": 22000}
     assert [p["symbol"] for p in status["positions"]] == ["NSE:NIFTY26O2722000CE"]
     assert status["positions"][0]["side"] == "BUY CALL"
     assert "NSE:NIFTY26O2722000CE" in sockets[0].subscribed
-    trades = (tmp_path / "paper_trading" / "trade_events.csv").read_text()
+    trades = (tmp_path / "paper_trading" / "NIFTY" / "trade_events.csv").read_text()
     assert "NSE:NIFTY26O2722000CE" in trades
     # Dry run: the order that WOULD be sent, nothing sent.
-    log = rows(tmp_path / "live_trading" / "orders_log.csv")
+    log = rows(tmp_path / "live_trading" / "NIFTY" / "orders_log.csv")
     assert [(r["action"], r["symbol"], r["side"], r["qty"], r["price"]) for r in log] == [
         ("WOULD_PLACE", "NSE:NIFTY26O2722000CE", "BUY", "130", "102.5")]
-    assert rows(tmp_path / "live_trading" / "live_orders.csv")[0]["mode"] == "DRY_RUN"
+    assert rows(tmp_path / "live_trading" / "NIFTY" / "live_orders.csv")[0]["mode"] == "DRY_RUN"
 
 
 def test_live_orders_refused_unless_switch_armed(tmp_path, monkeypatch):
@@ -151,5 +164,54 @@ def test_armed_live_day_sends_one_limit_buy(tmp_path, monkeypatch):
     assert len(placed) == 1
     assert (placed[0]["symbol"], placed[0]["side"], placed[0]["type"], placed[0]["qty"], placed[0]["limitPrice"]) == (
         "NSE:NIFTY26O2722000CE", 1, 1, 130, 102.5)
-    live = rows(tmp_path / "live_trading" / "live_orders.csv")
+    live = rows(tmp_path / "live_trading" / "NIFTY" / "live_orders.csv")
     assert (live[0]["mode"], live[0]["status"], live[0]["filled_qty"]) == ("LIVE", "FILLED", "130")
+
+
+def test_three_indexes_trade_side_by_side_on_one_connection(tmp_path, monkeypatch):
+    sockets = run_day(tmp_path, monkeypatch, index="NIFTY,BANKNIFTY,SENSEX")
+    assert len(sockets) == 1                                   # one real FYERS connection
+    expected = {
+        "NIFTY": ("NSE:NIFTY26O2722000CE", 65),               # ATM of 22010, gap 50
+        "BANKNIFTY": ("NSE:BANKNIFTY26O2750000CE", 30),       # ATM of 50040, gap 100
+        "SENSEX": ("BSE:SENSEX26O2975100CE", 20),             # ATM of 75060, gap 100, BSE
+    }
+    for key, (symbol, lot) in expected.items():
+        status = json.loads((tmp_path / "paper_trading" / key / "live_status.json").read_text())
+        assert status["index"] == key
+        assert status["contracts"]["lot_size"] == lot
+        assert [p["symbol"] for p in status["positions"]] == [symbol]
+        assert status["positions"][0]["quantity"] % lot == 0
+        log = rows(tmp_path / "live_trading" / key / "orders_log.csv")
+        assert [(r["action"], r["symbol"]) for r in log] == [("WOULD_PLACE", symbol)]
+    assert sockets[0].subscribed[:3] == ["NSE:NIFTY50-INDEX", "NSE:NIFTYBANK-INDEX", "BSE:SENSEX-INDEX"]
+
+
+def test_unknown_index_is_refused(tmp_path):
+    with pytest.raises(SystemExit, match="Unknown index"):
+        main(["--index", "FINNIFTY", "--data-folder", str(tmp_path)], client=FakeClient(), raw_master=master())
+
+
+def test_old_settings_file_is_carried_into_each_index_folder(tmp_path, monkeypatch):
+    (tmp_path / "paper_trading").mkdir()
+    (tmp_path / "paper_trading" / "strategy_settings.json").write_text(json.dumps({"timeframe_minutes": 3,
+                                                                                  "trade_direction": "LONG"}))
+    run_day(tmp_path, monkeypatch, index="NIFTY,SENSEX")
+    for key in ("NIFTY", "SENSEX"):
+        saved = json.loads((tmp_path / "paper_trading" / key / "strategy_settings.json").read_text())
+        assert saved["trade_direction"] == "LONG"
+
+
+def test_silence_warning_only_in_market_hours():
+    from types import SimpleNamespace
+    from scripts.run_paper_session import IndexDesk
+    from strategies.index_profiles import get_profile
+    snap = {"value": None}
+    session = SimpleNamespace(quote_cache=SimpleNamespace(snapshot=lambda s: snap["value"]))
+    desk = IndexDesk(get_profile("NIFTY"), session, None, None, None, None)
+    at = lambda h, m: datetime(2026, 10, 26, h, m, tzinfo=IST)
+    assert desk.silence_seconds(at(9, 0)) is None                  # before market
+    assert desk.silence_seconds(at(10, 0)) == float("inf")         # nothing received yet
+    snap["value"] = SimpleNamespace(received_at=at(10, 0).timestamp())
+    assert desk.silence_seconds(at(10, 2)) == 120
+    assert desk.silence_seconds(datetime(2026, 10, 25, 10, 0, tzinfo=IST)) is None   # Sunday

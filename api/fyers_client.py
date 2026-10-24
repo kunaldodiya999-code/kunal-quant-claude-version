@@ -479,6 +479,7 @@ class FyersClient:
         lite_mode: bool = False,
         write_to_file: bool = False,
         log_path: str = "",
+        reconnect_retry: int = 50,
     ):
         """
         Create a FYERS market-data WebSocket.
@@ -493,6 +494,7 @@ class FyersClient:
             litemode=lite_mode,
             write_to_file=write_to_file,
             reconnect=reconnect,
+            reconnect_retry=reconnect_retry,   # SDK default 5 gives up within ~30 s; 50 is its maximum
             on_connect=on_connect,
             on_close=on_close,
             on_error=on_error,

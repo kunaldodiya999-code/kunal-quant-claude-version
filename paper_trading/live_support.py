@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import urllib.request
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -43,21 +44,50 @@ class ContractSync:
     expiries: tuple[str, ...]
 
 
-def sync_nifty_option_contracts(database_path: str | Path, raw_master: Mapping[str, Any], *, today: date) -> ContractSync:
-    """Upsert current NIFTY CE/PE contracts (expiry today or later)."""
+MASTER_URL = "https://public.fyers.in/sym_details/{name}_sym_master.json"
+
+
+def load_fyers_master(name: str, folder: str | Path, *, today: date, fetch=None) -> dict:
+    """FYERS public symbol master (e.g. NSE_FO, BSE_FO), downloaded at most once a day."""
+    path = Path(folder) / f"{name}_{today.isoformat()}.json"
+    if path.exists():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except ValueError:
+            path.unlink()                       # half-written file: download again
+    if fetch is None:
+        def fetch(url):
+            request = urllib.request.Request(url, headers={"User-Agent": "KunalQuant/1.0"})
+            with urllib.request.urlopen(request, timeout=180) as response:
+                return json.loads(response.read().decode("utf-8"))
+    data = fetch(MASTER_URL.format(name=name))
+    if not isinstance(data, dict) or not data:
+        raise RuntimeError(f"Unexpected FYERS {name} symbol master format.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    for old in path.parent.glob(f"{name}_*.json"):   # keep only today's copy
+        old.unlink()
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data), encoding="utf-8")
+    os.replace(tmp, path)
+    return data
+
+
+def sync_option_contracts(database_path: str | Path, raw_master: Mapping[str, Any], *, underlying: str,
+                          today: date) -> ContractSync:
+    """Upsert current CE/PE contracts of one index (expiry today or later)."""
     rows = [
         r for r in normalize_master(dict(raw_master))
-        if str(r.get("underlying") or "").upper() == "NIFTY"
+        if str(r.get("underlying") or "").upper() == underlying.upper()
         and r.get("option_type") in ("CE", "PE")
         and r.get("expiry_date") and r["expiry_date"] >= today.isoformat()
         and r.get("strike")
     ]
     if not rows:
-        raise RuntimeError("FYERS symbol master has no current NIFTY options.")
+        raise RuntimeError(f"FYERS symbol master has no current {underlying} options.")
     nearest = min(r["expiry_date"] for r in rows)
     lots = {r["lot_size"] for r in rows if r["expiry_date"] == nearest and r.get("lot_size")}
     if len(lots) != 1:
-        raise RuntimeError(f"Nearest-expiry NIFTY lot size is not unique in FYERS data: {sorted(lots)}")
+        raise RuntimeError(f"Nearest-expiry {underlying} lot size is not unique in FYERS data: {sorted(lots)}")
     initialize_database(database_path)
     DatabaseRepository(database_path).upsert_instruments(rows)
     return ContractSync(
@@ -66,6 +96,10 @@ def sync_nifty_option_contracts(database_path: str | Path, raw_master: Mapping[s
         lot_size=int(next(iter(lots))),
         expiries=tuple(sorted({r["expiry_date"] for r in rows}))[:4],
     )
+
+
+def sync_nifty_option_contracts(database_path, raw_master, *, today: date) -> ContractSync:
+    return sync_option_contracts(database_path, raw_master, underlying="NIFTY", today=today)
 
 
 def _ist(ts: int | None) -> str | None:
@@ -142,4 +176,5 @@ def write_status(folder: str | Path, status: dict) -> Path:
     return path
 
 
-__all__ = ["STATUS_FILE", "ContractSync", "build_status", "sync_nifty_option_contracts", "write_status"]
+__all__ = ["STATUS_FILE", "ContractSync", "build_status", "load_fyers_master", "sync_nifty_option_contracts",
+           "sync_option_contracts", "write_status"]

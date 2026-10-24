@@ -147,7 +147,8 @@ class FyersPaperFeed:
             socket = self._socket
             self._connected = False
         if socket is not None:
-            close = getattr(socket, "close", None)
+            # The FYERS SDK names it close_connection(); without it the program can hang on exit.
+            close = getattr(socket, "close_connection", None) or getattr(socket, "close", None)
             if callable(close):
                 close()
 
