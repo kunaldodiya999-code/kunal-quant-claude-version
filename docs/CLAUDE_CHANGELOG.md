@@ -3,6 +3,20 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: clean data sweep, KTMI accuracy, Opening Scalp (OFF), 2026-10-24
+- Read the KunalQuant HFT plan/checkpoints (10s via NIFTY futures 5s, Gap-Open V1). Summary in
+  `docs/OPENING_SCALP_AND_DATA.md` (the README for all of this).
+- Data sweep `scripts/sweep_market_data.py` (Yahoo + FYERS: index, VIX, futures 1m/5s, option ladder) into
+  `data/research/market_data.db`; clean-day rules `market_data/day_quality.py` (Yahoo dead tail cut).
+  Yahoo: 17/18 clean 1m days, 37/39 5m, 486/490 60m per index.
+- `scripts/ktmi_accuracy.py`: UNI_LITE_CORE on clean days, next-open entries. 17 days: direction ~40-51%,
+  best PF 0.92-1.46. No proven edge on one month.
+- `strategies/opening_scalp.py` (OFF, not wired live) + `scripts/opening_scalp_backtest.py` with walk-forward.
+  Default ORB_CLOSE 10/50/stop<=20/BE20: 1m PF 4.0 (37 trades); 5m PF 1.28 (65, first half lost).
+  Both scripts take `--source kq-db` for the 5-year KunalQuant NIFTY data.
+- Dashboard page "Research Backtest" (`dashboard/pages/6_Research_Backtest.py`).
+- Tests: 584 passed, 5 need local DB.
+
 ## claude/affectionate-bardeen-3k5sls: NIFTY + BANK NIFTY + SENSEX, Monday hardening, 2026-10-25
 - `strategies/index_profiles.py` (checked against FYERS masters 2026-10-24): NIFTY gap 50 lot 65 weekly Tue;
   BANKNIFTY gap 100 lot 30 monthly; SENSEX (BSE_FO) gap 100 lot 20 weekly Thu. Lots/expiries read daily.

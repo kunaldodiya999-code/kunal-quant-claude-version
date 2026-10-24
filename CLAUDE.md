@@ -50,3 +50,7 @@
 - Trading day: see docs/MONDAY_GUIDE.md. `python scripts\run_paper_session.py` (window 1) +
   `cd dashboard; streamlit run app.py` (window 2, page "Live Paper Trading").
   Daily FYERS login first: `python fyers_auth.py` in the folder holding `.env` (likely KunalQuant).
+- Research (2026-10-24): `docs/OPENING_SCALP_AND_DATA.md`. Data sweep `scripts/sweep_market_data.py`,
+  KTMI accuracy `scripts/ktmi_accuracy.py`, Opening Scalp `strategies/opening_scalp.py` (OFF, not wired live),
+  backtest `scripts/opening_scalp_backtest.py`; both take `--source kq-db` (5-year NIFTY). Dashboard page
+  "Research Backtest". Results live in data/research (local only).
