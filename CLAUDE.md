@@ -13,6 +13,10 @@
   It holds the real price database `data\database\kunal_quant.db`; this working copy has none
   (that is why 5 tests skip here).
 - Tests: `python -m pytest tests -q --ignore=tests/expiry_isolation_test.py`
+- Before telling the owner to pull: verify from a FRESH CLONE of the pushed branch (tests + every
+  dashboard page via AppTest). A local pass can hide files git ignored (2026-10-24: `data/` rule
+  hid `dashboard/data/live.py`; now only `/data/` is ignored).
+- PUT ATM+1 = one strike further OTM (below ATM), confirmed by the owner 2026-10-24.
 
 ## LOCKED: KTMI Uni Lite (the strategy indicator)
 - `indicators/ktmi_uni_lite/`; read `LOCKED.md` there.
