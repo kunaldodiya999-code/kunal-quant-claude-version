@@ -25,3 +25,6 @@ fyers_auth_code.txt
 
 # pytest
 .pytest_cache/
+
+# Live chart data written by the dashboard
+dashboard/static/live/

@@ -15,7 +15,8 @@ What it does, in order:
   2. Loads today's option contracts and lot size of each index from FYERS.
   3. Reads each index's settings (timeframe, Long/Short/Both, times, strikes).
   4. Loads earlier candles so KTMI matches your TradingView chart.
-  5. Streams live prices (one FYERS connection); paper trades on KTMI Uni Lite.
+  5. Saves chart data: futures volume (the index has none), daily candles, option-chain OI.
+  6. Streams live prices (one FYERS connection); paper trades on KTMI Uni Lite.
   6. Closes open paper trades at the force-exit time; stops after the market.
 
 Leave the window open all day. Press Ctrl+C to stop early (open paper trades
@@ -80,6 +81,9 @@ class IndexDesk:
         self.paper_dir, self.gateway, self.mirror = paper_dir, gateway, mirror
         self.reported_error = None
         self.last_silence_warning = 0.0
+        self.futures = None          # FuturesMinuteRecorder (chart volume), when the future is known
+        self.last_oi = 0.0           # monotonic time of the last option-chain refresh
+        self.oi_error = None
 
     def silence_seconds(self, now: datetime) -> float | None:
         """Seconds since the last index price arrived, during market hours only."""
@@ -102,6 +106,8 @@ def main(argv=None, *, client=None, raw_master=None, socket_factory=None, clock=
     args = build_parser().parse_args(argv)
     clock = clock or (lambda: datetime.now(IST))
 
+    from paper_trading.chart_feeds import FuturesMinuteRecorder, save_daily_candles, save_option_chain
+    from market_data.sources.fyers_history import nearest_future
     from paper_trading.live_support import load_fyers_master, sync_option_contracts, write_status
     from paper_trading.session import PaperSessionConfig, build_paper_session
     from paper_trading.shared_socket import SharedSocketHub
@@ -230,12 +236,50 @@ def main(argv=None, *, client=None, raw_master=None, socket_factory=None, clock=
                                        now=clock())
         bars = session.pipeline.seed_history(prof.spot_symbol, history)
         say(f"{prof.label}: warm-up {len(history)} one-minute candles -> {bars} bars of history")
-        desks.append(IndexDesk(prof, session, contracts, paper_dir, gateway, mirror))
+        desk = IndexDesk(prof, session, contracts, paper_dir, gateway, mirror)
+        desks.append(desk)
 
-    # 5. Live (one FYERS connection for all indexes)
+        # 5. Chart data (futures volume, daily candles). Never stops trading.
+        try:
+            future = nearest_future(master(prof.master), prof.underlying, today)
+            if future:
+                desk.futures = FuturesMinuteRecorder(paper_dir, future)
+                desk.futures.seed(fetch_minute_history(client, future, resolution_minutes=settings.timeframe_minutes,
+                                                       now=clock()))
+            save_daily_candles(client, paper_dir, spot=prof.spot_symbol, future=future, today=today,
+                               pause=0.35 if sleep is time.sleep else 0)
+            say(f"{prof.label}: chart data ready (volume from {future or 'no future found'}, daily candles)")
+        except Exception as exc:
+            say(f"{prof.label}: chart extras not loaded ({exc}). Trading is not affected.")
+
+    def refresh_oi(desk: IndexDesk, now: datetime) -> None:
+        """Option-chain open interest for the chart's OI profile, about once a minute."""
+        model = getattr(client, "model", client)
+        if not hasattr(model, "optionchain") or time.monotonic() - desk.last_oi < 60:
+            return
+        if now.weekday() >= 5 or not (dtime(9, 10) <= now.time() <= dtime(15, 35)):
+            return
+        desk.last_oi = time.monotonic()
+        try:
+            save_option_chain(model, desk.paper_dir, spot_symbol=desk.profile.spot_symbol, now=now)
+            desk.oi_error = None
+        except Exception as exc:
+            if str(exc) != desk.oi_error:
+                say(f"{desk.profile.label}: option-chain OI not updated ({exc}). Trading is not affected.")
+            desk.oi_error = str(exc)
+
+    # 6. Live (one FYERS connection for all indexes; futures ticks only feed the chart volume)
     def start_all() -> None:
         for desk in desks:
             desk.session.start()
+        for desk in desks:
+            if desk.futures is None:
+                continue
+            holder: dict = {}
+            holder["socket"] = hub.factory(
+                on_message=desk.futures.on_message,
+                on_connect=lambda h=holder, sym=desk.futures.symbol: h["socket"].subscribe([sym]))
+            holder["socket"].connect()
     threading.Thread(target=start_all, name="fyers-feed", daemon=True).start()
     say("Connecting to FYERS live data... leave this window open. (Ctrl+C to stop)")
     stop_at = dtime.fromisoformat(args.stop_at)
@@ -254,6 +298,8 @@ def main(argv=None, *, client=None, raw_master=None, socket_factory=None, clock=
                         desk.session.engine, timestamp=stamp, prices=desk.session.coordinator.marks_provider())
                     for strategy, exit_event in result.closed:
                         say(f"{desk.profile.label}: FORCE EXIT {strategy.value} at {getattr(exit_event, 'price', '?')}")
+            for desk in desks:
+                refresh_oi(desk, now)
             for desk in desks:
                 silent = desk.silence_seconds(now)
                 if silent is not None and silent > 60 and now.timestamp() - desk.last_silence_warning > 60:
@@ -278,6 +324,8 @@ def main(argv=None, *, client=None, raw_master=None, socket_factory=None, clock=
             write_status(desk.paper_dir, desk.status())
             desk.session.close()
             desk.mirror.close()
+            if desk.futures is not None:
+                desk.futures._close_minute()
         say(f"Journals and status saved in {args.data_folder / 'paper_trading'}")
     return 0
 

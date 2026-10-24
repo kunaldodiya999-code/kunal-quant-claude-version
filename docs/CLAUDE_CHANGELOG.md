@@ -3,6 +3,21 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: TradingView-style chart, futures volume, indicators, 2026-10-24 (night)
+- Runner saves per index: nearest-futures 1-minute candles WITH volume (warm-up history + live ticks via
+  `vol_traded_today`), daily candles (+ futures daily volume), option-chain OI every minute
+  (`paper_trading/chart_feeds.py`). Errors never stop trading.
+- Chart (`dashboard/static/kq_chart.js`, `kq_indicators.js`): instant timeframes 1/3/5/10/15/30/60 min + 1D
+  (KTMI per timeframe in Python, complete bars only), signals Both/Long/Short/Off, indicators menu with
+  settings: futures volume, KTMI, VWAP (anchors, 1/2/3 SD or % bands), Bollinger (5 MA types), OI profile,
+  Smart Money Concepts (BOS/CHoCH, OB, FVG, EQH/EQL, swing points, strong/weak, premium/discount).
+  Tools per owner: horizontal, vertical, rectangle, path, measure, fixed-range volume profile
+  (POC, VAH/VAL, high/low, up/down/total/delta, developing POC/VA). Trend line and fib removed.
+- Live updates without reload: page writes `dashboard/static/live/*.json` every 10 s, chart polls
+  (`enableStaticServing` in `.streamlit/config.toml`). Guide: `docs/CHART_GUIDE.md`.
+- Checked in Chromium: all timeframes, indicators, settings dialogs, tools, persistence, live update.
+  Indicator maths tested against Python (Node). Tests: 606 passed, 5 need local DB.
+
 ## claude/affectionate-bardeen-3k5sls: "Trade in" (one, several or all indexes) + Chart page with drawing tools, 2026-10-24
 - `StrategySettings.trading_enabled` (default true) per index; coordinator rejects entries with the reason
   "Trading is switched off for this index"; refreshed per signal like Long/Short. Dashboard box "Trade in"

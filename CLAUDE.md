@@ -56,6 +56,9 @@
   "Research Backtest". Results live in data/research (local only).
 - "Trade in" (2026-10-24): per-index `trading_enabled` in strategy_settings.json; dashboard box on
   Live Paper Trading; runner still watches all indexes started with `--index`.
-- Chart page `dashboard/pages/7_Chart.py` + `dashboard/static/drawing_chart.js` (drawing tools; browser-saved).
+- Chart page `dashboard/pages/7_Chart.py` (docs/CHART_GUIDE.md): `dashboard/static/kq_chart.js` + `kq_indicators.js`;
+  data `dashboard/data/chart.py`; runner saves futures volume / daily / OI (`paper_trading/chart_feeds.py`).
+  OWNER RULE: index has no volume -> always use nearest FUTURES volume on the spot chart.
+  Owner's tools: horizontal, vertical, rectangle, path, measure, volume profile (no trend line / fib).
 - OWNER RULE: when the owner says "we are done for the day", give ALL commands to run on their PC in order,
   step by step (folder for each), with what each one should show, plus everything still pending from their side.

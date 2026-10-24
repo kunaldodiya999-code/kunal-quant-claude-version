@@ -1,0 +1,3 @@
+[server]
+# The chart page saves live data in dashboard/static/live and the chart fetches it.
+enableStaticServing = true

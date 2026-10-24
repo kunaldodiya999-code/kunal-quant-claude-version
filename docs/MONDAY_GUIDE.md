@@ -81,12 +81,12 @@ Same from PowerShell: `python scripts\paper_settings.py --index BANKNIFTY --trad
 
 ## Chart with drawing tools
 
-Dashboard page **Chart**: candles of the chosen index and timeframe, KTMI Uni Lite underneath,
-green/red arrows where BUY CALL / BUY PUT fired. Data: "Trading program" (today, including the
-morning even if you start late), "Research data" or "KunalQuant database" (past days).
-Tools on the left: cursor, trend line, horizontal line, vertical line, rectangle, path,
-fib retracement, colour, delete, clear all. Drawings are saved in your browser for each index.
-The chart only shows; it never places a trade.
+Dashboard page **Chart** (TradingView style, full guide: `docs/CHART_GUIDE.md`): timeframe buttons
+1m-1D, signal filter Both / Long / Short / Off, indicators (futures volume, KTMI Uni Lite, VWAP with
+1/2/3 SD bands, Bollinger Bands, OI profile, Smart Money Concepts), tools (horizontal, vertical,
+rectangle, path, measure, volume profile with POC / VAH / VAL / high / low). Updates itself every
+few seconds. The trading program now also saves futures volume, daily candles and option-chain OI
+for it. The chart only shows; it never places a trade.
 
 ## Checking signals against TradingView
 
