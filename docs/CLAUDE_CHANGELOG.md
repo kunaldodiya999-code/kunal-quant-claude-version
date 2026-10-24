@@ -3,6 +3,12 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: cleaner chart text (owner request), 2026-10-25
+- OI profile and volume profile values are written in white INSIDE the bars (only when they fit);
+  strike labels outside the OI bars removed; max call/put OI = dotted line only, no title.
+- No titles on the chart: removed POC/VAH/VAL/High/Low words, "OB", "FVG", "Swing OB", premium/discount
+  and strong/weak words, the profile footer and the "KTMI Uni Lite" pane title. Lines and boxes stay.
+
 ## claude/affectionate-bardeen-3k5sls: TradingView-style chart, futures volume, indicators, 2026-10-24 (night)
 - Runner saves per index: nearest-futures 1-minute candles WITH volume (warm-up history + live ticks via
   `vol_traded_today`), daily candles (+ futures daily volume), option-chain OI every minute

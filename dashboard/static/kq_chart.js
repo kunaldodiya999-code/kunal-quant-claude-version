@@ -553,6 +553,16 @@
   function text(t, x, y, color, align) {
     ctx.font = "10px sans-serif"; ctx.fillStyle = color; ctx.textAlign = align || "left"; ctx.fillText(t, x, y); ctx.textAlign = "left";
   }
+  // A value written INSIDE a bar in white; skipped when the bar is too small to hold it.
+  function inBar(t, x0, x1, yTop, h, align) {
+    const size = Math.min(11, Math.floor(h) - 1);
+    if (size < 7) return;
+    ctx.font = `${size}px sans-serif`;
+    if (ctx.measureText(t).width > x1 - x0 - 6) return;
+    ctx.fillStyle = "#ffffff"; ctx.textAlign = align === "left" ? "left" : "right";
+    ctx.fillText(t, align === "left" ? x0 + 3 : x1 - 3, yTop + h / 2 + size / 2 - 1);
+    ctx.textAlign = "left";
+  }
   function hLine(x0, x1, y, color, width, dash) {
     ctx.strokeStyle = color; ctx.lineWidth = width || 1; ctx.setLineDash(dash || []);
     ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke(); ctx.setLineDash([]);
@@ -600,17 +610,14 @@
           const c = r[side + "_oi_change"], cl = width * Math.abs(c) / max;
           ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.strokeRect(W - cl, y + dy, cl, h);
         }
-        if (s.values && len > 0 && h >= 7) text(`${side === "call" ? "C" : "P"} ${big(v)}`, W - len - 4, y + dy + h - 1, color, "right");
+        if (s.values && len > 0) inBar(big(v), W - len, W, y + dy, h, "right");
       }
-      if (h >= 7) text(String(r.strike), W - 4, y - h - 2, "#9598a1", "right");
     }
     if (s.maxLines) {
       const maxCall = rows.reduce((a, b) => (b.call_oi > a.call_oi ? b : a)), maxPut = rows.reduce((a, b) => (b.put_oi > a.put_oi ? b : a));
-      for (const [r, color, name] of [[maxCall, s.callColor, "Max call OI (resistance)"], [maxPut, s.putColor, "Max put OI (support)"]]) {
+      for (const [r, color] of [[maxCall, s.callColor], [maxPut, s.putColor]]) {   // line only, no title
         const y = yOf(r.strike);
-        if (y === null) continue;
-        hLine(0, W, y, color, 1, [6, 4]);
-        label(`${name} ${r.strike}`, W - width - 6, y - 10, alpha(color, 0.85), "right");
+        if (y !== null) hLine(0, W, y, color, 1, [6, 4]);
       }
     }
   }
@@ -627,7 +634,6 @@
           const y0 = yOf(band[0]), y1 = yOf(band[1]);
           if (y0 === null || y1 === null) continue;
           ctx.fillStyle = alpha(color, 0.15); ctx.fillRect(x0, Math.min(y0, y1), right - x0, Math.abs(y1 - y0));
-          text(name, right - 4, (y0 + y1) / 2 + 3, color, "right");
         }
       }
     }
@@ -636,13 +642,11 @@
       if (x0 === null || y0 === null || y1 === null) continue;
       ctx.fillStyle = col(ob.bull, ob.internal ? 0.18 : 0.28); ctx.fillRect(x0, y0, right - x0, y1 - y0);
       ctx.strokeStyle = col(ob.bull, 0.6); ctx.lineWidth = 1; ctx.strokeRect(x0, y0, right - x0, y1 - y0);
-      text(ob.internal ? "OB" : "Swing OB", right - 4, y0 + 10, col(ob.bull, 0.9), "right");
     }
     for (const g of r.fvgs) {
       const x0 = xOfIndex(g.idx - 1), x1 = xOfIndex(N - 1 + Math.max(0, s.fvgExtend | 0)), y0 = yOf(g.top), y1 = yOf(g.bottom);
       if (x0 === null || x1 === null || y0 === null || y1 === null) continue;
       ctx.fillStyle = col(g.bull, 0.22); ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
-      text("FVG", x0 + 3, y0 + 10, col(g.bull, 0.9));
     }
     for (const e of r.structures) {
       const x0 = xOfIndex(e.from), x1 = xOfIndex(e.to), y = yOf(e.price);
@@ -667,7 +671,6 @@
         const x0 = xOfIndex(idx), y = yOf(price);
         if (x0 === null || y === null) continue;
         hLine(x0, right, y, col(bull, 1), 1);
-        text(name, right - 4, bull ? y + 12 : y - 4, col(bull, 1), "right");
       }
     }
   }
@@ -699,18 +702,20 @@
         }
         if (s.showValues) {
           const v = s.volume === "Delta" ? deltas[r] : vp.totals[r];
-          text(big(v), s.placement === "Right" ? x1 - offset - 3 : x0 + offset + 3, yTop + h / 2 + 3, "#d1d4dc", s.placement === "Right" ? "right" : "left");
+          if (s.placement === "Right") inBar(big(v), x1 - offset, x1, yTop, h, "right");
+          else inBar(big(v), x0, x0 + offset, yTop, h, "left");
         }
       }
     }
     const lineEnd = s.extendRight ? W : x1;
     const yp = yOf(vp.poc), yh = yOf(vp.vah), yl = yOf(vp.val);
-    if (yp !== null) { hLine(x0, lineEnd, yp, s.pocColor, 2); label(`POC ${vp.poc.toFixed(2)}`, lineEnd - 2, yp, alpha(s.pocColor, 0.9), "right"); }
-    if (yh !== null) { hLine(x0, lineEnd, yh, s.vaColor, 1); text(`VAH ${vp.vah.toFixed(2)}`, lineEnd - 4, yh - 3, s.vaColor, "right"); }
-    if (yl !== null) { hLine(x0, lineEnd, yl, s.vaColor, 1); text(`VAL ${vp.val.toFixed(2)}`, lineEnd - 4, yl + 11, s.vaColor, "right"); }
+    // lines only (no titles): POC red, VAH / VAL blue, range high / low dashed
+    if (yp !== null) hLine(x0, lineEnd, yp, s.pocColor, 2);
+    if (yh !== null) hLine(x0, lineEnd, yh, s.vaColor, 1);
+    if (yl !== null) hLine(x0, lineEnd, yl, s.vaColor, 1);
     if (s.showHighLow) {
-      hLine(x0, x1, b.y0, "#d1d4dc", 1, [4, 3]); text(`High ${vp.high.toFixed(2)}`, x0 + 2, b.y0 - 3, "#d1d4dc");
-      hLine(x0, x1, b.y1, "#d1d4dc", 1, [4, 3]); text(`Low ${vp.low.toFixed(2)}`, x0 + 2, b.y1 + 11, "#d1d4dc");
+      hLine(x0, x1, b.y0, "#d1d4dc", 1, [4, 3]);
+      hLine(x0, x1, b.y1, "#d1d4dc", 1, [4, 3]);
     }
     for (const [key, field, color] of [["developingPoc", "poc", s.pocColor], ["developingVa", "vah", s.vaColor], ["developingVa", "val", s.vaColor]]) {
       if (!s[key] || !vp.developing.length) continue;
@@ -723,7 +728,6 @@
       }
       ctx.stroke(); ctx.setLineDash([]);
     }
-    text(`${vp.byTime ? "Time profile (no futures volume)" : "Vol " + big(vp.totalVolume)} · ${vp.rows} rows`, x0 + 2, b.y1 + 24, "#9598a1");
   }
 
   function paintMeasure(d, preview) {
@@ -785,7 +789,6 @@
     }
     if (S.ktmi.on) {
       hLine(0, W, H * PRICE_BOTTOM + 2, "#2a2e39", 1);
-      text("KTMI Uni Lite", 6, H * PRICE_BOTTOM + 16, "#9598a1");
       const ks = ktmiLines.long_speed;
       for (const [v, color] of [[L.overbought, purple], [L.upper, "#5d606b"], [L.oversold, purple]]) {
         const y = ks.priceToCoordinate(v);

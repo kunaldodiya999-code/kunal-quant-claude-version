@@ -33,7 +33,7 @@ volume, the chart says so; VWAP then uses equal weights and the profile counts t
 | KTMI Uni Lite | momentum lines on/off (they are silent, not traded) |
 | VWAP | anchor (Session, Week, Month, Quarter, Year), source, offset, bands mode (standard deviation or percentage), **band #1, #2, #3 on/off** with multipliers 1, 2, 3, hide on 1D, fill, colours |
 | Bollinger Bands | length 20, basis MA type (SMA, EMA, SMMA (RMA), WMA, VWMA), source, StdDev 2, offset, background, colours |
-| OI Profile | option-chain open interest per strike at the right edge: OI, change in OI or both; strikes each side; width; values; highest call OI (resistance) and highest put OI (support) marked; colours. Refreshed every minute by the trading program (`oi_chain.json`). Only for today (live data). |
+| OI Profile | option-chain open interest per strike at the right edge: OI, change in OI or both; strikes each side; width; values (written in white inside the bars); highest call OI (resistance) and highest put OI (support) marked with a dotted line (no title); colours. Refreshed every minute by the trading program (`oi_chain.json`). Only for today (live data). |
 | Smart Money Concepts | internal and swing structure (BOS / CHoCH, filter All / BOS / CHoCH), swing length 50, internal length 5, swing points (HH / HL / LH / LL), strong / weak high and low, internal and swing order blocks (how many, mitigation Close or High/Low), equal highs / lows (bars, threshold), fair value gaps (auto threshold, extend), premium / discount zones, mode Historical / Present, colours |
 
 ## Drawing tools (left toolbar)
@@ -45,10 +45,14 @@ volume, the chart says so; VWAP then uses equal weights and the profile counts t
 | Rectangle | click one corner, then the opposite corner |
 | Path | click each point; click the last point again (or Enter) to finish; Esc cancels |
 | Measure (scale) | click start, then end: shows points, %, number of bars and time |
-| Volume profile (fixed range) | click the first candle, then the last candle. Shows **POC** (red), **VAH / VAL** (value area, blue), **High / Low** of the range. Settings (⚙ on the left, or double-click it): rows layout (number of rows / ticks per row), row size 24, volume Up/Down / Total / Delta, value area 70%, extend right, show profile, show values, width, placement left/right, show high/low, developing POC, developing VA, colours |
+| Volume profile (fixed range) | click the first candle, then the last candle. Lines only, no titles: **POC** (red), **VAH / VAL** (value area, blue), **High / Low** of the range (dashed). Values, when switched on, are written in white inside the bars. Settings (⚙ on the left, or double-click it): rows layout (number of rows / ticks per row), row size 24, volume Up/Down / Total / Delta, value area 70%, extend right, show profile, show values, width, placement left/right, show high/low, developing POC, developing VA, colours |
 
 Colour square: colour of the next drawing or of the selected one. Bin: delete the selected drawing.
 Double bin: remove all drawings of this index (click twice).
+
+The chart keeps text to a minimum: no titles on lines or boxes (the legend at the top-left names
+the indicators). Text left on purpose: KTMI arrows (BUY CALL / BUY PUT), BOS / CHoCH and the other
+Smart Money labels you switch on, the measure result, and price tags on the right edge.
 
 Everything you choose (timeframe, indicators, settings, signal filter, drawings, zoom) is saved in
 this browser, separately for each index.
