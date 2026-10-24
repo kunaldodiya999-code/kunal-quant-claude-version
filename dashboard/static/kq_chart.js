@@ -50,30 +50,57 @@
                ["maxLines", "Mark highest call / put OI strikes", "bool"],
                ["callColor", "Call OI colour", "color"], ["putColor", "Put OI colour", "color"]] },
     smc: { title: "Smart Money Concepts", defaults: Object.assign({}, K.SMC_DEFAULTS),
-      fields: [["mode", "Mode", "select", ["Historical", "Present"]],
-               ["internal", "Internal structure", "bool"], ["internalFilter", "Internal: show", "select", ["All", "BOS", "CHoCH"]],
-               ["swing", "Swing structure", "bool"], ["swingFilter", "Swing: show", "select", ["All", "BOS", "CHoCH"]],
-               ["swingLength", "Swing length", "int"], ["internalLength", "Internal length", "int"],
-               ["swingPoints", "Swing points (HH / HL / LH / LL)", "bool"], ["strongWeak", "Strong / weak high and low", "bool"],
+      fields: [["", "Smart money concepts", "head"],
+               ["mode", "Mode", "select", ["Historical", "Present"]], ["style", "Style", "select", ["Colored", "Monochrome"]],
+               ["colorCandles", "Color candles", "bool"], ["showLabels", "Show titles on the chart (BOS, CHoCH, OB, FVG ...)", "bool"],
+               ["", "Real-time internal structure", "head"],
+               ["internal", "Show internal structure", "bool"], ["internalFilter", "Bullish / bearish structure", "select", ["All", "BOS", "CHoCH"]],
+               ["internalBullColor", "Bullish colour", "color"], ["internalBearColor", "Bearish colour", "color"],
+               ["internalLength", "Internal length", "int"],
+               ["", "Real-time swing structure", "head"],
+               ["swing", "Show swing structure", "bool"], ["swingFilter", "Bullish / bearish structure", "select", ["All", "BOS", "CHoCH"]],
+               ["swingBullColor", "Bullish colour", "color"], ["swingBearColor", "Bearish colour", "color"],
+               ["swingPoints", "Show swing points (HH / HL / LH / LL)", "bool"], ["swingLength", "Swing length", "int"],
+               ["strongWeak", "Show strong / weak high and low", "bool"],
+               ["", "Order blocks", "head"],
                ["internalOB", "Internal order blocks", "bool"], ["internalOBCount", "Internal order blocks: how many", "int"],
                ["swingOB", "Swing order blocks", "bool"], ["swingOBCount", "Swing order blocks: how many", "int"],
+               ["obFilter", "Order block filter", "select", ["Atr", "Cumulative Mean Range"]],
                ["obMitigation", "Order block mitigation", "select", ["Close", "High/Low"]],
-               ["eqhl", "Equal highs / lows", "bool"], ["eqLength", "Equal highs/lows: bars confirmation", "int"],
-               ["eqThreshold", "Equal highs/lows: threshold (x ATR)", "float"],
-               ["fvg", "Fair value gaps", "bool"], ["fvgAutoThreshold", "FVG auto threshold", "bool"],
-               ["fvgExtend", "FVG extend (bars)", "int"],
-               ["premiumDiscount", "Premium / discount zones", "bool"],
-               ["bullColor", "Bullish colour", "color"], ["bearColor", "Bearish colour", "color"]] },
+               ["iobBullColor", "Internal bullish OB", "color"], ["iobBearColor", "Internal bearish OB", "color"],
+               ["sobBullColor", "Swing bullish OB", "color"], ["sobBearColor", "Swing bearish OB", "color"],
+               ["", "EQH / EQL", "head"],
+               ["eqhl", "Equal highs and lows", "bool"], ["eqLength", "Bars confirmation", "int"],
+               ["eqThreshold", "Threshold (x ATR)", "float"],
+               ["", "Fair value gaps", "head"],
+               ["fvg", "Fair value gaps", "bool"], ["fvgAutoThreshold", "Auto threshold", "bool"],
+               ["fvgExtend", "Extend FVG (bars)", "int"],
+               ["fvgBullColor", "Bullish FVG", "color"], ["fvgBearColor", "Bearish FVG", "color"],
+               ["", "Highs and lows MTF", "head"],
+               ["dailyLevels", "Previous day high / low", "bool"], ["dailyColor", "Daily colour", "color"],
+               ["weeklyLevels", "Previous week high / low", "bool"], ["weeklyColor", "Weekly colour", "color"],
+               ["monthlyLevels", "Previous month high / low", "bool"], ["monthlyColor", "Monthly colour", "color"],
+               ["", "Premium and discount zones", "head"],
+               ["premiumDiscount", "Premium / discount zones", "bool"], ["premiumColor", "Premium zone", "color"],
+               ["equilibriumColor", "Equilibrium zone", "color"], ["discountColor", "Discount zone", "color"]] },
     vprofile: { title: "Fixed range volume profile", defaults: Object.assign({}, K.VP_DEFAULTS),
-      fields: [["rowsLayout", "Rows layout", "select", ["Number Of Rows", "Ticks Per Row"]], ["rowSize", "Row size", "int"],
+      fields: [["", "Inputs", "head"],
+               ["rowsLayout", "Rows layout", "select", ["Number Of Rows", "Ticks Per Row"]], ["rowSize", "Row size", "int"],
                ["tickSize", "Tick size (for Ticks Per Row)", "float"],
                ["volume", "Volume", "select", ["Up/Down", "Total", "Delta"]], ["valueArea", "Value area volume %", "int"],
-               ["extendRight", "Extend POC / VA lines right", "bool"], ["showProfile", "Show profile", "bool"],
-               ["showValues", "Show values", "bool"], ["width", "Width (% of the box)", "int"],
-               ["placement", "Placement", "select", ["Left", "Right"]], ["showHighLow", "Show high / low", "bool"],
-               ["developingPoc", "Developing POC", "bool"], ["developingVa", "Developing VA", "bool"],
-               ["upColor", "Up volume colour", "color"], ["downColor", "Down volume colour", "color"],
-               ["pocColor", "POC colour", "color"], ["vaColor", "Value area lines colour", "color"]] },
+               ["extendRight", "Extend POC / VA lines right", "bool"],
+               ["", "Style", "head"],
+               ["showLabels", "Show titles on the chart (POC, VAH, VAL, High, Low)", "bool"],
+               ["showProfile", "Show profile", "bool"], ["showValues", "Show values (white, inside the bars)", "bool"],
+               ["width", "Width (% of the box)", "int"], ["placement", "Placement", "select", ["Left", "Right"]],
+               ["upColor", "Up volume", "color"], ["downColor", "Down volume", "color"],
+               ["vaUpColor", "Value area up", "color"], ["vaDownColor", "Value area down", "color"],
+               ["outsideOpacity", "Opacity outside value area (%)", "int"], ["vaOpacity", "Opacity inside value area (%)", "int"],
+               ["showPoc", "POC", "bool"], ["pocColor", "POC colour", "color"],
+               ["showVa", "Value area high / low", "bool"], ["vahColor", "VAH colour", "color"], ["valColor", "VAL colour", "color"],
+               ["showHighLow", "Range high / low", "bool"], ["highLowColor", "High / low colour", "color"],
+               ["developingPoc", "Developing POC", "bool"], ["devPocColor", "Developing POC colour", "color"],
+               ["developingVa", "Developing VA", "bool"], ["devVaColor", "Developing VA colour", "color"]] },
   };
   const INDICATORS = ["volume", "ktmi", "vwap", "bb", "oi", "smc"];
   const TF_LABELS = { "1": "1m", "3": "3m", "5": "5m", "10": "10m", "15": "15m", "30": "30m", "60": "1h", "D": "1D" };
@@ -180,16 +207,23 @@
     } else for (const s of Object.values(bbLines)) s.applyOptions({ visible: false });
     // Volume MA
     if (S.volume.on && S.volume.s.ma) volumeMA.setData(series(K.sma(F.v, Math.max(1, S.volume.s.maLength | 0))));
-    // Smart Money Concepts
+    // Smart Money Concepts (and its "Color candles" option)
     if (S.smc.on) ind.smc = K.smc(F, S.smc.s);
+    const tint = ind.smc && S.smc.s.colorCandles ? smcColors() : null;
+    candles.setData(times.map((t, i) => {
+      const bar = { time: t, open: F.o[i], high: F.h[i], low: F.l[i], close: F.c[i] };
+      if (tint) { const c = ind.smc.trend[i] > 0 ? tint.ibull : ind.smc.trend[i] < 0 ? tint.ibear : "#787b86"; bar.color = c; bar.wickColor = c; }
+      return bar;
+    }));
+    setMarkers();
   }
 
   function setMarkers() {
     const show = state.signals, marks = [];
     if (show === "Both" || show === "Long")
-      for (const t of F.long) marks.push({ time: t, position: "belowBar", color: "#26a69a", shape: "arrowUp", text: "BUY CALL" });
+      for (const t of F.long) marks.push({ time: t, position: "belowBar", color: "#26a69a", shape: "arrowUp" });
     if (show === "Both" || show === "Short")
-      for (const t of F.short) marks.push({ time: t, position: "aboveBar", color: "#ef5350", shape: "arrowDown", text: "BUY PUT" });
+      for (const t of F.short) marks.push({ time: t, position: "aboveBar", color: "#ef5350", shape: "arrowDown" });
     marks.sort((a, b) => a.time - b.time);
     candles.setMarkers(marks);
   }
@@ -308,7 +342,8 @@
     const schema = SCHEMAS[key], target = drawing ? drawing.s : state.ind[key].s;
     menu.classList.remove("open");
     const fieldHtml = schema.fields.map(([name, label, type, options]) => {
-      const v = target[name];
+      if (type === "head") return `<div class="fh">${label}</div>`;
+      const v = target[name] === undefined ? schema.defaults[name] : target[name];
       if (type === "bool") return `<label class="fr"><input type="checkbox" name="${name}" ${v ? "checked" : ""}> ${label}</label>`;
       if (type === "select") return `<label class="fr">${label}<select name="${name}">${options.map((o) =>
         `<option ${o === v ? "selected" : ""}>${o}</option>`).join("")}</select></label>`;
@@ -323,6 +358,7 @@
     $("dreset").onclick = () => { Object.assign(target, SCHEMAS[key].defaults); dialog.classList.remove("open"); apply(); };
     $("dok").onclick = () => {
       for (const [name, , type] of schema.fields) {
+        if (type === "head") continue;
         const el = $("dform").elements[name];
         target[name] = type === "bool" ? el.checked : type === "int" ? parseInt(el.value, 10) || 0
           : type === "float" ? parseFloat(el.value) || 0 : el.value;
@@ -364,6 +400,7 @@
   // ------------------------------------------------------------- drawings
   const TOOL_TYPES = ["hline", "vline", "rect", "path", "measure", "vprofile"];
   let drawings = fetchStored(DRAW_KEY, []).filter((d) => TOOL_TYPES.includes(d.type));
+  for (const d of drawings) if (d.type === "vprofile") d.s = Object.assign({}, SCHEMAS.vprofile.defaults, d.s);
   const saveDrawings = () => store(DRAW_KEY, drawings);
   const HINTS = {
     cursor: "Cursor: drag to move the chart. Click a drawing to select it; drag it or its dots. Delete key removes it. Double-click a volume profile for its settings.",
@@ -622,56 +659,78 @@
     }
   }
 
+  function smcColors() {
+    const s = state.ind.smc.s;
+    if (s.style === "Monochrome")
+      return { ibull: "#b2b5be", ibear: "#5d606b", sbull: "#b2b5be", sbear: "#5d606b", iob: ["#b2b5be", "#5d606b"],
+               sob: ["#b2b5be", "#5d606b"], fvg: ["#b2b5be", "#5d606b"], prem: "#5d606b", eq: "#878b94", disc: "#b2b5be" };
+    return { ibull: s.internalBullColor, ibear: s.internalBearColor, sbull: s.swingBullColor, sbear: s.swingBearColor,
+             iob: [s.iobBullColor, s.iobBearColor], sob: [s.sobBullColor, s.sobBearColor], fvg: [s.fvgBullColor, s.fvgBearColor],
+             prem: s.premiumColor, eq: s.equilibriumColor, disc: s.discountColor };
+  }
+
   function paintSMC(W) {
-    const r = ind.smc, s = state.ind.smc.s;
+    const r = ind.smc, s = state.ind.smc.s, C = smcColors(), titles = s.showLabels;
     if (!r) return;
-    const col = (bull, a) => alpha(bull ? s.bullColor : s.bearColor, a);
+    const structColor = (e) => (e.internal ? (e.bull ? C.ibull : C.ibear) : (e.bull ? C.sbull : C.sbear));
     const right = W;
     if (s.premiumDiscount && r.zones) {
       const z = r.zones, x0 = xOfIndex(z.from);
       if (x0 !== null) {
-        for (const [band, color, name] of [[z.premium, s.bearColor, "Premium"], [z.equilibrium, "#878b94", "Equilibrium"], [z.discount, s.bullColor, "Discount"]]) {
+        for (const [band, color, name] of [[z.premium, C.prem, "Premium"], [z.equilibrium, C.eq, "Equilibrium"], [z.discount, C.disc, "Discount"]]) {
           const y0 = yOf(band[0]), y1 = yOf(band[1]);
           if (y0 === null || y1 === null) continue;
           ctx.fillStyle = alpha(color, 0.15); ctx.fillRect(x0, Math.min(y0, y1), right - x0, Math.abs(y1 - y0));
+          if (titles) text(name, right - 4, (y0 + y1) / 2 + 3, color, "right");
         }
       }
     }
     for (const ob of r.orderBlocks) {
       const x0 = xOfIndex(ob.idx), y0 = yOf(ob.top), y1 = yOf(ob.bottom);
       if (x0 === null || y0 === null || y1 === null) continue;
-      ctx.fillStyle = col(ob.bull, ob.internal ? 0.18 : 0.28); ctx.fillRect(x0, y0, right - x0, y1 - y0);
-      ctx.strokeStyle = col(ob.bull, 0.6); ctx.lineWidth = 1; ctx.strokeRect(x0, y0, right - x0, y1 - y0);
+      const color = (ob.internal ? C.iob : C.sob)[ob.bull ? 0 : 1];
+      ctx.fillStyle = alpha(color, ob.internal ? 0.2 : 0.3); ctx.fillRect(x0, y0, right - x0, y1 - y0);
+      ctx.strokeStyle = alpha(color, 0.6); ctx.lineWidth = 1; ctx.strokeRect(x0, y0, right - x0, y1 - y0);
+      if (titles) text(ob.internal ? "Internal OB" : "Swing OB", right - 4, y0 + 10, color, "right");
     }
     for (const g of r.fvgs) {
       const x0 = xOfIndex(g.idx - 1), x1 = xOfIndex(N - 1 + Math.max(0, s.fvgExtend | 0)), y0 = yOf(g.top), y1 = yOf(g.bottom);
       if (x0 === null || x1 === null || y0 === null || y1 === null) continue;
-      ctx.fillStyle = col(g.bull, 0.22); ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+      const color = C.fvg[g.bull ? 0 : 1];
+      ctx.fillStyle = alpha(color, 0.22); ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+      if (titles) text("FVG", x0 + 3, y0 + 10, color);
     }
     for (const e of r.structures) {
       const x0 = xOfIndex(e.from), x1 = xOfIndex(e.to), y = yOf(e.price);
       if (x0 === null || x1 === null || y === null) continue;
-      hLine(x0, x1, y, col(e.bull, 1), e.internal ? 1 : 1.5, e.internal ? [4, 3] : []);
-      text(e.label, (x0 + x1) / 2, e.bull ? y - 4 : y + 11, col(e.bull, 1), "center");
+      hLine(x0, x1, y, structColor(e), e.internal ? 1 : 1.5, e.internal ? [4, 3] : []);
+      if (titles) text(e.label, (x0 + x1) / 2, e.bull ? y - 4 : y + 11, structColor(e), "center");
     }
     for (const q of r.equal) {
-      const x0 = xOfIndex(q.from), x1 = xOfIndex(q.to), y = yOf(q.price);
+      const x0 = xOfIndex(q.from), x1 = xOfIndex(q.to), y = yOf(q.price), color = q.high ? C.ibear : C.ibull;
       if (x0 === null || x1 === null || y === null) continue;
-      hLine(x0, x1, y, col(!q.high, 1), 1, [2, 3]);
-      text(q.label, (x0 + x1) / 2, q.high ? y - 4 : y + 11, col(!q.high, 1), "center");
+      hLine(x0, x1, y, color, 1, [2, 3]);
+      if (titles) text(q.label, (x0 + x1) / 2, q.high ? y - 4 : y + 11, color, "center");
     }
-    for (const p of r.swings) {
+    for (const p of r.swings) {                       // swing points are labels by nature
       const x = xOfIndex(p.idx), y = yOf(p.price);
       if (x === null || y === null) continue;
-      text(p.label, x, p.high ? y - 6 : y + 14, col(!p.high, 1), "center");
+      text(p.label, x, p.high ? y - 6 : y + 14, p.high ? C.sbear : C.sbull, "center");
     }
     if (s.strongWeak && r.strongWeak) {
       const w = r.strongWeak;
       for (const [price, idx, name, bull] of [[w.top, w.topIdx, w.topLabel, false], [w.bottom, w.bottomIdx, w.bottomLabel, true]]) {
-        const x0 = xOfIndex(idx), y = yOf(price);
+        const x0 = xOfIndex(idx), y = yOf(price), color = bull ? C.sbull : C.sbear;
         if (x0 === null || y === null) continue;
-        hLine(x0, right, y, col(bull, 1), 1);
+        hLine(x0, right, y, color, 1);
+        if (titles) text(name, right - 4, bull ? y + 12 : y - 4, color, "right");
       }
+    }
+    for (const lv of r.levels) {
+      const x0 = xOfIndex(lv.from), y = yOf(lv.price);
+      if (x0 === null || y === null) continue;
+      hLine(x0, right, y, lv.color, 1, [6, 3]);
+      if (titles) text(lv.label, right - 4, lv.high ? y - 4 : y + 12, lv.color, "right");
     }
   }
 
@@ -690,9 +749,10 @@
       for (let r = 0; r < vp.rows; r++) {
         const yTop = yOf(vp.low + (r + 1) * vp.step), yBot = yOf(vp.low + r * vp.step);
         if (yTop === null || yBot === null) continue;
-        const h = Math.max(1, yBot - yTop - 1), inVA = r >= vp.vaLow && r <= vp.vaHigh, a = inVA ? 0.75 : 0.3;
-        const parts = s.volume === "Delta" ? [[Math.abs(deltas[r]), deltas[r] >= 0 ? s.upColor : s.downColor]]
-          : s.volume === "Total" ? [[vp.totals[r], s.upColor]] : [[vp.up[r], s.upColor], [vp.down[r], s.downColor]];
+        const h = Math.max(1, yBot - yTop - 1), inVA = r >= vp.vaLow && r <= vp.vaHigh;
+        const a = (inVA ? s.vaOpacity : s.outsideOpacity) / 100, upC = inVA ? s.vaUpColor : s.upColor, downC = inVA ? s.vaDownColor : s.downColor;
+        const parts = s.volume === "Delta" ? [[Math.abs(deltas[r]), deltas[r] >= 0 ? upC : downC]]
+          : s.volume === "Total" ? [[vp.totals[r], upC]] : [[vp.up[r], upC], [vp.down[r], downC]];
         let offset = 0;
         for (const [v, color] of parts) {
           const len = maxLen * v / scale;
@@ -709,15 +769,17 @@
     }
     const lineEnd = s.extendRight ? W : x1;
     const yp = yOf(vp.poc), yh = yOf(vp.vah), yl = yOf(vp.val);
-    // lines only (no titles): POC red, VAH / VAL blue, range high / low dashed
-    if (yp !== null) hLine(x0, lineEnd, yp, s.pocColor, 2);
-    if (yh !== null) hLine(x0, lineEnd, yh, s.vaColor, 1);
-    if (yl !== null) hLine(x0, lineEnd, yl, s.vaColor, 1);
+    // lines; titles only when "Show titles" is ticked
+    const tl = s.showLabels;
+    if (s.showPoc && yp !== null) { hLine(x0, lineEnd, yp, s.pocColor, 2); if (tl) label(`POC ${vp.poc.toFixed(2)}`, lineEnd - 2, yp, alpha(s.pocColor, 0.9), "right"); }
+    if (s.showVa && yh !== null) { hLine(x0, lineEnd, yh, s.vahColor, 1); if (tl) text(`VAH ${vp.vah.toFixed(2)}`, lineEnd - 4, yh - 3, s.vahColor, "right"); }
+    if (s.showVa && yl !== null) { hLine(x0, lineEnd, yl, s.valColor, 1); if (tl) text(`VAL ${vp.val.toFixed(2)}`, lineEnd - 4, yl + 11, s.valColor, "right"); }
     if (s.showHighLow) {
-      hLine(x0, x1, b.y0, "#d1d4dc", 1, [4, 3]);
-      hLine(x0, x1, b.y1, "#d1d4dc", 1, [4, 3]);
+      hLine(x0, x1, b.y0, s.highLowColor, 1, [4, 3]); if (tl) text(`High ${vp.high.toFixed(2)}`, x0 + 2, b.y0 - 3, s.highLowColor);
+      hLine(x0, x1, b.y1, s.highLowColor, 1, [4, 3]); if (tl) text(`Low ${vp.low.toFixed(2)}`, x0 + 2, b.y1 + 11, s.highLowColor);
     }
-    for (const [key, field, color] of [["developingPoc", "poc", s.pocColor], ["developingVa", "vah", s.vaColor], ["developingVa", "val", s.vaColor]]) {
+    if (tl) text(`${vp.byTime ? "Time profile (no futures volume)" : "Vol " + big(vp.totalVolume)} · ${vp.rows} rows`, x0 + 2, b.y1 + 24, "#9598a1");
+    for (const [key, field, color] of [["developingPoc", "poc", s.devPocColor], ["developingVa", "vah", s.devVaColor], ["developingVa", "val", s.devVaColor]]) {
       if (!s[key] || !vp.developing.length) continue;
       ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash(field === "poc" ? [] : [3, 2]); ctx.beginPath();
       let started = false;

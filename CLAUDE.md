@@ -61,5 +61,6 @@
   OWNER RULE: index has no volume -> always use nearest FUTURES volume on the spot chart.
   Owner's tools: horizontal, vertical, rectangle, path, measure, volume profile (no trend line / fib).
   OWNER STYLE: no titles on the chart (lines only); bar values in WHITE INSIDE the bars, never outside.
+  Titles only via each tool's "Show titles" switch (default off). KTMI signals = arrows only, no text.
 - OWNER RULE: when the owner says "we are done for the day", give ALL commands to run on their PC in order,
   step by step (folder for each), with what each one should show, plus everything still pending from their side.

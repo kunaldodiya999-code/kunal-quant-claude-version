@@ -75,6 +75,7 @@ button { font: inherit; color: #d1d4dc; }
 .dlg { background: #1e222d; border: 1px solid #2a2e39; border-radius: 6px; width: 380px; max-height: 88vh; display: flex; flex-direction: column; }
 .dh { padding: 10px 14px; font-weight: 600; border-bottom: 1px solid #2a2e39; }
 #dform { padding: 8px 14px; overflow-y: auto; }
+.fh { color: #787b86; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 10px 0 2px; border-bottom: 1px solid #2a2e39; margin-bottom: 4px; }
 .fr { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; }
 .fr select, .fr input[type=number] { width: 140px; background: #131722; color: #d1d4dc; border: 1px solid #2a2e39; border-radius: 3px; padding: 3px; }
 .db { display: flex; gap: 6px; padding: 10px 14px; border-top: 1px solid #2a2e39; }

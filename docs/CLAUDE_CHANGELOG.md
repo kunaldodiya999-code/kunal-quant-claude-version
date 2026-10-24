@@ -3,6 +3,15 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: arrows only, title switches, full SMC / profile settings, 2026-10-25
+- KTMI signals drawn as arrows only (no BUY CALL / BUY PUT text).
+- Volume profile and Smart Money Concepts: "Show titles" switch (default off, owner style).
+- Volume profile: TradingView style settings (VA up/down colours, opacity in/out of VA, POC / VA / high-low
+  on/off with own colours, developing POC / VA colours). Old drawings get the new defaults.
+- Smart Money Concepts: LuxAlgo setting groups (style, color candles, separate internal / swing / OB / FVG /
+  zone colours, OB filter ATR or cumulative mean range, previous day / week / month high-low).
+- Tests: indicator maths incl. previous-day levels (Node); browser check of the new dialogs.
+
 ## claude/affectionate-bardeen-3k5sls: cleaner chart text (owner request), 2026-10-25
 - OI profile and volume profile values are written in white INSIDE the bars (only when they fit);
   strike labels outside the OI bars removed; max call/put OI = dotted line only, no title.

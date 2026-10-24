@@ -147,11 +147,14 @@
   }
 
   // ------------------------------------------------- fixed range volume profile
+  // TradingView "Fixed Range Volume Profile" settings (inputs + style)
   const VP_DEFAULTS = { rowsLayout: "Number Of Rows", rowSize: 24, tickSize: 0.05, volume: "Up/Down",
                         valueArea: 70, extendRight: false, showProfile: true, showValues: false,
-                        width: 30, placement: "Left", developingPoc: false, developingVa: false,
-                        showHighLow: true, upColor: "#26a69a", downColor: "#ef5350", pocColor: "#ff1744",
-                        vaColor: "#2962ff" };
+                        width: 30, placement: "Left", showPoc: true, showVa: true, showHighLow: true,
+                        developingPoc: false, developingVa: false, showLabels: false,
+                        upColor: "#26a69a", downColor: "#ef5350", vaUpColor: "#26a69a", vaDownColor: "#ef5350",
+                        outsideOpacity: 30, vaOpacity: 75, pocColor: "#ff1744", vahColor: "#2962ff",
+                        valColor: "#2962ff", devPocColor: "#ff9800", devVaColor: "#00bcd4", highLowColor: "#d1d4dc" };
 
   function valueArea(totals, poc, share) {
     const total = totals.reduce((a, b) => a + b, 0), target = total * share;
@@ -218,12 +221,21 @@
   // Same ideas as the popular LuxAlgo "Smart Money Concepts" script: market structure
   // (BOS / CHoCH, internal and swing), order blocks, fair value gaps, equal highs/lows,
   // swing points, strong/weak highs and lows, premium/discount zones.
+  // Same settings groups as LuxAlgo "Smart Money Concepts": smart money, real-time internal structure,
+  // real-time swing structure, order blocks, EQH/EQL, fair value gaps, highs & lows MTF, premium/discount.
   const SMC_DEFAULTS = {
-    mode: "Historical", internal: true, internalFilter: "All", swing: true, swingFilter: "All",
+    mode: "Historical", style: "Colored", colorCandles: false, showLabels: false,
+    internal: true, internalFilter: "All", internalBullColor: "#089981", internalBearColor: "#f23645",
+    swing: true, swingFilter: "All", swingBullColor: "#089981", swingBearColor: "#f23645",
     swingLength: 50, internalLength: 5, swingPoints: false, strongWeak: true,
-    internalOB: true, internalOBCount: 5, swingOB: false, swingOBCount: 5, obMitigation: "High/Low",
-    eqhl: true, eqLength: 3, eqThreshold: 0.1, fvg: true, fvgAutoThreshold: true, fvgExtend: 1,
-    premiumDiscount: false, bullColor: "#089981", bearColor: "#f23645",
+    internalOB: true, internalOBCount: 5, swingOB: false, swingOBCount: 5,
+    obFilter: "Atr", obMitigation: "High/Low",
+    iobBullColor: "#3179f5", iobBearColor: "#f77c80", sobBullColor: "#1848cc", sobBearColor: "#b22833",
+    eqhl: true, eqLength: 3, eqThreshold: 0.1,
+    fvg: true, fvgAutoThreshold: true, fvgExtend: 1, fvgBullColor: "#00ff68", fvgBearColor: "#ff0008",
+    dailyLevels: false, dailyColor: "#2157f3", weeklyLevels: false, weeklyColor: "#2157f3",
+    monthlyLevels: false, monthlyColor: "#2157f3",
+    premiumDiscount: false, premiumColor: "#f23645", equilibriumColor: "#878b94", discountColor: "#089981",
   };
 
   function pivots(f, len) {
@@ -249,9 +261,15 @@
   function smc(f, settings) {
     const s = Object.assign({}, SMC_DEFAULTS, settings || {});
     const n = f.t.length;
-    const out = { structures: [], orderBlocks: [], fvgs: [], equal: [], swings: [], strongWeak: null, zones: null };
+    const out = { structures: [], orderBlocks: [], fvgs: [], equal: [], swings: [], strongWeak: null, zones: null,
+                  levels: [], trend: new Array(n).fill(0) };
     if (n < 3) return out;
-    const vol = atr(f, 200);
+    // volatility for the order block filter: ATR(200) or the cumulative mean range
+    let vol = atr(f, 200);
+    if (s.obFilter === "Cumulative Mean Range") {
+      let sum = 0;
+      vol = f.t.map((_, i) => { sum += f.h[i] - f.l[i]; return sum / (i + 1); });
+    }
 
     function structure(len, internal) {
       const pv = pivots(f, len);
@@ -283,6 +301,7 @@
           events.push({ from: bottom.idx, to: i, price: bottom.price, label: tag, bull: false, internal });
           orderBlock(bottom.idx, i, false, internal);
         }
+        if (internal) out.trend[i] = trend;          // candle colouring follows the internal trend
       }
       return { events, trend, pv };
     }
@@ -379,6 +398,26 @@
                     premium: [top, 0.95 * top + 0.05 * bottom], equilibrium: [0.525 * top + 0.475 * bottom, 0.525 * bottom + 0.475 * top],
                     discount: [0.95 * bottom + 0.05 * top, bottom] };
     }
+    // previous day / week / month high and low (LuxAlgo "Highs & Lows MTF")
+    const periodLevels = (anchor, on, short, color) => {
+      if (!on) return;
+      let key = null, hi = -Infinity, lo = Infinity, prev = null, start = 0;
+      for (let i = 0; i < n; i++) {
+        const k = periodKey(f.t[i], anchor);
+        if (k !== key) {
+          if (key !== null) prev = { hi, lo };
+          key = k; hi = -Infinity; lo = Infinity; start = i;
+        }
+        hi = Math.max(hi, f.h[i]); lo = Math.min(lo, f.l[i]);
+      }
+      if (prev) {
+        out.levels.push({ from: start, price: prev.hi, label: "P" + short + "H", color, high: true });
+        out.levels.push({ from: start, price: prev.lo, label: "P" + short + "L", color, high: false });
+      }
+    };
+    periodLevels("Session", s.dailyLevels, "D", s.dailyColor);
+    periodLevels("Week", s.weeklyLevels, "W", s.weeklyColor);
+    periodLevels("Month", s.monthlyLevels, "M", s.monthlyColor);
     if (s.mode === "Present") {
       out.structures = out.structures.filter((e) => e.to >= n - 1 - Math.max(50, s.swingLength * 2));
     }

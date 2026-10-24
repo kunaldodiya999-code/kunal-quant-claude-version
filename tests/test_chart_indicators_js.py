@@ -144,3 +144,16 @@ def test_smart_money_concepts_finds_breaks_order_blocks_and_gaps():
            "l": [99, 100, 110, 114], "c": [101, 112, 116, 119], "v": [1, 1, 1, 1]}
     fvg = run("K.smc(D.f, {fvg: true, fvgAutoThreshold: false, swingLength: 3, internalLength: 2})", f=gap)["fvgs"]
     assert {"idx": 1, "top": 110, "bottom": 102, "bull": True, "end": None} in fvg
+
+
+def test_smart_money_previous_day_levels_trend_and_range_filter():
+    day1 = frame([100 + i for i in range(20)], start=10 * DAY + 9 * 3600 + 15 * 60)      # high 119+2, low 100-2
+    day2 = frame([110 - i for i in range(20)], start=11 * DAY + 9 * 3600 + 15 * 60)
+    f = {k: day1[k] + day2[k] for k in day1}
+    got = run("K.smc(D.f, {dailyLevels: true, internalLength: 3, swingLength: 5})", f=f)
+    levels = {lv["label"]: (lv["price"], lv["from"]) for lv in got["levels"]}
+    assert levels == {"PDH": (max(day1["h"]), 20), "PDL": (min(day1["l"]), 20)}
+    assert len(got["trend"]) == 40 and set(got["trend"]) <= {-1, 0, 1}
+    assert run("K.smc(D.f, {obFilter: 'Cumulative Mean Range'})", f=f)["levels"] == []   # levels off by default
+    defaults = run("K.SMC_DEFAULTS")
+    assert defaults["showLabels"] is False and run("K.VP_DEFAULTS")["showLabels"] is False   # owner: no titles
