@@ -19,7 +19,9 @@ cd C:\Users\USER\Desktop\Kunal\KunalQuant
 git pull origin main
 
 cd .\kunal-quant-claude-version
-git pull
+git fetch origin
+git checkout claude/affectionate-bardeen-3k5sls
+git pull origin claude/affectionate-bardeen-3k5sls
 cd ..
 
 git apply --ignore-whitespace .\kunal-quant-claude-version\patches\0001-v2-put-is-long-premium.patch
