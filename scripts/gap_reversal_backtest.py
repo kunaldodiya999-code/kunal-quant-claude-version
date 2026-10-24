@@ -84,6 +84,8 @@ def main(argv=None, *, client=None, yahoo_get=None, master=None) -> int:
     p.add_argument("--capital-per-trade", type=float, default=CAPITAL_PER_TRADE)
     p.add_argument("--gap-pct", type=float, default=None,
                    help="test another gap size (e.g. 1); the saved dashboard setting is not changed")
+    p.add_argument("--entry-from", default=None,
+                   help="test another earliest entry time, e.g. 09:15 (the saved setting is not changed)")
     p.add_argument("--max-trades", type=int, default=None,
                    help="test another daily trade cap (0 = no limit); the saved setting is not changed")
     p.add_argument("--cache-source", default="yahoo", help="with --source cache: which download to use")
@@ -97,6 +99,9 @@ def main(argv=None, *, client=None, yahoo_get=None, master=None) -> int:
     if args.gap_pct is not None:
         from dataclasses import replace
         settings = replace(settings, gap_pct=args.gap_pct)
+    if args.entry_from is not None:
+        from dataclasses import replace
+        settings = replace(settings, entry_from=args.entry_from)
     if args.max_trades is not None:
         from dataclasses import replace
         settings = replace(settings, max_trades_per_day=args.max_trades)
@@ -111,7 +116,7 @@ def main(argv=None, *, client=None, yahoo_get=None, master=None) -> int:
         client = FyersClient(project_root=find_credentials_folder(args.credentials_folder))
     store = ResearchStore(args.data_folder / "research" / "market_data.db")
     print(f"Gap Reversal backtest: {len(stocks)} symbols, source {args.source}, gap >= {settings.gap_pct}%, "
-          f"{settings.timeframe}-min candles, first {settings.window_bars()} candles")
+          f"{settings.timeframe}-min candles, first {settings.window_bars()} candles, entries from {settings.entry_from}")
     all_candidates, all_trades, failed = [], [], []
     for n, stock in enumerate(stocks, 1):
         try:

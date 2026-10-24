@@ -88,6 +88,9 @@ with settings_tab:
         window_5m = h1.number_input("Setup window, 5-min candles", 1, 75, int(s.window_5m), key="gr_w5")
         window_3m = h2.number_input("Setup window, 3-min candles", 1, 125, int(s.window_3m), key="gr_w3")
         exit_time = h3.text_input("Flat by (HH:MM)", s.exit_time, key="gr_exit")
+        entry_from = h3.text_input("No entry before (HH:MM)", s.entry_from, key="gr_entry_from",
+                                   help="Setups before this time are still marked; the trade waits until this time "
+                                        "(while the setup is still valid).")
         capital = h4.number_input("Paper capital (₹)", 1000.0, 1e9, float(s.capital), 10000.0, key="gr_cap")
         alloc = h5.number_input("Per trade (% of capital)", 1.0, 100.0, float(s.allocation_pct), 1.0, key="gr_alloc")
         k1, k2, k3 = st.columns(3)
@@ -167,7 +170,7 @@ with settings_tab:
         if st.form_submit_button("Save Gap Reversal settings"):
             try:
                 gs.update(enabled=enabled, gap_pct=float(gap_pct), timeframe=int(timeframe), include_indexes=include_idx,
-                          window_5m=int(window_5m), window_3m=int(window_3m), exit_time=exit_time.strip(),
+                          window_5m=int(window_5m), window_3m=int(window_3m), exit_time=exit_time.strip(), entry_from=entry_from.strip(),
                           capital=float(capital), allocation_pct=float(alloc),
                           max_trades_per_day=int(cap_all), max_short_per_day=int(cap_short),
                           max_long_per_day=int(cap_long), doji_body_pct=doji, wick_ratio=wick,
@@ -195,7 +198,8 @@ with backtest_tab:
         meta = backtest_meta(interval) or {}
         cap = float(meta.get("capital_per_trade", 50_000))
         st.caption(f"Gap {(meta.get('settings') or {}).get('gap_pct', '?')}% or more, daily cap "
-                   f"{(meta.get('settings') or {}).get('max_trades_per_day') or 'none'}. "
+                   f"{(meta.get('settings') or {}).get('max_trades_per_day') or 'none'}, entries from "
+                   f"{(meta.get('settings') or {}).get('entry_from', '09:15')}. "
                    f"{meta.get('symbols', '?')} symbols, {meta.get('first_day', '?')} to {meta.get('last_day', '?')}, "
                    f"source {meta.get('source', '?')}, made {meta.get('generated_at', '?')}. First qualifying setup per "
                    f"symbol and day; Rs {cap:,.0f} per entry; net = after estimated intraday charges. 1 R = the risk "

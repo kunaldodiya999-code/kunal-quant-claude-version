@@ -3,6 +3,11 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: Gap Reversal earliest entry time, 2026-10-25
+- `entry_from` (default 09:40, dashboard "No entry before", backtest `--entry-from`). Stocks now trade the qualifying
+  setup that ENTERS first (`first_entry`), live and backtest. Result: 09:40 worse than 09:15 at cap 5 (both data
+  sets), better only at cap 10 with fixed targets. Guide updated.
+
 ## claude/affectionate-bardeen-3k5sls: Gap Reversal daily trade cap, 2026-10-25
 - Settings max_trades_per_day (default 5), max_short_per_day, max_long_per_day (0 = no limit); `daily_cap()` shared
   by the live desk (proposals -> settle, skipped list, status daily_cap) and the backtest (`apply_daily_cap`,

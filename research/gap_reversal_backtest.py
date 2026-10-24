@@ -29,7 +29,7 @@ from paper_trading.trade_management import session_bars
 from paper_trading.tsl_methods import PRESETS, PRESET_LABELS
 from strategies.exit_plan import NO_TSL, ExitPlan
 from strategies.gap_reversal import (ENTRY_MODES, LONG_NAMES, SHORT_NAMES, GapReversalSettings, bars_from, daily_cap,
-                                     scan_bars, simulate)
+                                     first_entry, scan_bars, simulate)
 
 IST = ZoneInfo("Asia/Kolkata")
 CAPITAL_PER_TRADE = 50_000.0
@@ -80,12 +80,13 @@ def run_symbol(symbol: str, minutes: Sequence, s: GapReversalSettings, entry_mod
                                "time": _clock(c.bar_time), "setups": c.pattern_names, "strength": c.strength,
                                "qualifies": c.qualifies, "trigger": round(c.trigger, 2),
                                **{k: v for k, v in c.parts.items() if k != "strength"}})
-        first = next((c for c in found if c.qualifies), None)
-        if first is None:
+        if not any(c.qualifies for c in found):
             continue
         for mode in entry_modes:
-            side_cfg = replace(s.side(first.side), entry_mode=mode)
-            variant = replace(s, short=side_cfg) if first.side == "SHORT" else replace(s, long=side_cfg)
+            variant = replace(s, short=replace(s.short, entry_mode=mode), long=replace(s.long, entry_mode=mode))
+            first, _ = first_entry(found, bars, mins, variant, plan=exits[0][1], history=warm)
+            if first is None:
+                continue
             for label, plan in exits:
                 t = simulate(first, bars, mins, variant, plan=plan, history=warm)
                 if t is None:

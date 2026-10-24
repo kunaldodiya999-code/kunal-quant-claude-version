@@ -59,3 +59,26 @@ def test_live_desk_skips_trades_past_the_cap(tmp_path):
         desk.on_minutes(sym, minutes, now + 60)
     again = desk.write_status(now + 60)
     assert len(again["trades"]) == 1 and len(again["skipped"]) == 1
+
+
+def test_no_entry_before_entry_from_and_a_later_setup_can_still_trade():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from dataclasses import replace
+    from strategies.gap_reversal import first_entry, scan_bars, simulate
+    clock = lambda e: datetime.fromtimestamp(e, ZoneInfo("Asia/Kolkata")).strftime("%H:%M")   # noqa: E731
+    bars, minutes = hcl_like_day()
+    s = GapReversalSettings(entry_from="09:15")
+    found = scan_bars("X", 100.0, bars, s)
+    first = next(c for c in found if c.qualifies)
+    assert clock(simulate(first, bars, minutes, s, rr=2.0).entry_time) == "09:46"
+    late = replace(s, entry_from="09:50")
+    t = simulate(first, bars, minutes, late, rr=2.0)
+    assert clock(t.entry_time) == "09:50" and t.entry < first.trigger          # still beyond the trigger at 09:50
+    assert simulate(first, bars, minutes, replace(s, entry_from="10:30"), rr=2.0) is None
+    c, t2 = first_entry(found, bars, minutes, late, rr=2.0)
+    assert c is not None and clock(t2.entry_time) == "09:50"
+    assert first_entry(found, bars, minutes, replace(s, entry_from="10:30"), rr=2.0) == (None, None)
+    assert GapReversalSettings().entry_from == "09:40"
+    with pytest.raises(ValueError):
+        GapReversalSettings(entry_from="15:20")                                # after the exit time

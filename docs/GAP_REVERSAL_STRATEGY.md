@@ -223,6 +223,34 @@ What it shows (honestly):
 - With a cap of 3 to 5, every exit plan stayed profitable on 1-minute data; on 5-minute data the indicator TSLs
   (Chandelier, Supertrend A) turned negative at cap 5, PSAR and the fixed 1:3 stayed positive.
 
+## Earliest entry time (owner, 25 Oct 2026)
+
+Settings tab: **No entry before (HH:MM)**, default **09:40** (`entry_from`). Setups before 09:40 are still marked; the
+entry waits until 09:40 while the setup is still valid (`entry_valid_bars` candles). BREAK: the first minute from 09:40
+with price beyond the trigger (if price is already beyond it at 09:40, the entry is at that minute's open). CLOSE: the
+first candle closing beyond the trigger that ends at 09:40 or later. Backtest another time:
+`python scripts\gap_reversal_backtest.py --entry-from 09:15`.
+
+Rule change with it: a stock trades **the qualifying setup that enters first** (before: the first qualifying setup,
+even if it never entered). An early setup that expires no longer blocks a later one; live and backtest are the same.
+
+Result at a 1% gap, BREAK entry, net Rs, Rs 50,000 per entry (09:15 = no time limit):
+
+| Data | Exit plan | no cap 09:15 | no cap 09:40 | cap 5 09:15 | cap 5 09:40 | cap 10 09:15 | cap 10 09:40 |
+|---|---|---|---|---|---|---|---|
+| 5-min (38 days) | Fixed 1:3 | 41,224 | 38,566 | 7,802 | 2,335 | 7,853 | 13,162 |
+| 5-min | PSAR 0.04/0.04/0.10 | 41,355 | 35,035 | 5,276 | 2,886 | 7,897 | 7,432 |
+| 5-min | PSAR 0.02/0.02/0.20 | 40,117 | 33,050 | 5,158 | 591 | 9,947 | 4,777 |
+| 1-min (17 days) | Fixed 1:3 | 17,514 | 16,894 | 4,901 | -975 | 6,560 | 12,122 |
+| 1-min | PSAR 0.04/0.04/0.10 | 19,256 | 16,593 | 5,834 | 931 | 3,912 | 6,372 |
+| 1-min | PSAR 0.02/0.02/0.20 | 18,226 | 13,422 | 7,095 | -1,783 | 5,819 | 5,451 |
+
+What it shows (honestly): 09:40 did **not** improve the results. With a cap of 5 it was clearly worse on both data
+sets; without a cap slightly worse; only with a cap of 10 the fixed targets did better. Reason: waiting until 09:40
+often enters a setup late, after price already moved away from the trigger (worse entry, same stop = more risk).
+The earlier finding "entries at 09:40-10:00 did best" came from trades that entered late on their own, not from
+delaying early ones. The setting stays (owner's choice); 09:15 = no limit.
+
 ## Limits to know
 
 - Yahoo gives only about 29 days of 1-minute data (60 days of 5-minute), so the sample is small. Use

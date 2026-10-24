@@ -3,7 +3,7 @@
 The trading program (scripts/run_gap_reversal.py) gives it the gap list at the open and each
 gap symbol's finished 1-minute candles. Each minute it re-runs the SAME scan and trade logic as
 the backtest (strategies/gap_reversal.py) on the data so far, so paper and backtest agree.
-One trade per symbol per day: the first qualifying setup. Daily trade cap (settings): new trades are
+One trade per symbol per day: the qualifying setup that ENTERS first, never before ``entry_from`` (09:40). Daily trade cap (settings): new trades are
 admitted in the order they enter (stronger first at the same minute) until the cap is full; setups past
 the cap are still marked and listed as "skipped (daily cap)". Short setups are paper intraday
 short sells of the stock (owner: scanner + paper first, intraday cash later, options last).
@@ -20,7 +20,9 @@ from typing import Sequence
 from zoneinfo import ZoneInfo
 
 from paper_trading.trade_management import session_bars
-from strategies.gap_reversal import GapReversalSettings, bars_from, daily_cap, gap_side, scan_bars, simulate
+from strategies.gap_reversal import (
+    GapReversalSettings, bars_from, daily_cap, first_entry, gap_side, scan_bars, simulate,
+)
 
 IST = ZoneInfo("Asia/Kolkata")
 STATUS_FILE = "status.json"
@@ -64,14 +66,19 @@ class GapReversalDesk:
         bars = bars_from(session_bars(minutes, s.timeframe, now=now))
         found = scan_bars(symbol, info["prev_close"], bars, s)
         self.candidates[symbol] = found
-        first = next((c for c in found if c.qualifies), None)
         # setups are always marked; paper trades only when the strategy is switched ON
-        if first is None or (not self.settings.enabled and symbol not in self.trades):
+        if not any(c.qualifies for c in found) or (not self.settings.enabled and symbol not in self.trades):
             return
         self.snapshots.setdefault(symbol, s)
         snap = self.snapshots[symbol]
         warm = bars_from(session_bars(self.history.get(symbol, []), snap.timeframe)) if self.history.get(symbol) else []
-        t = simulate(first, bars, bars_from(minutes), snap, live=True, history=warm)
+        mins = bars_from(minutes)
+        taken = self.trades.get(symbol)
+        if taken is not None:            # keep following the setup that was traded
+            first = next((c for c in found if c.bar_time == taken["candidate_time"]), None)
+            t = None if first is None else simulate(first, bars, mins, snap, live=True, history=warm)
+        else:                            # the qualifying setup that enters first (from entry_from on)
+            first, t = first_entry(found, bars, mins, snap, live=True, history=warm)
         if t is None:
             return
         qty = int(s.capital * s.allocation_pct / 100 // abs(t.entry)) or 1
@@ -85,7 +92,7 @@ class GapReversalDesk:
             "exit": "" if t.result == "OPEN" else round(t.exit, 2), "exit_detail": t.exit_detail,
             "last": round(last, 2),
             "pnl": round(pnl_points * qty, 2), "r": round(pnl_points / t.risk, 2) if t.risk else 0.0,
-            "entry_epoch": t.entry_time,
+            "entry_epoch": t.entry_time, "candidate_time": first.bar_time,
         }
         if symbol in self.trades:
             self.trades[symbol] = row                 # already taken: keep following it

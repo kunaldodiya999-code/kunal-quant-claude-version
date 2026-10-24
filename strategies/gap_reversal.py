@@ -102,6 +102,7 @@ class GapReversalSettings:
     window_5m: int = 10                  # setups only in the first 10 candles of 5 minutes ...
     window_3m: int = 16                  # ... or the first 16 candles of 3 minutes
     exit_time: str = "15:10"
+    entry_from: str = "09:40"            # no new entry before this time (owner, 25 Oct); setups are still marked
     include_indexes: bool = True         # scan NIFTY, BANK NIFTY, SENSEX too (spot has no volume)
     rr_choices: tuple = RR_CHOICES
     # pattern rules
@@ -143,6 +144,8 @@ class GapReversalSettings:
         object.__setattr__(self, "pattern_weights", weights)
         object.__setattr__(self, "rr_choices", tuple(float(r) for r in self.rr_choices))
         time.fromisoformat(self.exit_time)
+        if not time.fromisoformat(self.entry_from) < time.fromisoformat(self.exit_time):
+            raise ValueError("entry_from must be a time (HH:MM) before exit_time")
         for name in ("max_trades_per_day", "max_short_per_day", "max_long_per_day"):
             value = getattr(self, name)
             if int(value) != value or value < 0:
@@ -409,6 +412,20 @@ def scan_bars(symbol: str, prev_close: float, bars: Sequence[Bar], s: GapReversa
 
 # ------------------------------------------------------------------ the trade
 
+def first_entry(candidates: Sequence[Candidate], bars: Sequence[Bar], minutes: Sequence[Bar],
+                s: GapReversalSettings, **kw) -> tuple[Optional[Candidate], Optional["TradeResult"]]:
+    """The qualifying setup that ENTERS first (earliest entry; the stronger one at the same minute).
+    A setup whose entry never happens (expired, before ``entry_from``, stop too far) does not block later ones."""
+    best = None
+    for c in candidates:
+        if not c.qualifies:
+            continue
+        t = simulate(c, bars, minutes, s, **kw)
+        if t is not None and (best is None or (t.entry_time, -c.strength) < (best[1].entry_time, -best[0].strength)):
+            best = (c, t)
+    return best if best else (None, None)
+
+
 def daily_cap(proposals: Sequence, s: GapReversalSettings, taken: Sequence = ()) -> tuple[list, list]:
     """Apply the daily trade cap to one day's trades.
 
@@ -483,15 +500,17 @@ def simulate(candidate: Candidate, bars: Sequence[Bar], minutes: Sequence[Bar], 
     tf = (bars[1].timestamp - bars[0].timestamp) if len(bars) > 1 else s.timeframe * 60
     step = _step(minutes)
     entry = entry_ts = None
+    first_day = datetime.fromtimestamp(bars[0].timestamp, IST).date()
+    earliest = int(datetime.combine(first_day, time.fromisoformat(s.entry_from), tzinfo=IST).timestamp())
     last_k = min(len(o_bars) - 1, candidate.bar_index + side_cfg.entry_valid_bars)
     for k in range(candidate.bar_index + 1, last_k + 1):
         bar = o_bars[k]
         if side_cfg.entry_mode == "CLOSE":
-            if bar.close < trigger:
+            if bar.close < trigger and bar.timestamp + tf >= earliest:
                 entry, entry_ts = bar.close, bar.timestamp + tf
                 break
             continue
-        inside = [m for m in o_min if bar.timestamp <= m.timestamp < bar.timestamp + tf]
+        inside = [m for m in o_min if bar.timestamp <= m.timestamp < bar.timestamp + tf and m.timestamp >= earliest]
         for m in inside:
             if m.low < trigger:
                 entry, entry_ts = min(trigger, m.open), m.timestamp
@@ -574,6 +593,6 @@ def simulate(candidate: Candidate, bars: Sequence[Bar], minutes: Sequence[Bar], 
 
 __all__ = [
     "Bar", "Candidate", "ENTRY_MODES", "GapReversalSettings", "GapReversalStore", "LONG_NAMES", "PATTERNS",
-    "RR_CHOICES", "SHORT_NAMES", "Setup", "SideSettings", "TradeResult", "bars_from", "daily_cap", "detect", "flip",
+    "RR_CHOICES", "SHORT_NAMES", "Setup", "SideSettings", "TradeResult", "bars_from", "daily_cap", "detect", "first_entry", "flip",
     "gap_side", "scan_bars", "simulate", "strength", "vwap_at",
 ]
