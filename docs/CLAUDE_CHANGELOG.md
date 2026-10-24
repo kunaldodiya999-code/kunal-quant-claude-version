@@ -3,6 +3,19 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: Gap Reversal strategy (owner brief), 2026-10-25
+- Owner answers: build all 10 setups (sheet `docs/reversal_setups.png`); scanner + paper first (later cash MIS, maybe
+  CE/PE); universe all F&O stocks; entry BREAK and CLOSE both switchable. LONG and SHORT built separately.
+- `strategies/gap_reversal.py`: gap filter (3%), opening window (10x5m / 16x3m), 10 setups, mirror for LONG, strength %
+  (rejection, absorption, location, confirmation, pattern weight), trade plan (stop day's high/low, RR 1.5-3), settings.
+- `market_data/stock_universe.py` (F&O stocks from the FYERS public master), Yahoo stock symbols (`.NS`).
+- Backtest `scripts/gap_reversal_backtest.py` (yahoo/fyers/cache); live scanner `scripts/run_gap_reversal.py` +
+  `paper_trading/gap_reversal_paper.py` (paper only, OFF by default = marks only).
+- Dashboard page "Gap Reversal" (Today, Settings, Backtest, Chart with yellow strength arrows: chart `marks`).
+- Chart fix (all chart pages): the first view saved the range the library set while loading candles, so a short day
+  could sit squeezed at the right edge; also a chart inside a hidden tab gets its first view when shown.
+- First Yahoo run (213 stocks, 18 sessions): 13 trades, about break-even. Guide `docs/GAP_REVERSAL_STRATEGY.md`.
+
 ## claude/affectionate-bardeen-3k5sls: TSL + trade management (owner brief), HFT audit, 2026-10-25
 - Owner decisions (asked 25 Oct): after 2R partial -> breakeven then TSL; TSL exit on candle CLOSE beyond
   the stop; TSL candles = strategy timeframe (separate dropdown); HFT PUT side mirrored with PE ladder below ATM.

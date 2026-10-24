@@ -260,6 +260,7 @@
     const oldRange = chart.timeScale().getVisibleLogicalRange(), oldN = N;
     if (!keepView && F) store(`kq_view_${IDX}_${state.tf}`, oldRange ? { fromEnd: N - oldRange.from, toEnd: N - oldRange.to } : null);
     state.tf = tf; saveState();
+    const savedView = fetchStored(`kq_view_${IDX}_${tf}`, null);     // read before setData moves the range
     F = P.frames[tf]; times = F.t; N = times.length; BAR = tf === "D" ? 86400 : Number(tf) * 60;
     version++;
     const S = state.ind.volume.s;
@@ -274,17 +275,28 @@
       const shift = oldRange.to >= oldN - 2 ? N - oldN : 0;          // follow new candles when at the right edge
       chart.timeScale().setVisibleLogicalRange({ from: oldRange.from + shift, to: oldRange.to + shift });
     } else {
-      const view = fetchStored(`kq_view_${IDX}_${tf}`, null);
-      if (view && N) chart.timeScale().setVisibleLogicalRange({ from: N - view.fromEnd, to: N - view.toEnd });
-      else if (N > 160) chart.timeScale().setVisibleLogicalRange({ from: N - 150, to: N + 8 });
-      else chart.timeScale().fitContent();
+      firstView = savedView;
+      startView(savedView);
     }
     document.querySelectorAll(".tf").forEach((b) => b.classList.toggle("active", b.dataset.tf === tf));
     renderLegend(null);
   }
+  let firstView = null;
+  function startView(view) {
+    if (view && N) chart.timeScale().setVisibleLogicalRange({ from: N - view.fromEnd, to: N - view.toEnd });
+    else if (N > 160) chart.timeScale().setVisibleLogicalRange({ from: N - 150, to: N + 8 });
+    else chart.timeScale().fitContent();
+  }
   chart.timeScale().subscribeVisibleLogicalRangeChange((r) => {
-    if (r && N) store(`kq_view_${IDX}_${state.tf}`, { fromEnd: N - r.from, toEnd: N - r.to });
+    if (r && N && wrap.clientWidth > 0) store(`kq_view_${IDX}_${state.tf}`, { fromEnd: N - r.from, toEnd: N - r.to });
   });
+  // a chart built inside a hidden tab has no width yet: set its first view again once it is shown
+  let shownOnce = wrap.clientWidth > 0;
+  new ResizeObserver(() => {
+    if (shownOnce || !wrap.clientWidth) return;
+    shownOnce = true;
+    requestAnimationFrame(() => startView(firstView));
+  }).observe(wrap);
 
   // --------------------------------------------------------------- number text
   function big(x) {

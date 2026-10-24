@@ -101,7 +101,23 @@ if proven, CE/PE options.
 
 ## Backtest results (honest)
 
-BACKTEST_RESULTS
+First run, 24 Oct 2026: all 213 F&O stocks (ICICILIFE download failed), free Yahoo 1-minute data,
+**28 Sep - 23 Oct 2026 (18 sessions, 17 tradable after the first)**, default settings (gap 3%, 5-minute candles, first 10, minimum strength 60%).
+
+- 17 gap days found a setup; 46 setups marked; **13 trades** (8 LONG, 5 SHORT). Far too few to judge.
+
+| Side | Entry | Trades | Win % | Avg R | Total R (at 1:2) |
+|---|---|---|---|---|---|
+| SHORT | BREAK | 5 | 60% | +0.10 | +0.52 |
+| SHORT | CLOSE | 4 | 75% | +0.16 | +0.63 |
+| LONG | BREAK | 8 | 37.5% | -0.05 | -0.38 |
+| LONG | CLOSE | 6 | 33% | -0.10 | -0.58 |
+
+What it says (honestly): roughly break-even so far. Most trades did **not** reach the 1:2 target in the day; they
+ended at 15:10 with a part profit, so the RR choice changes little. The best trades were PAYTM 8 Oct (LONG, 91%,
++2R), PERSISTENT 16 Oct (LONG, +1.7R), PNB 19 Oct (SHORT, +1.8R). Stops: CHOLAFIN, NYKAA, POWERINDIA, RBLBANK,
+SWIGGY, TRENT. Picture of PAYTM on the Chart tab: `docs/gap_reversal_chart.png`.
+Next step: the FYERS run over 90+ days (`--source fyers --days 90`) before any change to the rules.
 
 ## Limits to know
 

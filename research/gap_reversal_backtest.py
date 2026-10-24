@@ -16,7 +16,8 @@ from zoneinfo import ZoneInfo
 
 from market_data.day_quality import group_by_day
 from paper_trading.trade_management import session_bars
-from strategies.gap_reversal import ENTRY_MODES, GapReversalSettings, bars_from, scan_bars, simulate
+from strategies.gap_reversal import (ENTRY_MODES, LONG_NAMES, SHORT_NAMES, GapReversalSettings, bars_from, scan_bars,
+                                     simulate)
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -81,7 +82,9 @@ def summarize(trades: list[dict]) -> list[dict]:
         groups.setdefault(("ALL", t["side"], t["entry_mode"], t["rr"]), []).append(t)
     for t in trades:
         if t["rr"] == 2.0 and t["entry_mode"] == "BREAK":
-            groups.setdefault(("SETUP: " + t["first_setup"], t["side"], "BREAK", 2.0), []).append(t)
+            names = SHORT_NAMES if t["side"] == "SHORT" else LONG_NAMES
+            groups.setdefault(("SETUP: " + names.get(t["first_setup"], t["first_setup"]), t["side"], "BREAK", 2.0),
+                              []).append(t)
             band = "80+" if t["strength"] >= 80 else ("70-80" if t["strength"] >= 70 else "60-70")
             groups.setdefault(("STRENGTH " + band, t["side"], "BREAK", 2.0), []).append(t)
     for (group, side, mode, rr), rows in sorted(groups.items(), key=lambda kv: (kv[0][0] != "ALL", kv[0])):
