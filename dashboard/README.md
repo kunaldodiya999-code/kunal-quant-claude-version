@@ -61,3 +61,17 @@ Every page passes Streamlit's own `AppTest` framework with 0 exceptions
 (`python3 -m streamlit.testing`-style check — see the session
 checkpoint). That confirms the UI runs; it says nothing about whether the
 demo numbers resemble anything real, because they're demo numbers.
+
+
+## First-version platform UI prototype
+
+To preview the UI based on the original Kunal Quant HTML prototype, run this as a separate app:
+
+```
+cd dashboard
+streamlit run prototype_app.py
+```
+
+This is a visual/demo prototype with sample market candles, sample positions and sample P&L. It does not connect to FYERS, Dhan, any AI provider, or any order-placement API. Deploy/Edit and credential-save actions are intentionally disabled. The original validated `app.py` dashboard is preserved; use `streamlit run app.py` to return to it.
+
+The Streamlit version follows the original prototype's sections and styling, but it is not yet a pixel-perfect conversion of the supplied HTML. Treat the HTML file as the design source of truth while we refine layout and then wire components to the approved data-source layer.

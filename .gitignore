@@ -1,3 +1,27 @@
+# Python
+.venv/
 __pycache__/
 *.pyc
+*.pyo
+
+# Secrets
+.env
+fyers_access_token.txt
+
+# Local data
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# Generated test outputs
+fyers*.json
+fyers_nifty_expired_expiry_dates.txt
+*_test.txt
+fyers_auth_code.txt
+
+# pytest
 .pytest_cache/
