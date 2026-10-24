@@ -49,15 +49,24 @@ def status() -> dict | None:
         return None
 
 
-def backtest(name: str) -> pd.DataFrame | None:
-    path = gap_dir() / f"backtest_{name}.csv"
+def _tag(interval: str) -> str:
+    return "" if interval == "1m" else "_" + interval
+
+
+def backtest_intervals() -> list[str]:
+    """Backtests saved: '1m' (1-minute data) and / or '5m' (5-minute data, longer history)."""
+    return [i for i in ("1m", "5m") if (gap_dir() / f"backtest_summary{_tag(i)}.csv").exists()]
+
+
+def backtest(name: str, interval: str = "1m") -> pd.DataFrame | None:
+    path = gap_dir() / f"backtest_{name}{_tag(interval)}.csv"
     if not path.exists() or path.stat().st_size == 0:
         return None
     return pd.read_csv(path)
 
 
-def backtest_meta() -> dict | None:
-    path = gap_dir() / "backtest_meta.json"
+def backtest_meta(interval: str = "1m") -> dict | None:
+    path = gap_dir() / f"backtest_meta{_tag(interval)}.json"
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
 
@@ -82,4 +91,4 @@ def research_minutes(stock: str, day: str, warmup_days: int = 6) -> list:
     return [c for c in candles if start.timestamp() <= c.timestamp < end.timestamp()]
 
 
-__all__ = ["COMMANDS", "backtest", "backtest_meta", "gap_dir", "live_minutes", "research_minutes", "status", "store"]
+__all__ = ["COMMANDS", "backtest", "backtest_intervals", "backtest_meta", "gap_dir", "live_minutes", "research_minutes", "status", "store"]

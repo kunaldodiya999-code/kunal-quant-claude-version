@@ -9,10 +9,16 @@ Run from C:\\Users\\USER\\Desktop\\Kunal\\kunal-quant-claude-version :
     python scripts\\gap_reversal_backtest.py --symbols HCLTECH,ADANIENT,SWIGGY
     python scripts\\gap_reversal_backtest.py --source cache
         (re-run on data already downloaded, e.g. after changing settings)
+    python scripts\\gap_reversal_backtest.py --interval 5m
+        (Yahoo 5-minute data: about 60 days instead of 29; entries and stops less precise)
+
+Every trade is run with each exit plan: fixed targets 1:1.5, 1:2, 1:2.5, 1:3 and "TSL only" (empty reward
+box) for each TSL method with the owner's numbers. Money: --capital-per-trade (default 50,000) per entry,
+before and after estimated intraday charges.
 
 Uses the settings saved from the dashboard (data\\gap_reversal\\settings.json). Downloads are kept in
 data\\research\\market_data.db, so a second run is fast. Results in data\\gap_reversal\\:
-backtest_summary.csv, backtest_trades.csv, backtest_candidates.csv.
+backtest_summary.csv, backtest_trades.csv, backtest_candidates.csv (with --interval 5m: *_5m.csv).
 """
 
 from __future__ import annotations
@@ -31,7 +37,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from market_data.research_store import ResearchStore  # noqa: E402
 from market_data.stock_universe import load_fno_stocks  # noqa: E402
-from research.gap_reversal_backtest import run_symbol, summarize  # noqa: E402
+from research.gap_reversal_backtest import CAPITAL_PER_TRADE, run_symbol, summarize  # noqa: E402
 from strategies.gap_reversal import GapReversalStore  # noqa: E402
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -50,17 +56,18 @@ def write_csv(path: Path, rows: list[dict]) -> None:
             writer.writerows(rows)
 
 
-def download(stock: str, source: str, store: ResearchStore, *, days: int, client=None, yahoo_get=None, pause=0.3):
+def download(stock: str, source: str, store: ResearchStore, *, days: int, client=None, yahoo_get=None, pause=0.3,
+             interval: str = "1m"):
     if source == "yahoo":
         from market_data.sources import yahoo
         kwargs = {"get": yahoo_get} if yahoo_get else {}
-        candles = yahoo.fetch(stock, "1m", days=days, stock=True, pause=pause, **kwargs)
+        candles = yahoo.fetch(stock, interval, days=days, stock=True, pause=pause, **kwargs)
     else:
         from market_data.sources.fyers_history import fetch_history
         today = datetime.now(IST).date()
-        candles = fetch_history(client, f"NSE:{stock}-EQ", resolution="1", start=today - timedelta(days=days),
-                                end=today, pause=pause)
-    store.save_candles(series_name(stock), source, "1m", candles)
+        candles = fetch_history(client, f"NSE:{stock}-EQ", resolution=interval.rstrip("m"),
+                                start=today - timedelta(days=days), end=today, pause=pause)
+    store.save_candles(series_name(stock), source, interval, candles)
     return candles
 
 
@@ -68,12 +75,15 @@ def main(argv=None, *, client=None, yahoo_get=None, master=None) -> int:
     p = argparse.ArgumentParser(description="Gap Reversal backtest on F&O stocks.")
     p.add_argument("--source", choices=("yahoo", "fyers", "cache"), default="yahoo")
     p.add_argument("--symbols", default="", help="comma list (default: every F&O stock)")
-    p.add_argument("--days", type=int, default=29)
+    p.add_argument("--days", type=int, default=None, help="days back (default 29 for 1m, 59 for 5m)")
+    p.add_argument("--interval", choices=("1m", "5m"), default="1m")
+    p.add_argument("--capital-per-trade", type=float, default=CAPITAL_PER_TRADE)
     p.add_argument("--cache-source", default="yahoo", help="with --source cache: which download to use")
     p.add_argument("--data-folder", type=Path, default=PROJECT_ROOT / "data")
     p.add_argument("--credentials-folder", type=Path, default=None)
     p.add_argument("--pause", type=float, default=0.3)
     args = p.parse_args(argv)
+    days = args.days or (29 if args.interval == "1m" else 59)
 
     settings = GapReversalStore(args.data_folder / "gap_reversal").settings
     if args.symbols.strip():
@@ -92,34 +102,47 @@ def main(argv=None, *, client=None, yahoo_get=None, master=None) -> int:
     for n, stock in enumerate(stocks, 1):
         try:
             if args.source == "cache":
-                minutes = store.load(series_name(stock), args.cache_source, "1m", clean_only=False)
+                minutes = store.load(series_name(stock), args.cache_source, args.interval, clean_only=False)
             else:
-                minutes = download(stock, args.source, store, days=args.days, client=client, yahoo_get=yahoo_get,
-                                   pause=args.pause)
+                minutes = download(stock, args.source, store, days=days, client=client, yahoo_get=yahoo_get,
+                                   pause=args.pause, interval=args.interval)
         except Exception as exc:             # one bad symbol must not stop the run
             failed.append(f"{stock}: {exc}")
             continue
-        candidates, trades = run_symbol(stock, minutes, settings)
+        candidates, trades = run_symbol(stock, minutes, settings, capital_per_trade=args.capital_per_trade)
         all_candidates += candidates
         all_trades += trades
         if n % 25 == 0:
             print(f"  {n}/{len(stocks)} symbols done, {len(all_candidates)} setups marked so far")
     summary = summarize(all_trades)
     out = args.data_folder / "gap_reversal"
-    write_csv(out / "backtest_candidates.csv", all_candidates)
-    write_csv(out / "backtest_trades.csv", all_trades)
-    write_csv(out / "backtest_summary.csv", summary)
-    (out / "backtest_meta.json").write_text(json.dumps({
-        "generated_at": datetime.now(IST).isoformat(timespec="seconds"), "source": args.source, "symbols": len(stocks),
-        "failed": failed, "settings": settings.to_dict()}, indent=1, default=str), encoding="utf-8")
-    print("-" * 96)
-    for row in summary:
-        if row["group"] == "ALL":
-            print(f"{row['side']:<6}{row['entry_mode']:<6} 1:{row['rr']:<4} trades {row['trades']:>4}  "
-                  f"win {row['win_rate_pct']:>5}%  PF {row['profit_factor']:>5}  avg {row['avg_r']:>6} R  "
-                  f"total {row['total_r']:>7} R")
+    tag = "" if args.interval == "1m" else "_" + args.interval
+    write_csv(out / f"backtest_candidates{tag}.csv", all_candidates)
+    write_csv(out / f"backtest_trades{tag}.csv", all_trades)
+    write_csv(out / f"backtest_summary{tag}.csv", summary)
+    days_seen = sorted({t["day"] for t in all_trades} | {c["day"] for c in all_candidates})
+    (out / f"backtest_meta{tag}.json").write_text(json.dumps({
+        "generated_at": datetime.now(IST).isoformat(timespec="seconds"), "source": args.source,
+        "interval": args.interval, "symbols": len(stocks), "failed": failed, "days_back": days,
+        "capital_per_trade": args.capital_per_trade, "first_day": days_seen[0] if days_seen else None,
+        "last_day": days_seen[-1] if days_seen else None, "settings": settings.to_dict()},
+        indent=1, default=str), encoding="utf-8")
+    print("-" * 118)
+    print(f"Rs {args.capital_per_trade:,.0f} per entry. R = multiples of the risk to the stop. Net = after estimated "
+          "intraday charges.")
+    for side in ("BOTH", "SHORT", "LONG"):
+        rows = [r for r in summary if r["group"] == "ALL" and r["side"] == side]
+        if not rows:
+            continue
+        print(f"\n{side}{'  (long + short together)' if side == 'BOTH' else ''}")
+        print(f"  {'entry':<6}{'exit plan':<44}{'trades':>6}{'win%':>7}{'avg R':>8}{'PF':>6}"
+              f"{'gross Rs':>11}{'charges':>9}{'net Rs':>11}")
+        for r in rows:
+            print(f"  {r['entry_mode']:<6}{r['exit_plan'][:43]:<44}{r['trades']:>6}{r['win_rate_pct']:>7}"
+                  f"{r['expectancy_r']:>8}{r['profit_factor']:>6}{r['gross_pnl']:>11,.0f}{r['charges']:>9,.0f}"
+                  f"{r['net_pnl']:>11,.0f}")
     gap_days = len({(c['symbol'], c['day']) for c in all_candidates})
-    print(f"Setups marked: {len(all_candidates)} on {gap_days} gap days. Failed downloads: {len(failed)}")
+    print(f"\nSetups marked: {len(all_candidates)} on {gap_days} gap days. Failed downloads: {len(failed)}")
     print(f"Saved: {out}")
     return 0
 

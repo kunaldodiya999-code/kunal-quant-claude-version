@@ -3,6 +3,23 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: exit plan for every strategy, deploy single/several/all, TSL backtest, 2026-10-25
+- Owner rule: every strategy has "Reward 1:[box]": a number = the whole trade closes at 1:number; EMPTY = no fixed
+  target, the chosen TSL (owner's presets and numbers) exits when a candle CLOSES beyond it.
+  `strategies/exit_plan.py` (ExitPlan, parse_rr), form widget `dashboard/exit_inputs.py`.
+- Gap Reversal: per side target_rr (may be empty) + tsl_method + trigger + TSL numbers; simulate() runs target,
+  hard stop and TSL on the stock's 5-min candles (earlier days as warm-up, value known at candle close, ratchet,
+  starts once on the protective side). Live desk fetches earlier days for the warm-up.
+- KTMI: `exit_target_rr` in trade_management.json (empty default = unchanged: partial 2R + TSL); filled = whole
+  position out at 1:box (`close_all_at_target` in the buyer lifecycle). Box on Live Paper Trading > Trade management.
+- Deploy: `strategies/registry.py`, `data/strategies.json`, `scripts/run_strategies.py` (one command starts every
+  deployed strategy, `--deploy`, `--list`), page "Strategies", home page list. KTMI runner exits if not deployed.
+- Backtest: every exit plan (1:1.5..1:3 and TSL-only per preset), Rs 50,000 per entry, estimated intraday charges
+  (`backtest/equity_costs.py`), `--interval 5m` (60 days), `--capital-per-trade`. Backtest tab filters.
+- Results (5-min, 31 Aug - 23 Oct, 33 trades): best both sides = TSL PSAR A +Rs 3,914 net; SHORT best 1:3 (+4,765);
+  LONG only profitable with a TSL (Chandelier +1,832, Supertrend A +1,534). 1-min check (13 trades): all negative.
+  Small sample; see docs/GAP_REVERSAL_STRATEGY.md.
+
 ## claude/affectionate-bardeen-3k5sls: Gap Reversal strategy (owner brief), 2026-10-25
 - Owner answers: build all 10 setups (sheet `docs/reversal_setups.png`); scanner + paper first (later cash MIS, maybe
   CE/PE); universe all F&O stocks; entry BREAK and CLOSE both switchable. LONG and SHORT built separately.

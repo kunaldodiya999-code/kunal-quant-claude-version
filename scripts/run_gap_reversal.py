@@ -61,6 +61,14 @@ def today_minutes(client, symbol: str, now: datetime) -> list:
     return [c for c in candles if c.timestamp + 60 <= cutoff]
 
 
+def earlier_minutes(client, symbol: str, now: datetime, days: int = 7) -> list:
+    """1-minute candles of the last few sessions before today (TSL warm-up)."""
+    from paper_trading.warmup import parse_history_candles
+    from datetime import timedelta
+    start, end = (now.date() - timedelta(days=days)).isoformat(), (now.date() - timedelta(days=1)).isoformat()
+    return parse_history_candles(client.history(symbol, resolution="1", range_from=start, range_to=end))
+
+
 def main(argv=None, *, client=None, clock=None, sleep=time.sleep, master=None) -> int:
     p = argparse.ArgumentParser(description="Gap Reversal live scanner + paper trading.")
     p.add_argument("--data-folder", type=Path, default=PROJECT_ROOT / "data")
@@ -98,6 +106,12 @@ def main(argv=None, *, client=None, clock=None, sleep=time.sleep, master=None) -
         desk.set_gap(symbol, prev, opn)
     say(f"Gaps of {settings.gap_pct}% or more: " + (", ".join(f"{k} {v['gap_pct']:+.2f}%" for k, v in desk.gaps.items())
                                                    or "none today"))
+    if settings.short.exit_plan().uses_tsl or settings.long.exit_plan().uses_tsl:
+        for symbol in desk.gaps:                            # TSL warm-up on the previous days (once)
+            try:
+                desk.set_history(symbol, earlier_minutes(client, symbol, clock()))
+            except Exception as exc:
+                say(f"{symbol}: no earlier candles for the TSL warm-up ({exc})")
     stop_at = dtime.fromisoformat(args.stop_at)
     seen_minute = None
     while True:
@@ -120,7 +134,7 @@ def main(argv=None, *, client=None, clock=None, sleep=time.sleep, master=None) -
                                            for c in new[:5]))
             for t in status["trades"]:
                 say(f"PAPER {t['symbol']} {t['side']} {t['status']} entry {t['entry']} stop {t['stop']} "
-                    f"target {t['target']} P&L {t['pnl']}")
+                    f"target {t['target'] or 'TSL'} P&L {t['pnl']}")
         sleep(args.every)
     desk.write_status(int(clock().timestamp()))
     say(f"Saved in {folder}")

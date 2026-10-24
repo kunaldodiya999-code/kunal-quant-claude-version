@@ -22,6 +22,7 @@ from paper_trading.trade_management import (  # noqa: E402
     AFTER_PARTIAL, ALLOCATION_BASES, LABELS, ONE_LOT_AT_TARGET, TSL_MODES, TSL_SOURCES, TSL_TIMEFRAMES, TSL_TRIGGERS,
 )
 from paper_trading.tsl_methods import PRESETS  # noqa: E402
+from exit_inputs import reward_box  # noqa: E402
 from paper_trading.sizing import AllocationSetting, AllocationStore  # noqa: E402
 from strategies.index_profiles import INDEX_PROFILES  # noqa: E402
 from theme import configure_page  # noqa: E402
@@ -178,8 +179,9 @@ tm_store = trade_store(index)
 tm = tm_store.settings
 TF_TEXT = {"STRATEGY": f"Same as strategy ({current.timeframe_minutes} min)", **{t: f"{t} min" for t in TSL_TIMEFRAMES[1:]}}
 with st.form(f"trade_management_{index}"):
-    st.markdown("**Stop-loss and trailing stop**")
-    a1, a2, a3 = st.columns(3)
+    st.markdown("**Exit: target or trailing stop**")
+    a0, a1, a2, a3 = st.columns(4)
+    reward = reward_box(a0, tm.exit_target_rr, key=f"tm_reward_{index}")
     initial_sl = a1.number_input("Initial stop-loss (% of option premium)", 1.0, 99.0, float(tm.initial_sl_pct), 1.0,
                                  key=f"tm_sl_{index}")
     tsl_on = a2.checkbox("TSL on", value=tm.tsl_enabled, key=f"tm_tsl_on_{index}")
@@ -210,7 +212,9 @@ with st.form(f"trade_management_{index}"):
                     values[name] = float(col.number_input(name.replace("_", " "), 0.0, 10_000.0, float(default),
                                                           format="%.3f", key=widget_key))
             params[key] = values
-    st.markdown("**Partial profit booking**")
+    st.caption("Reward box filled: the whole trade closes at 1:box (partial booking is then not used). Empty: partial "
+               "booking (if on) and the TSL take the trade out.")
+    st.markdown("**Partial profit booking (only with an empty reward box)**")
     c1, c2, c3, c4, c5 = st.columns(5)
     partial_on = c1.checkbox("Partial booking on", value=tm.partial_enabled, key=f"tm_partial_{index}")
     partial_r = c2.number_input("At R", 0.5, 20.0, float(tm.partial_r), 0.5, key=f"tm_r_{index}")
@@ -238,7 +242,7 @@ with st.form(f"trade_management_{index}"):
                "(Strategy settings above). Daily-loss cutoff applies from the next signal.")
     if st.form_submit_button("Save trade management"):
         try:
-            tm_store.update(initial_sl_pct=float(initial_sl), tsl_enabled=tsl_on, tsl_mode=mode, tsl_method=method,
+            tm_store.update(exit_target_rr=reward, initial_sl_pct=float(initial_sl), tsl_enabled=tsl_on, tsl_mode=mode, tsl_method=method,
                             tsl_source=source, tsl_timeframe=tsl_tf, tsl_trigger=trigger, method_params=params,
                             partial_enabled=partial_on, partial_r=float(partial_r), partial_pct=float(partial_pct),
                             one_lot_at_target=one_lot, after_partial=after, forced_exit_enabled=forced,

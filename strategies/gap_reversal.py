@@ -6,8 +6,9 @@ look for a reversal setup at the day's extreme, where buyers (gap up) or sellers
 absorbed. Mark each candidate with a REVERSAL STRENGTH %, then trade the reversal:
   gap UP   -> SHORT setups (top reversals), stop at the day's HIGH
   gap DOWN -> LONG setups (bottom reversals), stop at the day's LOW
-  targets 1:1.5, 1:2, 1:2.5 or 1:3 of that risk; flat by 15:10.
-LONG and SHORT have separate settings.
+  exit (strategies/exit_plan.py, same for every strategy): reward 1:[box] (1.5, 2, 2.5, 3 or any
+  number) or an EMPTY box = the trailing stop (TSL) takes the trade out when a candle closes beyond
+  it; flat by 15:10. LONG and SHORT have separate settings.
 
 The 10 setups (docs/reversal_setups.png): shooting star / hammer, doji, engulfing, evening /
 morning star, dark cloud / piercing, tweezer, harami, failed breakout / breakdown, volume climax
@@ -32,6 +33,9 @@ from datetime import datetime, time
 from pathlib import Path
 from typing import Optional, Sequence
 from zoneinfo import ZoneInfo
+
+from paper_trading.tsl_methods import method_stops
+from strategies.exit_plan import NO_TSL, ExitPlan, parse_rr
 
 IST = ZoneInfo("Asia/Kolkata")
 PATTERNS = ("SHOOTING_STAR", "DOJI", "ENGULFING", "EVENING_STAR", "DARK_CLOUD", "TWEEZER", "HARAMI",
@@ -65,18 +69,29 @@ class SideSettings:
     min_strength: float = 60.0          # % needed to call it a trade candidate
     entry_mode: str = "BREAK"           # BREAK: price trades beyond the setup candle; CLOSE: a candle closes beyond it
     entry_valid_bars: int = 3           # candles after the setup during which the entry may happen
-    target_rr: float = 2.0              # paper trades: 1:2 by default (backtest reports every RR)
     sl_buffer_pct: float = 0.0          # extra room beyond the day's extreme, % of price
     max_risk_pct: float = 0.0           # skip when the stop is farther than this % of price (0 = no limit)
+    # exit plan (same fields as strategies/exit_plan.ExitPlan): reward 1:[target_rr], None = TSL exit
+    target_rr: Optional[float] = 2.0
+    tsl_method: str = NO_TSL            # NONE or a TSL preset (on this strategy's candles, the stock chart)
+    tsl_trigger: str = "CLOSE"
+    method_params: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.entry_mode not in ENTRY_MODES:
             raise ValueError(f"entry_mode must be one of {ENTRY_MODES}")
-        if not 0 <= self.min_strength <= 100 or self.entry_valid_bars < 1 or self.target_rr <= 0:
-            raise ValueError("min_strength 0-100, entry_valid_bars >= 1, target_rr > 0")
+        if not 0 <= self.min_strength <= 100 or self.entry_valid_bars < 1:
+            raise ValueError("min_strength 0-100, entry_valid_bars >= 1")
+        plan = self.exit_plan()                   # validates the exit fields
+        object.__setattr__(self, "target_rr", plan.target_rr)
+        object.__setattr__(self, "method_params", plan.method_params)
         merged = _all_on()
         merged.update({k: bool(v) for k, v in (self.patterns or {}).items() if k in merged})
         object.__setattr__(self, "patterns", merged)
+
+    def exit_plan(self) -> ExitPlan:
+        return ExitPlan(target_rr=parse_rr(self.target_rr), tsl_method=self.tsl_method, tsl_trigger=self.tsl_trigger,
+                        method_params=self.method_params)
 
 
 @dataclass(frozen=True)
@@ -391,29 +406,48 @@ class TradeResult:
     candidate_time: int
     entry_time: int
     entry: float
-    stop: float
+    stop: float                # the hard stop (day's extreme + buffer)
     risk: float
-    rr: float
-    target: float
+    rr: Optional[float]        # None = no fixed target (TSL exit)
+    target: Optional[float]
     exit_time: int
     exit: float
-    result: str                # TARGET, STOP, TIME (15:10) or OPEN (live, still running)
+    result: str                # TARGET, STOP, TSL, TIME (15:10) or OPEN (live, still running)
     points: float              # in the trade's favour (+ = profit)
     r_multiple: float
+    exit_detail: str = ""
+    max_favourable_r: float = 0.0   # best move in the trade's favour before the exit, in R
+
+
+def _step(minutes: Sequence[Bar]) -> int:
+    """Seconds per 'minute' candle (60 for 1-minute data, 300 when only 5-minute data exists)."""
+    gaps = [b.timestamp - a.timestamp for a, b in zip(minutes, minutes[1:]) if b.timestamp > a.timestamp]
+    return min(gaps) if gaps else 60
 
 
 def simulate(candidate: Candidate, bars: Sequence[Bar], minutes: Sequence[Bar], s: GapReversalSettings,
-             rr: float | None = None, live: bool = False) -> Optional[TradeResult]:
-    """Entry after the candidate (BREAK or CLOSE), stop at the day's extreme so far, target rr x risk.
+             rr: float | None = None, live: bool = False, plan: ExitPlan | None = None,
+             history: Sequence[Bar] = ()) -> Optional[TradeResult]:
+    """Entry after the candidate (BREAK or CLOSE), hard stop at the day's extreme so far, then the exit plan:
+    target ``rr`` x risk (if any) and / or the TSL on the strategy candles (exit when a candle CLOSES beyond it).
     ``minutes`` = the day's 1-minute candles (precise entry, stop and target); stop first if both touch.
-    ``live``: the day is still running, so a trade without an exit yet is OPEN (not a 15:10 exit)."""
+    ``rr`` (backtest) = fixed target only, no TSL; ``plan`` overrides the side's exit plan.
+    ``live``: the day is still running, so a trade without an exit yet is OPEN (not a 15:10 exit).
+    ``history``: earlier days' strategy candles, only to warm the TSL up (as on a TradingView chart).
+
+    TSL rules (no look-ahead): a TSL value is known at its candle's close and protects the next candles;
+    it only tightens; it starts once it is on the protective side of price (above it for a SHORT), so
+    the up-trend values before the reversal do not throw the trade out at once."""
     side_cfg = s.side(candidate.side)
-    rr = side_cfg.target_rr if rr is None else rr
+    if plan is None:
+        plan = ExitPlan(target_rr=rr, tsl_method=NO_TSL) if rr is not None else side_cfg.exit_plan()
     short = candidate.side == "SHORT"
+    sign = 1 if short else -1
     o_bars = list(bars) if short else flip(bars)
     o_min = list(minutes) if short else flip(minutes)
     trigger = candidate.trigger if short else -candidate.trigger
-    tf = (bars[1].timestamp - bars[0].timestamp) if len(bars) > 1 else 300
+    tf = (bars[1].timestamp - bars[0].timestamp) if len(bars) > 1 else s.timeframe * 60
+    step = _step(minutes)
     entry = entry_ts = None
     last_k = min(len(o_bars) - 1, candidate.bar_index + side_cfg.entry_valid_bars)
     for k in range(candidate.bar_index + 1, last_k + 1):
@@ -432,7 +466,7 @@ def simulate(candidate: Candidate, bars: Sequence[Bar], minutes: Sequence[Bar], 
             break
     if entry is None:
         return None
-    seen = [m for m in o_min if m.timestamp < entry_ts] + [m for m in o_min if m.timestamp == entry_ts]
+    seen = [m for m in o_min if m.timestamp <= entry_ts]
     extreme = max(m.high for m in seen)                     # the day's high (short) / low (long) so far
     stop = extreme + abs(extreme) * side_cfg.sl_buffer_pct / 100
     risk = stop - entry
@@ -440,28 +474,68 @@ def simulate(candidate: Candidate, bars: Sequence[Bar], minutes: Sequence[Bar], 
         return None
     if side_cfg.max_risk_pct and risk / abs(entry) * 100 > side_cfg.max_risk_pct:
         return None
-    target = entry - rr * risk
+    target = None if plan.target_rr is None else entry - plan.target_rr * risk
     day = datetime.fromtimestamp(entry_ts, IST).date()
     cutoff = int(datetime.combine(day, time.fromisoformat(s.exit_time), tzinfo=IST).timestamp())
-    exit_price, exit_ts, result = None, None, "TIME"
+
+    # TSL values per strategy candle, on real prices and the real side, then turned to the short view
+    tsl_at: dict[int, tuple] = {}                           # candle end -> (index, value or None, flip)
+    if plan.uses_tsl:
+        kind, params = plan.method()
+        real_entry = sign * entry
+        warm = len(history)
+        points = method_stops(kind, params, list(history) + list(bars), candidate.side, entry_price=real_entry)[warm:]
+        for k, (bar, point) in enumerate(zip(bars, points)):
+            value = None if point.stop is None else sign * point.stop
+            tsl_at[bar.timestamp + tf] = (k, value, point.against)
+    tsl = None
+    for end in sorted(e for e in tsl_at if e <= entry_ts):   # the method's value when the trade starts
+        k, value, _ = tsl_at[end]
+        tsl = value if value is not None and value > o_bars[k].close else None
+
+    exit_price, exit_ts, result, detail = None, None, "TIME", ""
+    best = entry
     after = [m for m in o_min if m.timestamp > entry_ts and m.timestamp < cutoff]
+    entry_end = entry_ts if side_cfg.entry_mode == "CLOSE" else entry_ts + step
+    if entry_end in tsl_at:                                 # the entry candle closes in the entry minute
+        k, value, _ = tsl_at[entry_end]
+        if value is not None and value > o_bars[k].close:
+            tsl = value if tsl is None else min(tsl, value)
     for m in after:
         if m.high >= stop:
-            exit_price, exit_ts, result = max(stop, m.open), m.timestamp, "STOP"
+            exit_price, exit_ts, result, detail = max(stop, m.open), m.timestamp, "STOP", "day's extreme"
             break
-        if m.low <= target:
-            exit_price, exit_ts, result = target, m.timestamp, "TARGET"
+        if target is not None and m.low <= target:
+            exit_price, exit_ts, result, detail = target, m.timestamp, "TARGET", f"1:{plan.target_rr:g}"
             break
+        best = min(best, m.low)
+        if plan.uses_tsl and plan.tsl_trigger == "TOUCH" and tsl is not None and m.high >= tsl:
+            exit_price, exit_ts, result, detail = max(tsl, m.open), m.timestamp, "TSL", f"touched {abs(tsl):g}"
+            break
+        hit = tsl_at.get(m.timestamp + step)
+        if hit is None:
+            continue
+        k, value, against = hit
+        close = o_bars[k].close
+        if tsl is not None and plan.tsl_trigger == "CLOSE" and close > tsl:
+            exit_price, exit_ts, result = close, m.timestamp + step, "TSL"
+            detail = f"candle closed beyond the TSL {abs(tsl):g}"
+            break
+        if against and tsl is not None:
+            exit_price, exit_ts, result, detail = close, m.timestamp + step, "TSL", "SAR switched sides"
+            break
+        if value is not None and (tsl is not None or value > close):
+            tsl = value if tsl is None else min(tsl, value)
     if exit_price is None:
         last = after[-1] if after else [m for m in o_min if m.timestamp <= entry_ts][-1]
         exit_price, exit_ts = last.close, last.timestamp
-        if live and (not after or after[-1].timestamp + 60 < cutoff):
+        if live and (not after or after[-1].timestamp + step < cutoff):
             result = "OPEN"
-    sign = 1 if short else -1
-    points = entry - exit_price
+    points_won = entry - exit_price
     return TradeResult(candidate.symbol, candidate.side, candidate.bar_time, entry_ts, sign * entry, sign * stop,
-                       round(risk, 4), rr, sign * target, exit_ts, sign * exit_price, result, round(points, 4),
-                       round(points / risk, 3))
+                       round(risk, 4), plan.target_rr, None if target is None else sign * target, exit_ts,
+                       sign * exit_price, result, round(points_won, 4), round(points_won / risk, 3), detail,
+                       round((entry - best) / risk, 3))
 
 
 __all__ = [

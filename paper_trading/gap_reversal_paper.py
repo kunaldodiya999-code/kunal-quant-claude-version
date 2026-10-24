@@ -37,12 +37,17 @@ class GapReversalDesk:
         self.candidates: dict[str, list] = {}
         self.trades: dict[str, dict] = {}         # symbol -> trade row
         self.snapshots: dict[str, GapReversalSettings] = {}
+        self.history: dict[str, list] = {}        # symbol -> earlier days' 1-minute candles (TSL warm-up)
 
     def set_gap(self, symbol: str, prev_close: float, day_open: float) -> str | None:
         side, gap = gap_side(prev_close, day_open, self.settings)
         if side is not None:
             self.gaps[symbol] = {"prev_close": prev_close, "open": day_open, "gap_pct": round(gap, 2), "side": side}
         return side
+
+    def set_history(self, symbol: str, minutes: Sequence) -> None:
+        """Earlier days' 1-minute candles of a gap symbol: the TSL warms up on them (like a TradingView chart)."""
+        self.history[symbol] = list(minutes)
 
     def on_minutes(self, symbol: str, minutes: Sequence, now: int) -> None:
         """All of today's FINISHED 1-minute candles of a gap symbol (with volume)."""
@@ -60,7 +65,9 @@ class GapReversalDesk:
         if first is None or (not self.settings.enabled and symbol not in self.trades):
             return
         self.snapshots.setdefault(symbol, s)
-        t = simulate(first, bars, bars_from(minutes), self.snapshots[symbol], live=True)
+        snap = self.snapshots[symbol]
+        warm = bars_from(session_bars(self.history.get(symbol, []), snap.timeframe)) if self.history.get(symbol) else []
+        t = simulate(first, bars, bars_from(minutes), snap, live=True, history=warm)
         if t is None:
             return
         qty = int(s.capital * s.allocation_pct / 100 // abs(t.entry)) or 1
@@ -69,9 +76,10 @@ class GapReversalDesk:
         self.trades[symbol] = {
             "symbol": symbol, "side": t.side, "action": "PAPER SHORT SELL" if t.side == "SHORT" else "PAPER BUY",
             "setup": first.pattern_names, "strength": first.strength, "entry_time": _clock(t.entry_time),
-            "entry": round(t.entry, 2), "stop": round(t.stop, 2), "target": round(t.target, 2),
-            "rr": t.rr, "quantity": qty, "status": t.result, "exit_time": "" if t.result == "OPEN" else _clock(t.exit_time),
-            "exit": "" if t.result == "OPEN" else round(t.exit, 2), "last": round(last, 2),
+            "entry": round(t.entry, 2), "stop": round(t.stop, 2), "target": "" if t.target is None else round(t.target, 2),
+            "rr": "TSL" if t.rr is None else t.rr, "exit_plan": snap.side(t.side).exit_plan().describe(), "quantity": qty, "status": t.result, "exit_time": "" if t.result == "OPEN" else _clock(t.exit_time),
+            "exit": "" if t.result == "OPEN" else round(t.exit, 2), "exit_detail": t.exit_detail,
+            "last": round(last, 2),
             "pnl": round(pnl_points * qty, 2), "r": round(pnl_points / t.risk, 2) if t.risk else 0.0,
         }
 

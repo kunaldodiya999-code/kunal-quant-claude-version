@@ -15,9 +15,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from chart_component import show_chart  # noqa: E402
 from data.chart import ChartData, chart_payload  # noqa: E402
 from data.gap_reversal import (  # noqa: E402
-    COMMANDS, backtest, backtest_meta, live_minutes, research_minutes, status, store,
+    COMMANDS, backtest, backtest_intervals, backtest_meta, live_minutes, research_minutes, status, store,
 )
-from strategies.gap_reversal import ENTRY_MODES, LONG_NAMES, PATTERNS, RR_CHOICES, SHORT_NAMES  # noqa: E402
+from exit_inputs import reward_box, tsl_select  # noqa: E402
+from paper_trading.tsl_methods import PRESETS  # noqa: E402
+from strategies.exit_plan import TSL_LABELS, TSL_TRIGGERS  # noqa: E402
+from strategies.gap_reversal import ENTRY_MODES, LONG_NAMES, PATTERNS, SHORT_NAMES  # noqa: E402
 from theme import configure_page  # noqa: E402
 
 configure_page("Gap Reversal")
@@ -96,6 +99,24 @@ with settings_tab:
             w_conf = w4.number_input("Confirmation", 0.0, 100.0, float(s.w_confirmation), 5.0, key="gr_wconf")
             stretch = w5.number_input("VWAP stretch for full score (%)", 0.1, 10.0, float(s.stretch_full_pct), 0.1,
                                       key="gr_stretch")
+        with st.expander("TSL numbers (both sides; on this strategy's candles of the stock chart)"):
+            tsl_params = {}
+            for key, (_kind, defaults) in PRESETS.items():
+                st.caption(TSL_LABELS[key])
+                pcols = st.columns(len(defaults))
+                values = {}
+                for col, (name, default) in zip(pcols, s.short.method_params[key].items()):
+                    wkey = f"gr_p_{key}_{name}"
+                    if isinstance(default, bool):
+                        values[name] = col.checkbox(name.replace("_", " "), value=default, key=wkey)
+                    elif isinstance(PRESETS[key][1][name], int):
+                        values[name] = int(col.number_input(name.replace("_", " "), 1, 500, int(default), 1, key=wkey))
+                    else:
+                        values[name] = float(col.number_input(name.replace("_", " "), 0.0, 10_000.0, float(default),
+                                                              format="%.3f", key=wkey))
+                tsl_params[key] = values
+        st.caption("Exit: Reward 1:[box] = close the whole trade at that target. EMPTY box = no target, the TSL takes "
+                   "the trade out. The day's high (short) / low (long) is always the stop.")
         sides = {}
         cols = st.columns(2)
         for col, side, names, title in ((cols[0], "short", SHORT_NAMES, "SHORT after a gap UP"),
@@ -110,18 +131,22 @@ with settings_tab:
                 entry = a2.selectbox("Entry", ENTRY_MODES, index=ENTRY_MODES.index(cfg.entry_mode),
                                      format_func={"BREAK": "Price breaks the setup candle",
                                                   "CLOSE": "A candle closes beyond it"}.get, key=f"gr_{side}_entry")
-                b1, b2, b3, b4 = st.columns(4)
+                b1, b2, b3 = st.columns(3)
                 valid = b1.number_input("Entry within (candles)", 1, 20, int(cfg.entry_valid_bars), key=f"gr_{side}_valid")
-                rr_value = float(cfg.target_rr)
-                rr = b2.selectbox("Target", RR_CHOICES, index=RR_CHOICES.index(rr_value) if rr_value in RR_CHOICES else 1,
-                                  format_func=lambda r: f"1:{r}", key=f"gr_{side}_rr")
-                buffer = b3.number_input("Stop buffer %", 0.0, 5.0, float(cfg.sl_buffer_pct), 0.05, key=f"gr_{side}_buf")
-                max_risk = b4.number_input("Max stop distance % (0 = any)", 0.0, 20.0, float(cfg.max_risk_pct), 0.5,
+                buffer = b2.number_input("Stop buffer %", 0.0, 5.0, float(cfg.sl_buffer_pct), 0.05, key=f"gr_{side}_buf")
+                max_risk = b3.number_input("Max stop distance % (0 = any)", 0.0, 20.0, float(cfg.max_risk_pct), 0.5,
                                            key=f"gr_{side}_maxrisk")
+                e1, e2, e3 = st.columns(3)
+                rr = reward_box(e1, cfg.target_rr, key=f"gr_{side}_rr")
+                tsl = tsl_select(e2, cfg.tsl_method, key=f"gr_{side}_tsl")
+                trigger = e3.selectbox("TSL exit when", TSL_TRIGGERS, index=TSL_TRIGGERS.index(cfg.tsl_trigger),
+                                       format_func={"CLOSE": "A candle CLOSES beyond it",
+                                                    "TOUCH": "Price TOUCHES it"}.get, key=f"gr_{side}_trigger")
                 patterns = {p: st.checkbox(names[p], value=cfg.patterns[p], key=f"gr_{side}_{p}") for p in PATTERNS}
                 sides[side] = {"enabled": on, "min_strength": min_strength, "entry_mode": entry,
-                               "entry_valid_bars": int(valid), "target_rr": float(rr), "sl_buffer_pct": buffer,
-                               "max_risk_pct": max_risk, "patterns": patterns}
+                               "entry_valid_bars": int(valid), "target_rr": rr, "sl_buffer_pct": buffer,
+                               "max_risk_pct": max_risk, "patterns": patterns, "tsl_method": tsl,
+                               "tsl_trigger": trigger, "method_params": tsl_params}
         if st.form_submit_button("Save Gap Reversal settings"):
             try:
                 gs.update(enabled=enabled, gap_pct=float(gap_pct), timeframe=int(timeframe), include_indexes=include_idx,
@@ -136,19 +161,46 @@ with settings_tab:
 
 # --------------------------------------------------------------------------- backtest
 with backtest_tab:
-    summary = backtest("summary")
-    if summary is None:
+    intervals = backtest_intervals()
+    if not intervals:
         st.warning("No backtest yet. In VS Code, folder `C:\\Users\\USER\\Desktop\\Kunal\\kunal-quant-claude-version`, "
                    f"run:  `{COMMANDS['backtest']}`")
     else:
-        meta = backtest_meta() or {}
-        st.caption(f"Source {meta.get('source', '?')}, {meta.get('symbols', '?')} symbols, generated "
-                   f"{meta.get('generated_at', '?')}. Results in R (1 R = the risk to the stop). First qualifying setup "
-                   "per symbol and day; stop first if a candle touches stop and target.")
-        st.dataframe(summary[summary["group"] == "ALL"], hide_index=True, width="stretch")
-        with st.expander("By setup and by strength (break entry, 1:2)"):
-            st.dataframe(summary[summary["group"] != "ALL"], hide_index=True, width="stretch")
-        trades = backtest("trades")
+        q1, q2, q3 = st.columns(3)
+        interval = q1.radio("Data", intervals, horizontal=True, key="gr_bt_interval",
+                            format_func={"1m": "1-minute (precise, ~29 days)", "5m": "5-minute (~60 days)"}.get)
+        side = q2.radio("Side", ("BOTH", "SHORT", "LONG"), horizontal=True, key="gr_bt_side")
+        mode = q3.radio("Entry", ENTRY_MODES, horizontal=True, key="gr_bt_entry",
+                        format_func={"BREAK": "Break", "CLOSE": "Candle close"}.get)
+        summary = backtest("summary", interval)
+        meta = backtest_meta(interval) or {}
+        cap = float(meta.get("capital_per_trade", 50_000))
+        st.caption(f"{meta.get('symbols', '?')} symbols, {meta.get('first_day', '?')} to {meta.get('last_day', '?')}, "
+                   f"source {meta.get('source', '?')}, made {meta.get('generated_at', '?')}. First qualifying setup per "
+                   f"symbol and day; Rs {cap:,.0f} per entry; net = after estimated intraday charges. 1 R = the risk "
+                   "to the stop (day's high / low). Stop first if one candle touches stop and target.")
+        if "exit_plan" not in summary.columns:
+            st.info("This backtest was made by an older version: run it again to see every TSL method.")
+            st.dataframe(summary, hide_index=True, width="stretch")
+        else:
+            rows = summary[(summary["group"] == "ALL") & (summary["side"] == side) & (summary["entry_mode"] == mode)]
+            view = rows[["exit_plan", "trades", "win_rate_pct", "avg_win_r", "avg_loss_r", "expectancy_r",
+                         "profit_factor", "gross_pnl", "charges", "net_pnl", "max_drawdown", "targets", "stops",
+                         "tsl_exits", "time_exits"]]
+            st.dataframe(view, hide_index=True, width="stretch", column_config={
+                "exit_plan": "exit plan", "win_rate_pct": st.column_config.NumberColumn("win %", format="%.1f"),
+                "expectancy_r": st.column_config.NumberColumn("avg R / trade", format="%.3f"),
+                "gross_pnl": st.column_config.NumberColumn("gross Rs", format="%.0f"),
+                "charges": st.column_config.NumberColumn("charges Rs", format="%.0f"),
+                "net_pnl": st.column_config.NumberColumn("net Rs", format="%.0f"),
+                "max_drawdown": st.column_config.NumberColumn("worst drawdown Rs", format="%.0f")})
+            if len(rows):
+                best = rows.sort_values("net_pnl", ascending=False).iloc[0]
+                st.caption(f"Best net here: {best['exit_plan']} (Rs {best['net_pnl']:,.0f} on {best['trades']} trades). "
+                           "Point trail 10/15 is in points (made for NIFTY): on stocks it means rupees.")
+            with st.expander("By setup and by strength (break entry, 1:2)"):
+                st.dataframe(summary[summary["group"] != "ALL"], hide_index=True, width="stretch")
+        trades = backtest("trades", interval)
         if trades is not None:
             with st.expander("Every trade"):
                 st.dataframe(trades, hide_index=True, width="stretch")

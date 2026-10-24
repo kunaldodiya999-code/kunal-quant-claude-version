@@ -77,5 +77,13 @@
   strength % (rejection/absorption/location/confirmation), stop = day's high/low, RR 1.5/2/2.5/3, entry BREAK or CLOSE
   (owner: both switchable). Universe ALL F&O stocks (+ indexes). Owner plan: scanner + paper first, later cash MIS,
   then maybe CE/PE. OFF by default. `scripts/run_gap_reversal.py`, `scripts/gap_reversal_backtest.py`, page "Gap Reversal".
+- Exit plan, EVERY strategy (owner 2026-10-25): `strategies/exit_plan.py`. "Reward 1:[box]": number = whole trade
+  out at 1:number; EMPTY = no target, TSL (owner's presets) exits on candle CLOSE beyond it. KTMI: `exit_target_rr` in
+  trade_management.json (empty default keeps partial 2R + TSL). Gap Reversal: per side target_rr/tsl_method.
+  Form widget `dashboard/exit_inputs.py`. A new strategy must use ExitPlan.
+- Deploy (owner 2026-10-25): single / several / all strategies. `strategies/registry.py` (KTMI_UNI_LITE, GAP_REVERSAL
+  = PAPER; OPENING_SCALP, HFT_GAP_OPEN = RESEARCH, not deployable). Saved in data/strategies.json (Gap Reversal =
+  its "Strategy ON"). One command `python scripts\run_strategies.py`; page "Strategies". run_paper_session exits if
+  KTMI not deployed. A new live strategy = add it to the registry + launcher.
 - OWNER RULE: when the owner says "we are done for the day", give ALL commands to run on their PC in order,
   step by step (folder for each), with what each one should show, plus everything still pending from their side.

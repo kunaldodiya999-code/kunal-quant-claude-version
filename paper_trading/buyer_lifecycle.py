@@ -36,6 +36,8 @@ class BuyerLifecycleConfig:
     single_lot_at_target: str = "CLOSE_ALL"
     # Stop of the remaining lots after the partial booking: BREAKEVEN (entry), LOCK_1R (entry + 1R) or KEEP.
     after_partial: str = "BREAKEVEN"
+    # Exit target box filled (owner rule 25 Oct): the whole position closes at the target, no partial.
+    close_all_at_target: bool = False
 
     def __post_init__(self) -> None:
         if not isfinite(self.allocation) or self.allocation <= 0:
@@ -158,9 +160,12 @@ class BuyerOptionTradeLifecycle:
         if (cfg.target_enabled and position.target is not None
                 and not position.partial_exit_done
                 and option_high >= position.target):
-            exit_lots, remaining_lots = self.calculate_partial_exit_lots(
-                position.remaining_lots, cfg.partial_exit_fraction, cfg.single_lot_at_target,
-            )
+            if cfg.close_all_at_target:
+                exit_lots, remaining_lots = position.remaining_lots, 0
+            else:
+                exit_lots, remaining_lots = self.calculate_partial_exit_lots(
+                    position.remaining_lots, cfg.partial_exit_fraction, cfg.single_lot_at_target,
+                )
             if exit_lots > 0:
                 exit_quantity = min(exit_lots * cfg.lot_size, position.remaining_quantity) \
                     if remaining_lots else position.remaining_quantity

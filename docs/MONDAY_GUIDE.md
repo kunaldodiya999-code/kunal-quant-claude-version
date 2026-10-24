@@ -24,11 +24,16 @@ cd C:\Users\USER\Desktop\Kunal\kunal-quant-claude-version
 ```
 A browser opens; log in; come back when it says the token was saved.
 
-**2. Window 1: start trading (all three indexes):**
+**2. Window 1: start every DEPLOYED strategy** (dashboard page **Strategies** chooses which; default = KTMI only):
 ```powershell
-python scripts\run_paper_session.py
+python scripts\run_strategies.py
 ```
-Only some indexes: `python scripts\run_paper_session.py --index NIFTY,SENSEX`.
+It starts each deployed strategy in this window; every line starts with its name, e.g. `[KTMI_UNI_LITE]`,
+`[GAP_REVERSAL]`. Ctrl+C stops all. Deploy from the command line too:
+`python scripts\run_strategies.py --deploy KTMI_UNI_LITE,GAP_REVERSAL` (or `--deploy all`, `--deploy none`);
+`--list` only shows the choice.
+Only KTMI, as before: `python scripts\run_paper_session.py` (it does nothing if KTMI is not deployed).
+Only some indexes: `python scripts\run_strategies.py --index NIFTY,SENSEX`.
 The first start of the day downloads the FYERS contract lists (~100 MB, a minute or two).
 Leave this window open. It stops by itself at 15:35.
 
@@ -83,7 +88,9 @@ Same from PowerShell: `python scripts\paper_settings.py --index BANKNIFTY --trad
 
 Dashboard page **Live Paper Trading**, box **Trade management and trailing stop (TSL)** (per index).
 Defaults: stop 30% of premium, Chandelier Exit 9 x 1.5 on the option chart, exit when a candle closes
-beyond it, 50% booked at 2R then stop to entry, 20% of available cash per trade. Changes apply to new
+beyond it, 50% booked at 2R then stop to entry, 20% of available cash per trade.
+**Reward 1 : [box]** (every strategy has it): a number = the whole trade closes at 1:number; EMPTY (default) =
+no fixed target, the partial booking (if on) and the TSL take the trade out. Changes apply to new
 trades. Tab **TSL comparison** shows how every TSL method would have done on each trade.
 Full guide: `docs/TSL_AND_TRADE_MANAGEMENT.md`.
 
@@ -96,7 +103,7 @@ rectangle, path, measure, volume profile with POC / VAH / VAL / high / low). Upd
 few seconds. The trading program now also saves futures volume, daily candles and option-chain OI
 for it. The chart only shows; it never places a trade.
 
-## Gap Reversal scanner (stocks, optional third window)
+## Gap Reversal scanner (stocks; started by run_strategies.py when deployed, or by hand)
 
 Gap of 3% or more at the open, then a reversal setup in the first candles (full guide: `docs/GAP_REVERSAL_STRATEGY.md`).
 Third PowerShell window, folder `C:\Users\USER\Desktop\Kunal\kunal-quant-claude-version`, `(.venv)` active, after

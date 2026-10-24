@@ -105,6 +105,11 @@ class IndexDesk:
 def main(argv=None, *, client=None, raw_master=None, socket_factory=None, clock=None, sleep=time.sleep) -> int:
     args = build_parser().parse_args(argv)
     clock = clock or (lambda: datetime.now(IST))
+    from strategies.registry import DeploymentStore
+    if not DeploymentStore(args.data_folder).is_deployed("KTMI_UNI_LITE"):
+        print("KTMI Uni Lite is NOT deployed (dashboard page 'Strategies'). Nothing to do. To deploy it:\n"
+              "    python scripts\\run_strategies.py --deploy KTMI_UNI_LITE   (add ,GAP_REVERSAL for both)")
+        return 0
 
     from paper_trading.chart_feeds import FuturesMinuteRecorder, save_daily_candles, save_option_chain
     from market_data.sources.fyers_history import nearest_future

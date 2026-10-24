@@ -55,9 +55,13 @@ class ExitDecision:
 
 def lifecycle_config(base, settings: TradeManagementSettings):
     """The lifecycle settings a new trade should be opened with."""
+    if settings.exit_target_rr is not None:          # reward box filled: whole trade out at 1:box
+        return replace(base, stop_loss_pct=settings.initial_sl_pct / 100.0, target_rr=settings.exit_target_rr,
+                       target_enabled=True, close_all_at_target=True, after_partial=settings.after_partial)
     return replace(base, stop_loss_pct=settings.initial_sl_pct / 100.0, target_rr=settings.partial_r,
                    target_enabled=settings.partial_enabled, partial_exit_fraction=settings.partial_pct / 100.0,
-                   single_lot_at_target=settings.one_lot_at_target, after_partial=settings.after_partial)
+                   single_lot_at_target=settings.one_lot_at_target, after_partial=settings.after_partial,
+                   close_all_at_target=False)
 
 
 class ExitManager:

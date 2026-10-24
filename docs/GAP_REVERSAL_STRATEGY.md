@@ -11,7 +11,7 @@ often give the move back. The strategy waits for a **reversal setup** in the fir
 | When | gap UP of `gap_pct`% or more (default 3%) | gap DOWN of `gap_pct`% or more |
 | Setup | bearish reversal in the opening window | bullish reversal (the mirror) |
 | Stop | the day's HIGH so far (+ optional buffer) | the day's LOW so far (- optional buffer) |
-| Target | 1:1.5, 1:2 (default), 1:2.5 or 1:3 of the risk | same |
+| Exit | Reward 1:[box] (default 2) or EMPTY box = trailing stop (TSL) | same |
 | Flat by | 15:10 (setting) | same |
 
 Gap % = (today's open - previous close) / previous close x 100.
@@ -63,6 +63,23 @@ Stop = the day's extreme up to the entry. Risk = stop - entry. Target = entry - 
 `max_risk_pct` (0 = off) skips trades whose stop is too far away. If one 1-minute candle touches both stop and target,
 the backtest counts the STOP (the honest assumption).
 
+## Exit plan (same for every strategy, owner rule 25 Oct)
+
+Per side (SHORT and LONG separately), on the Settings tab:
+
+- **Reward 1 : [box]**: type 1.5, 2, 2.5, 3 or any other number = the whole trade closes at that target.
+- **Empty box** = no fixed target: the **TSL method** you pick takes the trade out when a strategy candle (5 min)
+  **closes** beyond its line (or touches it, if you choose "touch").
+- TSL methods = the owner's list with the owner's numbers: Chandelier everget 9 x 1.5, Supertrend 5 x 1 and 7 x 1.5,
+  Parabolic SAR 0.02/0.02/0.20 and 0.04/0.04/0.10, point trail 10/15 (all numbers editable).
+- Box filled AND a TSL chosen: whichever comes first. The day's high (short) / low (long) is always the hard stop.
+- The TSL is calculated on the stock's own chart (5-minute candles, the earlier days included for warm-up, like
+  TradingView). A TSL value is known at its candle's close and protects the next candles; it only tightens; it starts
+  once it is on the protective side of price (above price for a SHORT), so the up-trend values from before the reversal
+  do not close the trade at once.
+- Point trail 10/15 is in **points** (made for NIFTY). On a stock it means rupees: useful on a Rs 1,500 stock, never
+  active on a Rs 120 stock. Prefer the indicator TSLs for stocks.
+
 ## Where everything is
 
 | What | File |
@@ -85,6 +102,9 @@ python scripts\gap_reversal_backtest.py --source fyers --days 90
 # Only some stocks / re-run on downloaded data after changing settings:
 python scripts\gap_reversal_backtest.py --symbols HCLTECH,ADANIENT,SWIGGY
 python scripts\gap_reversal_backtest.py --source cache
+# 5-minute data, about 60 days (Yahoo, no login), and another amount per trade:
+python scripts\gap_reversal_backtest.py --interval 5m
+python scripts\gap_reversal_backtest.py --capital-per-trade 100000
 
 # Live scanner on a trading day (needs today's FYERS login). Start before 09:15; it waits until 09:16,
 # finds today's gaps, then scans every minute until 15:35.
@@ -99,30 +119,61 @@ The strategy is **OFF** by default: the scanner only marks setups. Tick "Strateg
 (paper capital 1,00,000, 20% per trade, as settings). Owner plan: scanner + paper first; later intraday cash (MIS);
 if proven, CE/PE options.
 
-## Backtest results (honest)
+## Backtest results (honest), every exit plan, Rs 50,000 per entry
 
-First run, 24 Oct 2026: all 213 F&O stocks (ICICILIFE download failed), free Yahoo 1-minute data,
-**28 Sep - 23 Oct 2026 (18 sessions, 17 tradable after the first)**, default settings (gap 3%, 5-minute candles, first 10, minimum strength 60%).
+Run of 25 Oct 2026: all 213 F&O stocks, default settings (gap 3%, 5-minute candles, first 10 candles, minimum
+strength 60%), first qualifying setup per stock and day. Every trade was run once per exit plan. Money = Rs 50,000 per
+entry (quantity = 50,000 / entry price); **net = after estimated intraday charges** (about Rs 52 per trade, see
+`backtest/equity_costs.py`). Win rate = the probability that a trade ends in profit. Avg R = average result per trade
+in multiples of the risk (the distance to the day's high / low).
 
-- 17 gap days found a setup; 46 setups marked; **13 trades** (8 LONG, 5 SHORT). Far too few to judge.
+**Main run: Yahoo 5-minute data, 31 Aug - 23 Oct 2026 (38 sessions), 33 trades on 16 days, 31 stocks.**
+Entry = BREAK (default). Gross = before charges.
 
-| Side | Entry | Trades | Win % | Avg R | Total R (at 1:2) |
-|---|---|---|---|---|---|
-| SHORT | BREAK | 5 | 60% | +0.10 | +0.52 |
-| SHORT | CLOSE | 4 | 75% | +0.16 | +0.63 |
-| LONG | BREAK | 8 | 37.5% | -0.05 | -0.38 |
-| LONG | CLOSE | 6 | 33% | -0.10 | -0.58 |
+| Exit plan | Both sides: trades / win % / avg R / net Rs | SHORT only (13): win % / net Rs | LONG only (20): win % / net Rs |
+|---|---|---|---|
+| Fixed target 1:1.5 | 33 / 57.6% / +0.35 / **+920** | 76.9% / +2,757 | 45.0% / -1,837 |
+| Fixed target 1:2 | 33 / 51.5% / +0.29 / **+532** | 69.2% / +3,039 | 40.0% / -2,507 |
+| Fixed target 1:2.5 | 33 / 51.5% / +0.40 / **+2,121** | 69.2% / +3,902 | 40.0% / -1,781 |
+| Fixed target 1:3 | 33 / 51.5% / +0.43 / **+1,935** | 69.2% / **+4,765** | 40.0% / -2,830 |
+| TSL Chandelier everget 9 x 1.5 | 33 / 48.5% / +0.14 / **+159** | 38.5% / -1,673 | 55.0% / **+1,832** |
+| TSL Supertrend A 5 x 1.0 | 33 / 48.5% / +0.25 / **+1,376** | 53.8% / -158 | 45.0% / +1,534 |
+| TSL Supertrend B 7 x 1.5 | 33 / 42.4% / +0.25 / **+199** | 46.2% / +372 | 40.0% / -172 |
+| TSL Parabolic SAR A 0.02/0.02/0.20 | 33 / 57.6% / **+0.54** / **+3,914** | 69.2% / +3,891 | 50.0% / +24 |
+| TSL Parabolic SAR B 0.04/0.04/0.10 | 33 / 60.6% / +0.34 / **+3,159** | 69.2% / +2,352 | 55.0% / +807 |
+| TSL Point trail 10 / 15 | 33 / 66.7% / +0.42 / **+837** | 76.9% / +3,745 | 60.0% / -2,909 |
 
-What it says (honestly): roughly break-even so far. Most trades did **not** reach the 1:2 target in the day; they
-ended at 15:10 with a part profit, so the RR choice changes little. The best trades were PAYTM 8 Oct (LONG, 91%,
-+2R), PERSISTENT 16 Oct (LONG, +1.7R), PNB 19 Oct (SHORT, +1.8R). Stops: CHOLAFIN, NYKAA, POWERINDIA, RBLBANK,
-SWIGGY, TRENT. Picture of PAYTM on the Chart tab: `docs/gap_reversal_chart.png`.
-Next step: the FYERS run over 90+ days (`--source fyers --days 90`) before any change to the rules.
+With the CLOSE entry (wait for a candle to close beyond the setup) results are lower in almost every row (best: Parabolic
+SAR A +1,839 net on 27 trades). Full tables (also worst drawdown, targets / stops / TSL exits) on the dashboard page
+Gap Reversal > Backtest, data "5-minute", or `data/gap_reversal/backtest_summary_5m.csv`.
+
+What it says, in plain words:
+- **Best overall: TSL Parabolic SAR A (0.02/0.02/0.20)**: +Rs 3,914 net on 33 trades (about +Rs 119 per trade),
+  57.6% winners, average +0.54R, worst drawdown about -Rs 2,500.
+- **SHORT side (after a gap up) works best with a fixed target**: 1:3 made +Rs 4,765 on 13 trades (69% winners);
+  PSAR A is close (+Rs 3,891). The indicator TSLs Chandelier / Supertrend gave back too much on shorts.
+- **LONG side (after a gap down) only made money with a TSL**: Chandelier +Rs 1,832, Supertrend A +Rs 1,534 on 20
+  trades; every fixed target lost money on longs.
+- So a sensible first paper setting: SHORT = reward box 3 (or PSAR A), LONG = empty box + Chandelier or Supertrend A.
+- Charges matter: about Rs 52 of every trade's result; the average gross trade was only Rs 70-170.
+- Busy days: up to 9 setups on one day, i.e. up to Rs 4.5 lakh of positions at Rs 50,000 each (intraday MIS margin is
+  a fraction of that).
+- **The sample is still small (33 trades)**. Do not trust a single row yet; one or two big trades change the order.
+  5-minute data makes entries and stops less exact than 1-minute data.
+
+Check on 1-minute data (Yahoo, 28 Sep - 23 Oct, 13 trades, BREAK entry, net Rs, both sides): 1:1.5 -1,575;
+1:2 -819; 1:2.5 -367; 1:3 -1,157; Chandelier -1,633; Supertrend A -1,058; Supertrend B -2,314; PSAR A -2,130;
+PSAR B -162; point trail -3,211. On those 4 weeks nothing made money: too few trades to say more.
+
+Next step before any decision: the FYERS 1-minute run over a long period on your PC (needs the daily FYERS login),
+`python scripts\gap_reversal_backtest.py --source fyers --days 365`.
 
 ## Limits to know
 
-- Yahoo gives only about 29 days of 1-minute data, so the sample is small. Use `--source fyers --days 90` (or more)
-  before trusting any number.
+- Yahoo gives only about 29 days of 1-minute data (60 days of 5-minute), so the sample is small. Use
+  `--source fyers --days 365` before trusting any number.
+- The money figures use Rs 50,000 per entry with no limit on trades per day; slippage is not included (stop exits at
+  the stop price, or at the open when price jumped past it).
 - Previous close in the backtest = the previous session's last 1-minute close (close to the official close, not
   identical). The live scanner uses FYERS' official previous close and open.
 - Real cash trading needs short-selling in MIS for the SHORT side (allowed intraday for stocks). Not built yet.

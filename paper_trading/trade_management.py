@@ -9,6 +9,7 @@ or ``scripts/trade_settings.py``). Defaults = the owner's requirements brief (24
   one-lot trade: closed in full at 2R       after the partial: stop to breakeven, then the TSL trails
   forced exit on (15:10, from strategy settings), no new entries from 15:00
   allocation 20% of AVAILABLE CASH          daily-loss cutoff off
+  reward 1:[box] empty (no fixed target: partial + TSL); a number closes the whole trade at 1:number
 
 Changes apply to NEW trades only: each trade keeps a snapshot of the settings it was opened with.
 Exception: the manual stop of an open trade (manual mode) can be moved at any time.
@@ -81,6 +82,9 @@ class TradeManagementSettings:
     allocation_basis: str = "AVAILABLE_CASH"
     daily_loss_cutoff_enabled: bool = False
     daily_loss_cutoff_pct: float = 3.0           # % of the day's opening equity, used only when enabled
+    # Reward 1 : [box] (owner rule, every strategy): a number = close the WHOLE trade at that target;
+    # empty (None) = no fixed target, the partial booking (if on) and the TSL take the trade out.
+    exit_target_rr: Optional[float] = None
 
     def __post_init__(self) -> None:
         checks = ((self.tsl_mode, TSL_MODES, "tsl_mode"), (self.tsl_source, TSL_SOURCES, "tsl_source"),
@@ -102,6 +106,10 @@ class TradeManagementSettings:
         for flag in ("tsl_enabled", "partial_enabled", "forced_exit_enabled", "daily_loss_cutoff_enabled"):
             if not isinstance(getattr(self, flag), bool):
                 raise ValueError(f"{flag} must be true or false")
+        from strategies.exit_plan import parse_rr
+        object.__setattr__(self, "exit_target_rr", parse_rr(self.exit_target_rr))
+        if self.exit_target_rr is None and not self.tsl_enabled and not self.partial_enabled:
+            raise ValueError("with an empty reward box turn on the TSL or the partial booking (otherwise only the stop exits)")
         merged = default_method_params()
         for key, params in (self.method_params or {}).items():
             if key in merged and isinstance(params, dict):

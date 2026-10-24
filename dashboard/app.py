@@ -13,7 +13,8 @@ the only file that will change when real data replaces demo data.
 
 import streamlit as st
 
-from data.source import latest_backtest_summary, strategy_registry
+from data.source import latest_backtest_summary
+from data.strategies import rows as strategy_rows
 from theme import configure_page
 
 configure_page("Overview")
@@ -26,9 +27,7 @@ st.markdown("---")
 col1, col2, col3 = st.columns(3)
 
 backtest = latest_backtest_summary()
-strategies = strategy_registry()
-locked = sum(1 for s in strategies if s.state == "LOCKED")
-experimental = sum(1 for s in strategies if s.state == "EXPERIMENTAL")
+strategies = strategy_rows()
 
 with col1:
     st.metric("Phase", "1 — Backtest Validation")
@@ -43,21 +42,14 @@ with col3:
     st.caption("No order-placement code exists yet — read-only broker data only")
 
 st.markdown("---")
-st.subheader("Strategy registry")
-st.caption(f"{locked} locked · {experimental} experimental / research-only")
-
+st.subheader("Strategies")
+deployed = [s for s in strategies if s["deployed"]]
+st.caption(f"{len(deployed)} deployed (paper trading). Change it on the page Strategies; start them with "
+           "python scripts\\run_strategies.py")
 for s in strategies:
-    css_class = {
-        "LOCKED": "status-locked",
-        "EXPERIMENTAL": "status-experimental",
-        "IN PROGRESS": "status-progress",
-    }.get(s.state, "")
-    enabled = "🟢 enabled" if s.enabled else "⚪ disabled"
-    st.markdown(
-        f"**{s.name}** — <span class='{css_class}'>{s.state}</span> · {enabled}  \n"
-        f"<small>{s.note}</small>",
-        unsafe_allow_html=True,
-    )
+    state = "🟢 deployed" if s["deployed"] else ("⚪ not deployed" if s["stage"] == "PAPER" else "🔬 research only")
+    st.markdown(f"**{s['name']}** · {state} · {s['now']}  \n<small>{s['market']} · exit: {s['exit plan']}</small>",
+                unsafe_allow_html=True)
 
 st.markdown("---")
 st.info(

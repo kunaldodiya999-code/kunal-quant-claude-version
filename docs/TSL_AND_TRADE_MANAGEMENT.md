@@ -12,6 +12,7 @@ trade keeps a copy of the settings it was opened with (also after a restart).
 
 | Setting | Default | Choices |
 |---|---|---|
+| **Reward 1 : [box]** | **empty** = no fixed target (partial + TSL exit) | any number: the whole trade closes at 1:number (no partial) |
 | Initial stop-loss | 30% of the option premium | any % |
 | TSL | ON | on / off |
 | TSL mode | Indicator | Indicator / Manual (you move the stop) |
