@@ -35,7 +35,7 @@ volume, the chart says so; VWAP then uses equal weights and the profile counts t
 | VWAP | anchor (Session, Week, Month, Quarter, Year), source, offset, bands mode (standard deviation or percentage), **band #1, #2, #3 on/off** with multipliers 1, 2, 3, hide on 1D, fill, colours |
 | Bollinger Bands | length 20, basis MA type (SMA, EMA, SMMA (RMA), WMA, VWMA), source, StdDev 2, offset, background, colours |
 | OI Profile | option-chain open interest per strike at the right edge: OI, change in OI or both; strikes each side; width; values (written in white inside the bars); highest call OI (resistance) and highest put OI (support) marked with a dotted line (no title); colours. Refreshed every minute by the trading program (`oi_chain.json`). Only for today (live data). |
-| Smart Money Concepts | same groups as LuxAlgo: mode Historical / Present, style Colored / Monochrome, color candles, **show titles on/off**; internal structure (on/off, All / BOS / CHoCH, colours, length 5); swing structure (on/off, All / BOS / CHoCH, colours, swing points HH/HL/LH/LL, length 50, strong / weak high and low); order blocks (internal and swing, how many, filter ATR / cumulative mean range, mitigation Close or High/Low, 4 colours); EQH / EQL (bars confirmation, threshold); fair value gaps (auto threshold, extend, colours); previous day / week / month high and low (colours); premium / discount zones (colours) |
+| Smart Money Concepts | same groups as LuxAlgo: mode Historical / Present, style Colored / Monochrome, color candles, **show titles (all groups)**; internal structure (on/off, All / BOS / CHoCH, colours, length 5); swing structure (on/off, All / BOS / CHoCH, colours, swing points HH/HL/LH/LL, length 50, strong / weak high and low); order blocks (internal and swing, how many, filter ATR / cumulative mean range, mitigation Close or High/Low, 4 colours); EQH / EQL (bars confirmation, threshold); fair value gaps (auto threshold, extend, colours); previous day / week / month high and low (colours); premium / discount zones (colours). **Boxes**: opacity of internal OB, swing OB, FVG and premium/discount zones, OB border on/off. **Titles**, separately for BOS/CHoCH, order blocks, FVG, premium/equilibrium/discount, strong/weak high-low, EQH/EQL and previous day/week/month levels: show on/off, text size (Tiny, Small, Normal, Large, Huge), placement (boxes: top/middle/bottom and left/center/right; lines: Auto or above/below and left/center/right), text colour (same as the box/line, white, or your own colour) |
 
 ## Drawing tools (left toolbar)
 | Tool | How |
@@ -52,8 +52,9 @@ Colour square: colour of the next drawing or of the selected one. Bin: delete th
 Double bin: remove all drawings of this index (click twice).
 
 The chart keeps text to a minimum: no titles on lines or boxes (the legend at the top-left names
-the indicators). Titles of the volume profile and of Smart Money Concepts appear only when you tick
-"Show titles" in their settings. Text left on purpose: the measure result, price tags on the
+the indicators). Smart Money Concepts shows its titles (OB, FVG, BOS, CHoCH, Premium / Discount, Strong / Weak High ...)
+by default, each group styled in its settings. Volume profile titles appear only when you tick
+"Show titles" in its settings. Text left on purpose: the measure result, price tags on the
 right edge and Smart Money swing points (HH / HL / LH / LL) when switched on.
 
 Everything you choose (timeframe, indicators, settings, signal filter, drawings, zoom) is saved in

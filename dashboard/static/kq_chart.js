@@ -24,6 +24,14 @@
 
   // ------------------------------------------------- indicator settings schemas
   const SRC = ["open", "high", "low", "close", "hl2", "hlc3", "ohlc4", "hlcc4"];
+  const TITLE_SIZES = { Tiny: 8, Small: 10, Normal: 12, Large: 14, Huge: 18 };
+  const BOX_PLACES = ["Top right", "Top left", "Top center", "Middle right", "Middle left", "Center",
+                      "Bottom right", "Bottom left", "Bottom center"];
+  const LINE_PLACES = ["Auto", "Above left", "Above center", "Above right", "Below left", "Below center", "Below right"];
+  const titleFields = (g, name, places) => [
+    ["", name, "head"], [g + "Title", "Show", "bool"], [g + "Size", "Text size", "select", Object.keys(TITLE_SIZES)],
+    [g + "Place", "Placement", "select", places],
+    [g + "TextColor", "Text colour", "select", ["Same as element", "White", "Custom"]], [g + "Custom", "Custom colour", "color"]];
   const SCHEMAS = {
     volume: { title: "Volume (futures)", defaults: { ma: false, maLength: 20, upColor: "#26a69a", downColor: "#ef5350" },
       fields: [["ma", "Show volume moving average", "bool"], ["maLength", "MA length", "int"],
@@ -52,7 +60,7 @@
     smc: { title: "Smart Money Concepts", defaults: Object.assign({}, K.SMC_DEFAULTS),
       fields: [["", "Smart money concepts", "head"],
                ["mode", "Mode", "select", ["Historical", "Present"]], ["style", "Style", "select", ["Colored", "Monochrome"]],
-               ["colorCandles", "Color candles", "bool"], ["showLabels", "Show titles on the chart (BOS, CHoCH, OB, FVG ...)", "bool"],
+               ["colorCandles", "Color candles", "bool"], ["titles", "Show titles on the chart (all groups)", "bool"],
                ["", "Real-time internal structure", "head"],
                ["internal", "Show internal structure", "bool"], ["internalFilter", "Bullish / bearish structure", "select", ["All", "BOS", "CHoCH"]],
                ["internalBullColor", "Bullish colour", "color"], ["internalBearColor", "Bearish colour", "color"],
@@ -82,7 +90,18 @@
                ["monthlyLevels", "Previous month high / low", "bool"], ["monthlyColor", "Monthly colour", "color"],
                ["", "Premium and discount zones", "head"],
                ["premiumDiscount", "Premium / discount zones", "bool"], ["premiumColor", "Premium zone", "color"],
-               ["equilibriumColor", "Equilibrium zone", "color"], ["discountColor", "Discount zone", "color"]] },
+               ["equilibriumColor", "Equilibrium zone", "color"], ["discountColor", "Discount zone", "color"],
+               ["", "Boxes", "head"],
+               ["obOpacity", "Internal order block opacity (%)", "int"], ["sobOpacity", "Swing order block opacity (%)", "int"],
+               ["obBorder", "Order block border", "bool"], ["fvgOpacity", "Fair value gap opacity (%)", "int"],
+               ["zoneOpacity", "Premium / discount opacity (%)", "int"],
+               ...titleFields("struct", "Titles: BOS / CHoCH", LINE_PLACES),
+               ...titleFields("ob", "Titles: order blocks", BOX_PLACES),
+               ...titleFields("fvg", "Titles: fair value gaps", BOX_PLACES),
+               ...titleFields("zone", "Titles: premium / equilibrium / discount", BOX_PLACES),
+               ...titleFields("sw", "Titles: strong / weak high and low", LINE_PLACES),
+               ...titleFields("eq", "Titles: EQH / EQL", LINE_PLACES),
+               ...titleFields("lvl", "Titles: previous day / week / month high and low", LINE_PLACES)] },
     vprofile: { title: "Fixed range volume profile", defaults: Object.assign({}, K.VP_DEFAULTS),
       fields: [["", "Inputs", "head"],
                ["rowsLayout", "Rows layout", "select", ["Number Of Rows", "Ticks Per Row"]], ["rowSize", "Row size", "int"],
@@ -659,6 +678,35 @@
     }
   }
 
+  // Titles of Smart Money elements, styled by their group's settings.
+  function titleStyle(g, elementColor) {
+    const s = state.ind.smc.s;
+    if (!s.titles || !s[g + "Title"]) return null;
+    const mode = s[g + "TextColor"];
+    return { size: TITLE_SIZES[s[g + "Size"]] || 10, place: String(s[g + "Place"] || "Auto"),
+             color: mode === "White" ? "#ffffff" : mode === "Custom" ? s[g + "Custom"] : elementColor };
+  }
+  function drawText(t, x, y, st, align) {
+    ctx.font = `${st.size}px sans-serif`; ctx.fillStyle = st.color; ctx.textAlign = align;
+    ctx.fillText(t, x, y); ctx.textAlign = "left";
+  }
+  function boxTitle(t, x0, x1, y0, y1, st) {
+    if (!st) return;
+    const p = st.place.toLowerCase(), top = Math.min(y0, y1), bottom = Math.max(y0, y1), pad = 3;
+    const [x, align] = p.includes("left") ? [Math.min(x0, x1) + pad, "left"]
+      : p.includes("right") ? [Math.max(x0, x1) - pad, "right"] : [(x0 + x1) / 2, "center"];
+    const y = p.startsWith("top") ? top + st.size + 1 : p.startsWith("bottom") ? bottom - 3 : (top + bottom) / 2 + st.size / 2 - 1;
+    drawText(t, x, y, st, align);
+  }
+  function lineTitle(t, x0, x1, y, st, autoAbove, autoAlign) {
+    if (!st) return;
+    const p = st.place.toLowerCase(), auto = p === "auto";
+    const above = auto ? autoAbove : p.startsWith("above");
+    const align = auto ? autoAlign : p.endsWith("left") ? "left" : p.endsWith("right") ? "right" : "center";
+    const x = align === "left" ? x0 + 3 : align === "right" ? x1 - 3 : (x0 + x1) / 2;
+    drawText(t, x, above ? y - 3 : y + st.size + 1, st, align);
+  }
+
   function smcColors() {
     const s = state.ind.smc.s;
     if (s.style === "Monochrome")
@@ -670,18 +718,18 @@
   }
 
   function paintSMC(W) {
-    const r = ind.smc, s = state.ind.smc.s, C = smcColors(), titles = s.showLabels;
+    const r = ind.smc, s = state.ind.smc.s, C = smcColors();
     if (!r) return;
     const structColor = (e) => (e.internal ? (e.bull ? C.ibull : C.ibear) : (e.bull ? C.sbull : C.sbear));
-    const right = W;
+    const right = W, op = (v) => Math.max(0, Math.min(100, Number(v))) / 100;
     if (s.premiumDiscount && r.zones) {
       const z = r.zones, x0 = xOfIndex(z.from);
       if (x0 !== null) {
         for (const [band, color, name] of [[z.premium, C.prem, "Premium"], [z.equilibrium, C.eq, "Equilibrium"], [z.discount, C.disc, "Discount"]]) {
           const y0 = yOf(band[0]), y1 = yOf(band[1]);
           if (y0 === null || y1 === null) continue;
-          ctx.fillStyle = alpha(color, 0.15); ctx.fillRect(x0, Math.min(y0, y1), right - x0, Math.abs(y1 - y0));
-          if (titles) text(name, right - 4, (y0 + y1) / 2 + 3, color, "right");
+          ctx.fillStyle = alpha(color, op(s.zoneOpacity)); ctx.fillRect(x0, Math.min(y0, y1), right - x0, Math.abs(y1 - y0));
+          boxTitle(name, x0, right, y0, y1, titleStyle("zone", color));
         }
       }
     }
@@ -689,28 +737,28 @@
       const x0 = xOfIndex(ob.idx), y0 = yOf(ob.top), y1 = yOf(ob.bottom);
       if (x0 === null || y0 === null || y1 === null) continue;
       const color = (ob.internal ? C.iob : C.sob)[ob.bull ? 0 : 1];
-      ctx.fillStyle = alpha(color, ob.internal ? 0.2 : 0.3); ctx.fillRect(x0, y0, right - x0, y1 - y0);
-      ctx.strokeStyle = alpha(color, 0.6); ctx.lineWidth = 1; ctx.strokeRect(x0, y0, right - x0, y1 - y0);
-      if (titles) text(ob.internal ? "Internal OB" : "Swing OB", right - 4, y0 + 10, color, "right");
+      ctx.fillStyle = alpha(color, op(ob.internal ? s.obOpacity : s.sobOpacity)); ctx.fillRect(x0, y0, right - x0, y1 - y0);
+      if (s.obBorder) { ctx.strokeStyle = alpha(color, 0.7); ctx.lineWidth = 1; ctx.strokeRect(x0, y0, right - x0, y1 - y0); }
+      boxTitle(ob.internal ? "Internal OB" : "Swing OB", x0, right, y0, y1, titleStyle("ob", color));
     }
     for (const g of r.fvgs) {
       const x0 = xOfIndex(g.idx - 1), x1 = xOfIndex(N - 1 + Math.max(0, s.fvgExtend | 0)), y0 = yOf(g.top), y1 = yOf(g.bottom);
       if (x0 === null || x1 === null || y0 === null || y1 === null) continue;
       const color = C.fvg[g.bull ? 0 : 1];
-      ctx.fillStyle = alpha(color, 0.22); ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
-      if (titles) text("FVG", x0 + 3, y0 + 10, color);
+      ctx.fillStyle = alpha(color, op(s.fvgOpacity)); ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+      boxTitle("FVG", x0, x1, y0, y1, titleStyle("fvg", color));
     }
     for (const e of r.structures) {
       const x0 = xOfIndex(e.from), x1 = xOfIndex(e.to), y = yOf(e.price);
       if (x0 === null || x1 === null || y === null) continue;
       hLine(x0, x1, y, structColor(e), e.internal ? 1 : 1.5, e.internal ? [4, 3] : []);
-      if (titles) text(e.label, (x0 + x1) / 2, e.bull ? y - 4 : y + 11, structColor(e), "center");
+      lineTitle(e.label, x0, x1, y, titleStyle("struct", structColor(e)), e.bull, "center");
     }
     for (const q of r.equal) {
       const x0 = xOfIndex(q.from), x1 = xOfIndex(q.to), y = yOf(q.price), color = q.high ? C.ibear : C.ibull;
       if (x0 === null || x1 === null || y === null) continue;
       hLine(x0, x1, y, color, 1, [2, 3]);
-      if (titles) text(q.label, (x0 + x1) / 2, q.high ? y - 4 : y + 11, color, "center");
+      lineTitle(q.label, x0, x1, y, titleStyle("eq", color), q.high, "center");
     }
     for (const p of r.swings) {                       // swing points are labels by nature
       const x = xOfIndex(p.idx), y = yOf(p.price);
@@ -723,14 +771,14 @@
         const x0 = xOfIndex(idx), y = yOf(price), color = bull ? C.sbull : C.sbear;
         if (x0 === null || y === null) continue;
         hLine(x0, right, y, color, 1);
-        if (titles) text(name, right - 4, bull ? y + 12 : y - 4, color, "right");
+        lineTitle(name, x0, right, y, titleStyle("sw", color), !bull, "right");
       }
     }
     for (const lv of r.levels) {
       const x0 = xOfIndex(lv.from), y = yOf(lv.price);
       if (x0 === null || y === null) continue;
       hLine(x0, right, y, lv.color, 1, [6, 3]);
-      if (titles) text(lv.label, right - 4, lv.high ? y - 4 : y + 12, lv.color, "right");
+      lineTitle(lv.label, x0, right, y, titleStyle("lvl", lv.color), lv.high, "right");
     }
   }
 

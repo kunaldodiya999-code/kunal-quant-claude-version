@@ -3,6 +3,13 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: Smart Money titles back, with style settings, 2026-10-25
+- Owner wants SMC titles shown (OB, FVG, Premium/Discount, Strong/Weak ...) with settings: per title group
+  (BOS/CHoCH, OB, FVG, zones, strong/weak, EQH/EQL, previous D/W/M levels) show on/off, size Tiny-Huge,
+  placement (box: top/middle/bottom x left/center/right; line: Auto/above/below x left/center/right),
+  text colour (same as element / white / custom). Box opacity for internal OB, swing OB, FVG, zones; OB border.
+- Master switch renamed `titles` (default on) so old saved "off" choices do not hide them.
+
 ## claude/affectionate-bardeen-3k5sls: arrows only, title switches, full SMC / profile settings, 2026-10-25
 - KTMI signals drawn as arrows only (no BUY CALL / BUY PUT text).
 - Volume profile and Smart Money Concepts: "Show titles" switch (default off, owner style).

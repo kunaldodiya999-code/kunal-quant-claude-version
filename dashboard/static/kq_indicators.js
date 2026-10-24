@@ -224,7 +224,7 @@
   // Same settings groups as LuxAlgo "Smart Money Concepts": smart money, real-time internal structure,
   // real-time swing structure, order blocks, EQH/EQL, fair value gaps, highs & lows MTF, premium/discount.
   const SMC_DEFAULTS = {
-    mode: "Historical", style: "Colored", colorCandles: false, showLabels: false,
+    mode: "Historical", style: "Colored", colorCandles: false, titles: true,
     internal: true, internalFilter: "All", internalBullColor: "#089981", internalBearColor: "#f23645",
     swing: true, swingFilter: "All", swingBullColor: "#089981", swingBearColor: "#f23645",
     swingLength: 50, internalLength: 5, swingPoints: false, strongWeak: true,
@@ -236,7 +236,15 @@
     dailyLevels: false, dailyColor: "#2157f3", weeklyLevels: false, weeklyColor: "#2157f3",
     monthlyLevels: false, monthlyColor: "#2157f3",
     premiumDiscount: false, premiumColor: "#f23645", equilibriumColor: "#878b94", discountColor: "#089981",
+    // boxes: opacity (%) and border
+    obOpacity: 20, sobOpacity: 30, obBorder: true, fvgOpacity: 22, zoneOpacity: 15,
   };
+  // Titles of each group: on/off, size, placement, colour ("Same as element", "White" or "Custom").
+  const SMC_TITLE_GROUPS = { struct: "Auto", ob: "Top right", fvg: "Top left", zone: "Middle right",
+                             sw: "Auto", eq: "Auto", lvl: "Auto" };
+  for (const [g, place] of Object.entries(SMC_TITLE_GROUPS))
+    Object.assign(SMC_DEFAULTS, { [g + "Title"]: true, [g + "Size"]: "Small", [g + "Place"]: place,
+                                  [g + "TextColor"]: "Same as element", [g + "Custom"]: "#ffffff" });
 
   function pivots(f, len) {
     // LuxAlgo "leg": a new high leg starts when the bar `len` ago is above the next `len` bars.
@@ -425,7 +433,7 @@
   }
 
   const api = { sma, ema, rma, wma, stdev, atr, source, vwap, bollinger, volumeProfile, smc,
-                VWAP_DEFAULTS, BB_DEFAULTS, VP_DEFAULTS, SMC_DEFAULTS };
+                VWAP_DEFAULTS, BB_DEFAULTS, VP_DEFAULTS, SMC_DEFAULTS, SMC_TITLE_GROUPS };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.KQInd = api;
 })(typeof window !== "undefined" ? window : globalThis);

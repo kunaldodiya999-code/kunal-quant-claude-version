@@ -156,4 +156,7 @@ def test_smart_money_previous_day_levels_trend_and_range_filter():
     assert len(got["trend"]) == 40 and set(got["trend"]) <= {-1, 0, 1}
     assert run("K.smc(D.f, {obFilter: 'Cumulative Mean Range'})", f=f)["levels"] == []   # levels off by default
     defaults = run("K.SMC_DEFAULTS")
-    assert defaults["showLabels"] is False and run("K.VP_DEFAULTS")["showLabels"] is False   # owner: no titles
+    assert defaults["titles"] is True and run("K.VP_DEFAULTS")["showLabels"] is False
+    for group in ("struct", "ob", "fvg", "zone", "sw", "eq", "lvl"):                 # owner: style each title group
+        assert {defaults[group + k] for k in ("Title", "Size", "TextColor")} == {True, "Small", "Same as element"}
+    assert (defaults["obOpacity"], defaults["fvgOpacity"], defaults["zoneOpacity"]) == (20, 22, 15)
