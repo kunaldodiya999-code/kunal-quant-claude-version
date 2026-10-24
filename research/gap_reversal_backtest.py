@@ -9,6 +9,9 @@ day's extreme, once for every EXIT PLAN and both entry modes (break / close):
   TSL only       the reward box empty, one run per TSL preset (owner's methods and numbers):
                  exit when a strategy candle CLOSES beyond the TSL, computed on the stock chart
 
+The daily trade cap (settings) is applied across ALL symbols of a day (``apply_daily_cap``): trades in the
+order they enter, the stronger first at the same minute, exactly like the live desk.
+
 Results in R (multiples of the risk) and in rupees with ``capital_per_trade`` per entry
 (quantity = capital // entry price), before and after estimated intraday charges.
 """
@@ -25,8 +28,8 @@ from market_data.day_quality import group_by_day
 from paper_trading.trade_management import session_bars
 from paper_trading.tsl_methods import PRESETS, PRESET_LABELS
 from strategies.exit_plan import NO_TSL, ExitPlan
-from strategies.gap_reversal import (ENTRY_MODES, LONG_NAMES, SHORT_NAMES, GapReversalSettings, bars_from, scan_bars,
-                                     simulate)
+from strategies.gap_reversal import (ENTRY_MODES, LONG_NAMES, SHORT_NAMES, GapReversalSettings, bars_from, daily_cap,
+                                     scan_bars, simulate)
 
 IST = ZoneInfo("Asia/Kolkata")
 CAPITAL_PER_TRADE = 50_000.0
@@ -104,6 +107,37 @@ def run_symbol(symbol: str, minutes: Sequence, s: GapReversalSettings, entry_mod
     return candidates, trades
 
 
+def apply_daily_cap(trades: list[dict], s: GapReversalSettings) -> list[dict]:
+    """Keep, per day and per (entry mode, exit plan), only the trades the daily cap admits."""
+    if not (s.max_trades_per_day or s.max_short_per_day or s.max_long_per_day):
+        return list(trades)
+    groups: dict[tuple, list] = {}
+    for t in trades:
+        groups.setdefault((t["day"], t["entry_mode"], t["exit"]), []).append(t)
+    kept = []
+    for rows in groups.values():
+        kept += daily_cap(rows, s)[0]
+    return sorted(kept, key=lambda r: (r["day"], r["entry_time"], r["symbol"], r["entry_mode"]))
+
+
+def cap_study(trades: list[dict], s: GapReversalSettings, caps=(0, 1, 2, 3, 5, 10)) -> list[dict]:
+    """Net result of every exit plan for several daily caps (long + short together)."""
+    out = []
+    for cap in caps:
+        variant = replace(s, max_trades_per_day=cap, max_short_per_day=0, max_long_per_day=0)
+        kept = apply_daily_cap(trades, variant)
+        groups: dict[tuple, list] = {}
+        for t in kept:
+            groups.setdefault((t["entry_mode"], t["exit"]), []).append(t)
+        for (mode, ex), rows in groups.items():
+            st = _stats(rows)
+            out.append({"max_trades_per_day": cap or "no limit", "entry_mode": mode, "exit": ex,
+                        "exit_plan": exit_label(ex), "trades": st["trades"], "win_rate_pct": st["win_rate_pct"],
+                        "net_pnl": st["net_pnl"], "avg_net_per_trade": st["avg_net_per_trade"],
+                        "max_drawdown": st["max_drawdown"]})
+    return out
+
+
 def _max_drawdown(values: list[float]) -> float:
     peak = equity = worst = 0.0
     for v in values:
@@ -163,4 +197,5 @@ def summarize(trades: list[dict]) -> list[dict]:
             for (g, side, mode, ex), rows in sorted(groups.items(), key=key)]
 
 
-__all__ = ["CAPITAL_PER_TRADE", "default_exits", "exit_label", "run_symbol", "summarize"]
+__all__ = ["CAPITAL_PER_TRADE", "apply_daily_cap", "cap_study", "default_exits", "exit_label", "run_symbol",
+           "summarize"]

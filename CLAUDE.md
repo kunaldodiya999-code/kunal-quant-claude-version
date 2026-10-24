@@ -77,6 +77,7 @@
   strength % (rejection/absorption/location/confirmation), stop = day's high/low, RR 1.5/2/2.5/3, entry BREAK or CLOSE
   (owner: both switchable). Universe ALL F&O stocks (+ indexes). Owner plan: scanner + paper first, later cash MIS,
   then maybe CE/PE. OFF by default. `scripts/run_gap_reversal.py`, `scripts/gap_reversal_backtest.py`, page "Gap Reversal".
+  Daily trade cap (owner 2026-10-25): max_trades_per_day 5 (+ per side), order = entry time then strength (`daily_cap`).
 - Exit plan, EVERY strategy (owner 2026-10-25): `strategies/exit_plan.py`. "Reward 1:[box]": number = whole trade
   out at 1:number; EMPTY = no target, TSL (owner's presets) exits on candle CLOSE beyond it. KTMI: `exit_target_rr` in
   trade_management.json (empty default keeps partial 2R + TSL). Gap Reversal: per side target_rr/tsl_method.

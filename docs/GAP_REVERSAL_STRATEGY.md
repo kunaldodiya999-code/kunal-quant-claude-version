@@ -197,6 +197,32 @@ Rs 50,000 per entry, BREAK entry, net after estimated charges, long + short toge
 - **Many trades at once**: on average 17 trades a day, up to 63 on one day (Rs 31 lakh of positions at Rs 50,000
   each). In practice a cap is needed (e.g. the strongest N setups per day).
 
+## Daily trade cap (owner, 25 Oct 2026)
+
+Settings tab: **Max trades per day** (default 5 = paper capital 1,00,000 at 20% per trade), **Max SHORT per day**,
+**Max LONG per day** (0 = no limit). Trades are taken in the order they ENTER; at the same minute the stronger setup
+goes first (no look-ahead: the scanner cannot know a later, stronger setup). Setups past the cap are still marked and
+listed as "skipped (daily cap)". The live desk and the backtest use the same rule (`daily_cap` in
+`strategies/gap_reversal.py`). Backtest another cap: `python scripts\gap_reversal_backtest.py --max-trades 3`.
+Every run also writes `backtest_cap_study*.csv` (no cap, 1, 2, 3, 5, 10), shown on the Backtest tab.
+
+Result at a 1% gap, BREAK entry, net Rs, Rs 50,000 per entry:
+
+| Exit plan | 5-min (38 days): no cap | cap 3 | cap 5 | cap 10 | 1-min (17 days): no cap | cap 3 | cap 5 |
+|---|---|---|---|---|---|---|---|
+| Fixed 1:3 | 41,453 | 4,332 | 8,657 | 7,327 | 16,610 | 8,016 | 4,901 |
+| TSL PSAR 0.02/0.02/0.20 | 39,985 | 3,949 | 5,788 | 9,416 | 17,976 | 7,890 | 7,095 |
+| TSL PSAR 0.04/0.04/0.10 | 40,789 | 6,128 | 5,969 | 7,104 | 18,738 | 7,964 | 5,834 |
+| TSL point trail 10/15 | 37,527 | 6,980 | 7,957 | 7,570 | 15,965 | 10,222 | 5,277 |
+
+What it shows (honestly):
+- A cap protects capital, but it cuts the total profit a lot: most of the profit came from a few BUSY days when
+  many stocks gapped and reversed together. Without a cap, 11 Sep and 22 Oct alone made Rs 30,000 of the
+  Rs 40,789 (PSAR B); the other 36 days made about Rs 10,000 together, and only 20 of 38 days were positive.
+- The first trades of a day (09:20-09:30 entries) were the weakest; entries from 09:40 to 10:00 did best.
+- With a cap of 3 to 5, every exit plan stayed profitable on 1-minute data; on 5-minute data the indicator TSLs
+  (Chandelier, Supertrend A) turned negative at cap 5, PSAR and the fixed 1:3 stayed positive.
+
 ## Limits to know
 
 - Yahoo gives only about 29 days of 1-minute data (60 days of 5-minute), so the sample is small. Use

@@ -49,6 +49,11 @@ with today_tab:
         c2.metric("Setups marked", len(live["candidates"]))
         c3.metric("Paper trades", len(live["trades"]))
         c4.metric("Paper P&L", f"₹{live['day_pnl']:,.0f}")
+        cap = live.get("daily_cap") or {}
+        if cap:
+            st.caption(f"Daily trade cap: {cap.get('taken', 0)} taken of "
+                       f"{cap.get('max_trades') or 'no limit'} (SHORT max {cap.get('max_short') or '-'}, "
+                       f"LONG max {cap.get('max_long') or '-'}).")
         st.caption(f"Updated {live['updated_at']} IST")
         st.markdown("**Gaps today**")
         st.dataframe(pd.DataFrame(live["gaps"]), hide_index=True, width="stretch")
@@ -65,6 +70,9 @@ with today_tab:
             st.dataframe(pd.DataFrame(live["trades"]), hide_index=True, width="stretch")
         else:
             st.caption("None yet." if s.enabled else "None: the strategy is OFF.")
+        if live.get("skipped"):
+            st.markdown("**Skipped because the daily cap was full**")
+            st.dataframe(pd.DataFrame(live["skipped"]), hide_index=True, width="stretch")
 
 # --------------------------------------------------------------------------- settings
 with settings_tab:
@@ -82,6 +90,15 @@ with settings_tab:
         exit_time = h3.text_input("Flat by (HH:MM)", s.exit_time, key="gr_exit")
         capital = h4.number_input("Paper capital (₹)", 1000.0, 1e9, float(s.capital), 10000.0, key="gr_cap")
         alloc = h5.number_input("Per trade (% of capital)", 1.0, 100.0, float(s.allocation_pct), 1.0, key="gr_alloc")
+        k1, k2, k3 = st.columns(3)
+        cap_all = k1.number_input("Max trades per day (0 = no limit)", 0, 500, int(s.max_trades_per_day), 1,
+                                  key="gr_cap_all")
+        cap_short = k2.number_input("Max SHORT trades per day (0 = no limit)", 0, 500, int(s.max_short_per_day), 1,
+                                    key="gr_cap_short")
+        cap_long = k3.number_input("Max LONG trades per day (0 = no limit)", 0, 500, int(s.max_long_per_day), 1,
+                                   key="gr_cap_long")
+        st.caption("Daily trade cap: trades are taken in the order they enter (at the same minute the stronger setup "
+                   "first) until the cap is full. Later setups are still marked, shown as skipped.")
         with st.expander("Setup rules (numbers)"):
             r1, r2, r3, r4, r5, r6 = st.columns(6)
             doji = r1.number_input("Doji body <= % of range", 1.0, 50.0, float(s.doji_body_pct), 1.0, key="gr_doji")
@@ -151,7 +168,9 @@ with settings_tab:
             try:
                 gs.update(enabled=enabled, gap_pct=float(gap_pct), timeframe=int(timeframe), include_indexes=include_idx,
                           window_5m=int(window_5m), window_3m=int(window_3m), exit_time=exit_time.strip(),
-                          capital=float(capital), allocation_pct=float(alloc), doji_body_pct=doji, wick_ratio=wick,
+                          capital=float(capital), allocation_pct=float(alloc),
+                          max_trades_per_day=int(cap_all), max_short_per_day=int(cap_short),
+                          max_long_per_day=int(cap_long), doji_body_pct=doji, wick_ratio=wick,
                           top_zone_pct=zone, climax_volume_mult=climax, tweezer_tol_pct=tweezer, double_top_tol_pct=dtop,
                           w_rejection=w_rej, w_absorption=w_abs, w_location=w_loc, w_confirmation=w_conf,
                           stretch_full_pct=stretch, short=sides["short"], long=sides["long"])
@@ -175,7 +194,8 @@ with backtest_tab:
         summary = backtest("summary", interval)
         meta = backtest_meta(interval) or {}
         cap = float(meta.get("capital_per_trade", 50_000))
-        st.caption(f"Gap {(meta.get('settings') or {}).get('gap_pct', '?')}% or more. "
+        st.caption(f"Gap {(meta.get('settings') or {}).get('gap_pct', '?')}% or more, daily cap "
+                   f"{(meta.get('settings') or {}).get('max_trades_per_day') or 'none'}. "
                    f"{meta.get('symbols', '?')} symbols, {meta.get('first_day', '?')} to {meta.get('last_day', '?')}, "
                    f"source {meta.get('source', '?')}, made {meta.get('generated_at', '?')}. First qualifying setup per "
                    f"symbol and day; Rs {cap:,.0f} per entry; net = after estimated intraday charges. 1 R = the risk "
@@ -199,6 +219,14 @@ with backtest_tab:
                 best = rows.sort_values("net_pnl", ascending=False).iloc[0]
                 st.caption(f"Best net here: {best['exit_plan']} (Rs {best['net_pnl']:,.0f} on {best['trades']} trades). "
                            "Point trail 10/15 is in points (made for NIFTY): on stocks it means rupees.")
+            study = backtest("cap_study", interval)
+            if study is not None:
+                st.markdown("**Daily trade cap: net Rs of each exit plan for other caps** (long + short together)")
+                piv = study[study["entry_mode"] == mode].pivot_table(index="exit_plan", columns="max_trades_per_day",
+                                                                     values="net_pnl", aggfunc="sum")
+                order = [c for c in ["no limit", "1", "2", "3", "5", "10"] if c in map(str, piv.columns)]
+                piv.columns = [str(c) for c in piv.columns]
+                st.dataframe(piv[order].round(0), width="stretch")
             with st.expander("By setup and by strength (break entry, 1:2)"):
                 st.dataframe(summary[summary["group"] != "ALL"], hide_index=True, width="stretch")
         trades = backtest("trades", interval)

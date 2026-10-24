@@ -135,6 +135,10 @@ def main(argv=None, *, client=None, clock=None, sleep=time.sleep, master=None) -
             for t in status["trades"]:
                 say(f"PAPER {t['symbol']} {t['side']} {t['status']} entry {t['entry']} stop {t['stop']} "
                     f"target {t['target'] or 'TSL'} P&L {t['pnl']}")
+            if status.get("skipped"):
+                cap = status["daily_cap"]
+                say(f"Daily cap full ({cap['taken']} of {cap['max_trades'] or 'no limit'}): skipped "
+                    + ", ".join(r["symbol"] for r in status["skipped"]))
         sleep(args.every)
     desk.write_status(int(clock().timestamp()))
     say(f"Saved in {folder}")

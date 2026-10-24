@@ -3,6 +3,12 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: Gap Reversal daily trade cap, 2026-10-25
+- Settings max_trades_per_day (default 5), max_short_per_day, max_long_per_day (0 = no limit); `daily_cap()` shared
+  by the live desk (proposals -> settle, skipped list, status daily_cap) and the backtest (`apply_daily_cap`,
+  `cap_study` -> backtest_cap_study*.csv, `--max-trades`). Dashboard: cap fields, today's cap line, skipped table,
+  cap table on Backtest. Finding: profit concentrated on 2-3 busy days; caps cut it to ~Rs 4-10k (1% gap).
+
 ## claude/affectionate-bardeen-3k5sls: Gap Reversal test at 1% gap, 2026-10-25
 - `scripts/gap_reversal_backtest.py --gap-pct N` (test only, settings unchanged); Backtest tab shows the gap used.
 - 1%: 661 trades (5-min, 28 Aug - 23 Oct) / 268 (1-min): every exit plan positive; best PSAR B +40,789 / +18,738 net,

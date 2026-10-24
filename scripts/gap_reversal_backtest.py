@@ -39,7 +39,9 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from market_data.research_store import ResearchStore  # noqa: E402
 from market_data.stock_universe import load_fno_stocks  # noqa: E402
-from research.gap_reversal_backtest import CAPITAL_PER_TRADE, run_symbol, summarize  # noqa: E402
+from research.gap_reversal_backtest import (  # noqa: E402
+    CAPITAL_PER_TRADE, apply_daily_cap, cap_study, run_symbol, summarize,
+)
 from strategies.gap_reversal import GapReversalStore  # noqa: E402
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -82,6 +84,8 @@ def main(argv=None, *, client=None, yahoo_get=None, master=None) -> int:
     p.add_argument("--capital-per-trade", type=float, default=CAPITAL_PER_TRADE)
     p.add_argument("--gap-pct", type=float, default=None,
                    help="test another gap size (e.g. 1); the saved dashboard setting is not changed")
+    p.add_argument("--max-trades", type=int, default=None,
+                   help="test another daily trade cap (0 = no limit); the saved setting is not changed")
     p.add_argument("--cache-source", default="yahoo", help="with --source cache: which download to use")
     p.add_argument("--data-folder", type=Path, default=PROJECT_ROOT / "data")
     p.add_argument("--credentials-folder", type=Path, default=None)
@@ -93,6 +97,9 @@ def main(argv=None, *, client=None, yahoo_get=None, master=None) -> int:
     if args.gap_pct is not None:
         from dataclasses import replace
         settings = replace(settings, gap_pct=args.gap_pct)
+    if args.max_trades is not None:
+        from dataclasses import replace
+        settings = replace(settings, max_trades_per_day=args.max_trades)
     if args.symbols.strip():
         stocks = [x.strip().upper() for x in args.symbols.split(",") if x.strip()]
     else:
@@ -121,17 +128,21 @@ def main(argv=None, *, client=None, yahoo_get=None, master=None) -> int:
         all_trades += trades
         if n % 25 == 0:
             print(f"  {n}/{len(stocks)} symbols done, {len(all_candidates)} setups marked so far")
+    study = cap_study(all_trades, settings)
+    uncapped = len(all_trades)
+    all_trades = apply_daily_cap(all_trades, settings)
     summary = summarize(all_trades)
     out = args.data_folder / "gap_reversal"
     tag = "" if args.interval == "1m" else "_" + args.interval
     write_csv(out / f"backtest_candidates{tag}.csv", all_candidates)
     write_csv(out / f"backtest_trades{tag}.csv", all_trades)
     write_csv(out / f"backtest_summary{tag}.csv", summary)
+    write_csv(out / f"backtest_cap_study{tag}.csv", study)
     days_seen = sorted({t["day"] for t in all_trades} | {c["day"] for c in all_candidates})
     (out / f"backtest_meta{tag}.json").write_text(json.dumps({
         "generated_at": datetime.now(IST).isoformat(timespec="seconds"), "source": args.source,
         "interval": args.interval, "symbols": len(stocks), "failed": failed, "days_back": days,
-        "capital_per_trade": args.capital_per_trade, "first_day": days_seen[0] if days_seen else None,
+        "capital_per_trade": args.capital_per_trade, "trade_rows_before_cap": uncapped, "first_day": days_seen[0] if days_seen else None,
         "last_day": days_seen[-1] if days_seen else None, "settings": settings.to_dict()},
         indent=1, default=str), encoding="utf-8")
     print("-" * 118)
@@ -148,6 +159,16 @@ def main(argv=None, *, client=None, yahoo_get=None, master=None) -> int:
             print(f"  {r['entry_mode']:<6}{r['exit_plan'][:43]:<44}{r['trades']:>6}{r['win_rate_pct']:>7}"
                   f"{r['expectancy_r']:>8}{r['profit_factor']:>6}{r['gross_pnl']:>11,.0f}{r['charges']:>9,.0f}"
                   f"{r['net_pnl']:>11,.0f}")
+    cap = settings.max_trades_per_day
+    print(f"\nDaily trade cap used above: {cap or 'no limit'} (SHORT {settings.max_short_per_day or '-'}, "
+          f"LONG {settings.max_long_per_day or '-'}). Same exits for other caps (break entry, net Rs):")
+    names = list(dict.fromkeys(r["exit"] for r in study))
+    caps = list(dict.fromkeys(r["max_trades_per_day"] for r in study))
+    print(f"  {'exit plan':<44}" + "".join(f"{('cap ' + str(c)) if c != 'no limit' else 'no cap':>11}" for c in caps))
+    for ex in names:
+        cells = {r["max_trades_per_day"]: r for r in study if r["exit"] == ex and r["entry_mode"] == "BREAK"}
+        label = next(r["exit_plan"] for r in study if r["exit"] == ex)
+        print(f"  {label[:43]:<44}" + "".join(f"{cells[c]['net_pnl'] if c in cells else 0:>11,.0f}" for c in caps))
     gap_days = len({(c['symbol'], c['day']) for c in all_candidates})
     print(f"\nSetups marked: {len(all_candidates)} on {gap_days} gap days. Failed downloads: {len(failed)}")
     print(f"Saved: {out}")

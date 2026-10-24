@@ -121,6 +121,11 @@ class GapReversalSettings:
     # paper trading
     capital: float = 100_000.0
     allocation_pct: float = 20.0
+    # daily trade cap (owner, 25 Oct): trades taken in the order they ENTER; at the same minute the stronger
+    # setup goes first. 0 = no limit. Setups past the cap are still marked, just not traded.
+    max_trades_per_day: int = 5
+    max_short_per_day: int = 0
+    max_long_per_day: int = 0
     short: SideSettings = field(default_factory=SideSettings)
     long: SideSettings = field(default_factory=SideSettings)
 
@@ -138,6 +143,11 @@ class GapReversalSettings:
         object.__setattr__(self, "pattern_weights", weights)
         object.__setattr__(self, "rr_choices", tuple(float(r) for r in self.rr_choices))
         time.fromisoformat(self.exit_time)
+        for name in ("max_trades_per_day", "max_short_per_day", "max_long_per_day"):
+            value = getattr(self, name)
+            if int(value) != value or value < 0:
+                raise ValueError(f"{name} must be a whole number, 0 or more (0 = no limit)")
+            object.__setattr__(self, name, int(value))
 
     def window_bars(self) -> int:
         if self.timeframe == 5:
@@ -399,6 +409,30 @@ def scan_bars(symbol: str, prev_close: float, bars: Sequence[Bar], s: GapReversa
 
 # ------------------------------------------------------------------ the trade
 
+def daily_cap(proposals: Sequence, s: GapReversalSettings, taken: Sequence = ()) -> tuple[list, list]:
+    """Apply the daily trade cap to one day's trades.
+
+    ``proposals`` / ``taken``: objects or dicts with ``side``, ``entry_time`` (epoch or "HH:MM") and ``strength``.
+    ``taken`` = trades already admitted today (they count). Order: earlier entry first; at the same entry time the
+    stronger setup first (both known at that moment, so no look-ahead). Returns (admitted, skipped)."""
+    get = lambda x, k: x[k] if isinstance(x, dict) else getattr(x, k)          # noqa: E731
+    count = {"ALL": len(taken), "SHORT": 0, "LONG": 0}
+    for x in taken:
+        count[get(x, "side")] += 1
+    limits = {"ALL": s.max_trades_per_day, "SHORT": s.max_short_per_day, "LONG": s.max_long_per_day}
+    admitted, skipped = [], []
+    for x in sorted(proposals, key=lambda x: (str(get(x, "entry_time")).zfill(12), -float(get(x, "strength")))):
+        side = get(x, "side")
+        full = any(limits[k] and count[k] >= limits[k] for k in ("ALL", side))
+        if full:
+            skipped.append(x)
+            continue
+        admitted.append(x)
+        count["ALL"] += 1
+        count[side] += 1
+    return admitted, skipped
+
+
 @dataclass
 class TradeResult:
     symbol: str
@@ -540,6 +574,6 @@ def simulate(candidate: Candidate, bars: Sequence[Bar], minutes: Sequence[Bar], 
 
 __all__ = [
     "Bar", "Candidate", "ENTRY_MODES", "GapReversalSettings", "GapReversalStore", "LONG_NAMES", "PATTERNS",
-    "RR_CHOICES", "SHORT_NAMES", "Setup", "SideSettings", "TradeResult", "bars_from", "detect", "flip",
+    "RR_CHOICES", "SHORT_NAMES", "Setup", "SideSettings", "TradeResult", "bars_from", "daily_cap", "detect", "flip",
     "gap_side", "scan_bars", "simulate", "strength", "vwap_at",
 ]
