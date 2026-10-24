@@ -117,7 +117,7 @@ def test_live_orders_banner_and_broker_orders_tab(folder):
         f"{time.strftime('%Y-%m-%d')}T10:03:05+05:30,LIVE,ENTRY,NSE:NIFTY26O2722000CE,130,FILLED,130,102.0,ORD1,101.5,\n")
     app = run(folder)
     assert any("LIVE ORDERS ARE ON" in e.value for e in app.error)
-    assert len(app.tabs) == 5
+    assert len(app.tabs) == 6
 
 
 def test_dry_run_banner(folder):
@@ -177,3 +177,37 @@ def test_trade_in_all_box_wins_over_the_list(folder):
     app.run()
     assert all(json.loads((folder / k / "strategy_settings.json").read_text())["trading_enabled"]
                for k in ("NIFTY", "BANKNIFTY", "SENSEX"))
+
+
+def test_trade_management_form_saves_every_choice(folder):
+    app = run(folder)
+    app.selectbox(key="tm_method_NIFTY").set_value("PSAR_0.04_0.04_0.10")
+    app.selectbox(key="tm_source_NIFTY").set_value("SPOT")
+    app.selectbox(key="tm_tf_NIFTY").set_value("1")
+    app.selectbox(key="tm_trigger_NIFTY").set_value("TOUCH")
+    app.selectbox(key="tm_after_NIFTY").set_value("LOCK_1R")
+    app.number_input(key="tm_r_NIFTY").set_value(3.0)
+    app.number_input(key="tm_p_NIFTY_SUPERTREND_7_1.5_factor").set_value(2.5)
+    click(app, "Save trade management")
+    app.run()
+    saved = json.loads((folder / "NIFTY" / "trade_management.json").read_text())
+    assert (saved["tsl_method"], saved["tsl_source"], saved["tsl_timeframe"], saved["tsl_trigger"]) == (
+        "PSAR_0.04_0.04_0.10", "SPOT", "1", "TOUCH")
+    assert (saved["after_partial"], saved["partial_r"]) == ("LOCK_1R", 3.0)
+    assert saved["method_params"]["SUPERTREND_7_1.5"] == {"atr_length": 7, "factor": 2.5}
+    assert saved["initial_sl_pct"] == 30.0 and saved["partial_pct"] == 50.0      # untouched defaults
+    assert json.loads((folder / "NIFTY" / "allocation.json").read_text()) == {"mode": "PERCENT", "value": 20.0}
+    assert not (folder / "SENSEX" / "trade_management.json").exists()
+
+
+def test_open_trade_shows_its_tsl_and_takes_a_manual_stop(folder):
+    data = status()
+    data["positions"][0].update(trade_id="STRATEGY_A:1:NSE:NIFTY26O2722000CE", tsl="Manual", tsl_chart="OPTION",
+                                tsl_timeframe=3, tsl_trigger="CLOSE", tsl_stop=None)
+    (folder / "NIFTY" / "live_status.json").write_text(json.dumps(data))
+    app = run(folder)
+    app.number_input(key="manual_STRATEGY_A:1:NSE:NIFTY26O2722000CE").set_value(95.5)
+    click(app, "Save manual stops")
+    app.run()
+    assert json.loads((folder / "NIFTY" / "manual_stops.json").read_text()) == {
+        "STRATEGY_A:1:NSE:NIFTY26O2722000CE": 95.5}

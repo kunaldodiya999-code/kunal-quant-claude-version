@@ -23,6 +23,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from paper_trading.live_support import STATUS_FILE  # noqa: E402
 from paper_trading.strategy_settings import StrategySettings, StrategySettingsStore  # noqa: E402
+from paper_trading.trade_management import TradeManagementStore  # noqa: E402
 from strategies.index_profiles import INDEX_PROFILES  # noqa: E402
 from strategies.strike_ladder import STRIKE_CHOICES  # noqa: E402
 
@@ -53,6 +54,36 @@ STALE_AFTER_SECONDS = 15
 
 def settings_store(index: str = "NIFTY") -> StrategySettingsStore:
     return StrategySettingsStore(StrategySettings(), paper_dir(index))
+
+
+def trade_store(index: str = "NIFTY") -> TradeManagementStore:
+    """Trade-management / TSL settings of one index (trade_management.json)."""
+    return TradeManagementStore(paper_dir(index))
+
+
+def manual_stops(index: str = "NIFTY") -> dict:
+    path = paper_dir(index) / "manual_stops.json"
+    try:
+        return {k: float(v) for k, v in json.loads(path.read_text(encoding="utf-8")).items()} if path.exists() else {}
+    except (ValueError, OSError, TypeError):
+        return {}
+
+
+def set_manual_stop(index: str, trade_id: str, price: float | None) -> None:
+    """Manual stop for one open trade; the trading program picks it up on its next candle."""
+    stops = manual_stops(index)
+    if price is None:
+        stops.pop(trade_id, None)
+    else:
+        stops[trade_id] = float(price)
+    path = paper_dir(index) / "manual_stops.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(stops), encoding="utf-8")
+
+
+def tsl_comparison(index: str = "NIFTY", today_only: bool = False) -> pd.DataFrame:
+    """Every TSL method's result for each paper trade (trading program's comparison)."""
+    return journal("tsl_shadow_summary.csv", paper_dir(index) / "tsl_shadow", today_only=today_only, limit=600)
 
 
 def trading_indexes() -> list[str]:
@@ -131,6 +162,6 @@ def journal(name: str, folder: Path, today_only: bool = True, limit: int = 50) -
 
 __all__ = [
     "INDEX_KEYS", "STALE_AFTER_SECONDS", "journal", "live_dir", "load_status", "paper_dir", "paper_root",
-    "set_trading_indexes", "settings_store", "status_age_seconds", "strike_options", "summary_rows",
+    "manual_stops", "set_manual_stop", "set_trading_indexes", "settings_store", "trade_store", "tsl_comparison", "status_age_seconds", "strike_options", "summary_rows",
     "trading_indexes",
 ]

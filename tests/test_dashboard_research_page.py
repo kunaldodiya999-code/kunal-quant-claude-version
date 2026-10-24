@@ -15,11 +15,15 @@ def test_page_without_results_shows_the_commands(tmp_path, monkeypatch):
     assert not at.exception
     text = " ".join(w.value for w in at.warning)
     assert "sweep_market_data.py" in text and "ktmi_accuracy.py" in text and "opening_scalp_backtest.py" in text
+    assert "tsl_lab.py" in text
 
 
 def test_page_with_results(tmp_path, monkeypatch, capsys):
     from tests.test_research_backtests import run_research_commands
     assert run_research_commands(tmp_path) == (0, 0)
+    from scripts.tsl_lab import main as tsl_lab
+    assert tsl_lab(["--source", "kq-db", "--kq-db", str(tmp_path / "kunal_quant.db"), "--index", "NIFTY",
+                    "--timeframes", "3", "--triggers", "CLOSE", "--data-folder", str(tmp_path)]) == 0
     capsys.readouterr()
     (tmp_path / "research" / "sweep_report.csv").write_text(
         "series,source,resolution,days,clean_days\nNIFTY,yahoo,1m,18,17\n", encoding="utf-8")
@@ -27,4 +31,4 @@ def test_page_with_results(tmp_path, monkeypatch, capsys):
     at = AppTest.from_file(str(PAGE), default_timeout=30).run()
     assert not at.exception
     assert not at.warning
-    assert len(at.dataframe) >= 3
+    assert len(at.dataframe) >= 4

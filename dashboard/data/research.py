@@ -21,6 +21,7 @@ COMMANDS = {
     "sweep": r"python scripts\sweep_market_data.py --source both --days 730",
     "ktmi": r"python scripts\ktmi_accuracy.py",
     "scalp": r"python scripts\opening_scalp_backtest.py",
+    "tsl": r"python scripts\tsl_lab.py",
 }
 
 
@@ -62,3 +63,15 @@ def scalp_trades() -> pd.DataFrame | None:
 
 def scalp_grid() -> pd.DataFrame | None:
     return _csv(research_dir() / "results" / "opening_scalp_grid.csv")
+
+
+def tsl_lab_summary() -> pd.DataFrame | None:
+    return _csv(research_dir() / "results" / "tsl_lab_summary.csv")
+
+
+def tsl_lab_trades() -> pd.DataFrame | None:
+    return _csv(research_dir() / "results" / "tsl_lab_trades.csv")
+
+
+def tsl_lab_meta() -> dict | None:
+    return _json(research_dir() / "results" / "tsl_lab_meta.json")

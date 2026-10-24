@@ -12,7 +12,9 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from data.research import (  # noqa: E402
     COMMANDS, ktmi_meta, ktmi_signals, ktmi_summary, scalp_grid, scalp_summary, scalp_trades, sweep_report,
+    tsl_lab_meta, tsl_lab_summary, tsl_lab_trades,
 )
+from paper_trading.trade_management import LABELS  # noqa: E402
 from theme import configure_page  # noqa: E402
 
 configure_page("Research Backtest")
@@ -27,7 +29,7 @@ def missing(what: str, key: str) -> None:
                f"`{COMMANDS[key]}`")
 
 
-data_tab, ktmi_tab, scalp_tab = st.tabs(["Clean data", "KTMI Uni Lite accuracy", "Opening Scalp"])
+data_tab, ktmi_tab, scalp_tab, tsl_tab = st.tabs(["Clean data", "KTMI Uni Lite accuracy", "Opening Scalp", "TSL Lab"])
 
 with data_tab:
     st.subheader("Which history is clean")
@@ -95,3 +97,31 @@ with scalp_tab:
         if grid is not None:
             with st.expander("All settings tried (best first)"):
                 st.dataframe(grid, hide_index=True, width="stretch")
+
+with tsl_tab:
+    st.subheader("TSL Lab: which trailing stop keeps the most of each KTMI move")
+    summary = tsl_lab_summary()
+    if summary is None:
+        missing("TSL Lab", "tsl")
+    else:
+        meta = tsl_lab_meta() or {}
+        st.caption(f"Source: {meta.get('source', '?')}, generated {meta.get('generated_at', '?')}. KTMI Uni Lite "
+                   "signals, entry at the next minute, each TSL on the SPOT chart (same rules as live), forced exit "
+                   "15:10. Index points. Capture = points kept / best move in favour. Option-chart TSLs are compared "
+                   "live on the Live Paper Trading page (tab 'TSL comparison').")
+        indexes = sorted(summary["index"].unique())
+        index = st.selectbox("Index", indexes, key="tsl_index")
+        rows = summary[summary["index"] == index].copy()
+        rows["method"] = rows["method"].map(lambda m: LABELS.get(m, m))
+        rows = rows.sort_values("total_points", ascending=False)
+        best = rows.iloc[0]
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Best method", str(best["method"]).split(" - ")[0])
+        c2.metric("Total points", f"{best['total_points']:.0f}")
+        c3.metric("Profit factor", best["profit_factor"])
+        c4.metric("Capture", f"{best['capture_pct']}%")
+        st.dataframe(rows, hide_index=True, width="stretch")
+        trades = tsl_lab_trades()
+        if trades is not None:
+            with st.expander("Every trade of every method"):
+                st.dataframe(trades[trades["index"] == index], hide_index=True, width="stretch")

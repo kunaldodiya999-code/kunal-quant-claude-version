@@ -106,6 +106,22 @@ def _ist(ts: int | None) -> str | None:
     return None if ts is None else datetime.fromtimestamp(int(ts), IST).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _tsl_fields(session: Any, record) -> dict:
+    """Trailing-stop details of an open trade for the dashboard (empty when not available)."""
+    manager = getattr(session, "exit_manager", None)
+    if manager is None or not hasattr(manager, "trade_view"):
+        return {}
+    from paper_trading.exit_manager import trade_id_of
+    view = manager.trade_view(record)
+    if not view:
+        return {"trade_id": trade_id_of(record)}
+    stop = view.get("tsl_stop")
+    return {"trade_id": trade_id_of(record), "tsl": view["tsl_method"] if view["tsl_mode"] == "INDICATOR" else "Manual",
+            "tsl_on": "ON" if view["tsl_enabled"] else "OFF", "tsl_chart": view["tsl_source"],
+            "tsl_timeframe": view["tsl_timeframe"], "tsl_trigger": view["tsl_trigger"],
+            "tsl_stop": None if stop is None else round(float(stop), 2)}
+
+
 def build_status(session: Any, *, underlying_symbol: str, contracts: ContractSync | None,
                  strike_step: int = 50, now: float | None = None) -> dict:
     now = time.time() if now is None else now
@@ -131,6 +147,7 @@ def build_status(session: Any, *, underlying_symbol: str, contracts: ContractSyn
             "mark": mark,
             "unrealised": None if mark is None else round((mark - p.entry_price) * p.remaining_quantity, 2),
             "opened_at": _ist(record.entry_timestamp),
+            **_tsl_fields(session, record),
         })
     account = session.account.snapshot(int(now), marks) if session.account is not None else None
     ladders = {}

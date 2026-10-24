@@ -14,9 +14,15 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from data.live import (  # noqa: E402
-    INDEX_KEYS, STALE_AFTER_SECONDS, journal, live_dir, load_status, paper_dir, set_trading_indexes,
-    settings_store, status_age_seconds, strike_options, summary_rows, trading_indexes,
+    INDEX_KEYS, STALE_AFTER_SECONDS, journal, live_dir, load_status, manual_stops, paper_dir, set_manual_stop,
+    set_trading_indexes, settings_store, status_age_seconds, strike_options, summary_rows, trade_store,
+    trading_indexes,
 )
+from paper_trading.trade_management import (  # noqa: E402
+    AFTER_PARTIAL, ALLOCATION_BASES, LABELS, ONE_LOT_AT_TARGET, TSL_MODES, TSL_SOURCES, TSL_TIMEFRAMES, TSL_TRIGGERS,
+)
+from paper_trading.tsl_methods import PRESETS  # noqa: E402
+from paper_trading.sizing import AllocationSetting, AllocationStore  # noqa: E402
 from strategies.index_profiles import INDEX_PROFILES  # noqa: E402
 from theme import configure_page  # noqa: E402
 
@@ -163,13 +169,112 @@ with st.form(f"strategy_settings_{index}"):
         except ValueError as exc:
             st.error(f"Not saved: {exc}")
 
+# ------------------------------------------------------------ trade management / TSL
+st.markdown("---")
+st.subheader(f"Trade management and trailing stop (TSL): {label}")
+st.caption("Changes apply to NEW trades only; every open trade keeps the settings it was opened with. "
+           "Defaults = your requirements brief. Nothing here places orders.")
+tm_store = trade_store(index)
+tm = tm_store.settings
+TF_TEXT = {"STRATEGY": f"Same as strategy ({current.timeframe_minutes} min)", **{t: f"{t} min" for t in TSL_TIMEFRAMES[1:]}}
+with st.form(f"trade_management_{index}"):
+    st.markdown("**Stop-loss and trailing stop**")
+    a1, a2, a3 = st.columns(3)
+    initial_sl = a1.number_input("Initial stop-loss (% of option premium)", 1.0, 99.0, float(tm.initial_sl_pct), 1.0,
+                                 key=f"tm_sl_{index}")
+    tsl_on = a2.checkbox("TSL on", value=tm.tsl_enabled, key=f"tm_tsl_on_{index}")
+    mode = a3.selectbox("TSL mode", TSL_MODES, index=TSL_MODES.index(tm.tsl_mode), format_func=LABELS.get,
+                        key=f"tm_mode_{index}")
+    b1, b2, b3, b4 = st.columns(4)
+    method = b1.selectbox("TSL method", list(PRESETS), index=list(PRESETS).index(tm.tsl_method), format_func=LABELS.get,
+                          key=f"tm_method_{index}")
+    source = b2.selectbox("Calculate TSL on", TSL_SOURCES, index=TSL_SOURCES.index(tm.tsl_source),
+                          format_func=LABELS.get, key=f"tm_source_{index}")
+    tsl_tf = b3.selectbox("TSL candles", TSL_TIMEFRAMES, index=TSL_TIMEFRAMES.index(tm.tsl_timeframe),
+                          format_func=TF_TEXT.get, key=f"tm_tf_{index}")
+    trigger = b4.selectbox("Exit when", TSL_TRIGGERS, index=TSL_TRIGGERS.index(tm.tsl_trigger), format_func=LABELS.get,
+                           key=f"tm_trigger_{index}")
+    with st.expander("Numbers of every TSL method (change any value)"):
+        params = {}
+        for key, (_kind, defaults) in PRESETS.items():
+            st.caption(LABELS[key])
+            cols = st.columns(len(defaults))
+            values = {}
+            for col, (name, default) in zip(cols, tm.method_params[key].items()):
+                widget_key = f"tm_p_{index}_{key}_{name}"
+                if isinstance(default, bool):
+                    values[name] = col.checkbox(name.replace("_", " "), value=default, key=widget_key)
+                elif isinstance(PRESETS[key][1][name], int):
+                    values[name] = int(col.number_input(name.replace("_", " "), 1, 500, int(default), 1, key=widget_key))
+                else:
+                    values[name] = float(col.number_input(name.replace("_", " "), 0.0, 10_000.0, float(default),
+                                                          format="%.3f", key=widget_key))
+            params[key] = values
+    st.markdown("**Partial profit booking**")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    partial_on = c1.checkbox("Partial booking on", value=tm.partial_enabled, key=f"tm_partial_{index}")
+    partial_r = c2.number_input("At R", 0.5, 20.0, float(tm.partial_r), 0.5, key=f"tm_r_{index}")
+    partial_pct = c3.number_input("Book % of lots", 1.0, 99.0, float(tm.partial_pct), 5.0, key=f"tm_pct_{index}")
+    one_lot = c4.selectbox("One-lot trade at the target", ONE_LOT_AT_TARGET,
+                           index=ONE_LOT_AT_TARGET.index(tm.one_lot_at_target), format_func=LABELS.get,
+                           key=f"tm_onelot_{index}")
+    after = c5.selectbox("After the partial", AFTER_PARTIAL, index=AFTER_PARTIAL.index(tm.after_partial),
+                         format_func=LABELS.get, key=f"tm_after_{index}")
+    st.markdown("**Session and capital**")
+    alloc_store = AllocationStore(AllocationSetting.from_percent(20.0), journal_dir=paper_dir(index))
+    alloc_now = alloc_store.setting
+    d0, d1, d2, d3, d4 = st.columns(5)
+    alloc_pct = d0.number_input("Allocation per trade (%)", 1.0, 100.0,
+                                float(alloc_now.value) if alloc_now.mode == "PERCENT" else 20.0, 1.0,
+                                key=f"tm_alloc_{index}",
+                                help="Default 20%. Starting capital 1,00,000 (paper account).")
+    forced = d1.checkbox(f"Forced exit at {current.force_exit}", value=tm.forced_exit_enabled, key=f"tm_forced_{index}")
+    basis = d2.selectbox("Allocation % taken from", ALLOCATION_BASES, index=ALLOCATION_BASES.index(tm.allocation_basis),
+                         format_func=LABELS.get, key=f"tm_basis_{index}")
+    loss_on = d3.checkbox("Daily-loss cutoff", value=tm.daily_loss_cutoff_enabled, key=f"tm_loss_on_{index}")
+    loss_pct = d4.number_input("Cutoff (% of day's opening equity)", 0.5, 100.0, float(tm.daily_loss_cutoff_pct), 0.5,
+                               key=f"tm_loss_pct_{index}")
+    st.caption(f"New trades from {current.entry_start}, no new trades from {current.entry_end} "
+               "(Strategy settings above). Daily-loss cutoff applies from the next signal.")
+    if st.form_submit_button("Save trade management"):
+        try:
+            tm_store.update(initial_sl_pct=float(initial_sl), tsl_enabled=tsl_on, tsl_mode=mode, tsl_method=method,
+                            tsl_source=source, tsl_timeframe=tsl_tf, tsl_trigger=trigger, method_params=params,
+                            partial_enabled=partial_on, partial_r=float(partial_r), partial_pct=float(partial_pct),
+                            one_lot_at_target=one_lot, after_partial=after, forced_exit_enabled=forced,
+                            allocation_basis=basis, daily_loss_cutoff_enabled=loss_on, daily_loss_cutoff_pct=float(loss_pct))
+            alloc_store.set(AllocationSetting.from_percent(float(alloc_pct)))
+            st.success(f"Saved for {label}. Applies to the next trade.")
+        except ValueError as exc:
+            st.error(f"Not saved: {exc}")
+
+open_positions = [p for p in ((status or {}).get("positions") or []) if p.get("trade_id")]
+if open_positions:
+    st.markdown("**Open trades: trailing stop**")
+    st.dataframe(pd.DataFrame([{k: p.get(k) for k in ("slot", "symbol", "side", "entry", "tsl", "tsl_chart",
+                                                         "tsl_timeframe", "tsl_trigger", "tsl_stop")}
+                               for p in open_positions]), hide_index=True, width="stretch")
+    saved_manual = manual_stops(index)
+    with st.form(f"manual_stop_{index}"):
+        st.caption("Manual stop (used when the trade's TSL mode is Manual). Option chart: option price; "
+                   "spot chart: index level. 0 = remove.")
+        manual_values = {}
+        for p in open_positions:
+            manual_values[p["trade_id"]] = st.number_input(
+                f"{p['slot']} {p['symbol']} ({p.get('tsl_chart', 'OPTION')} chart)", min_value=0.0,
+                value=float(saved_manual.get(p["trade_id"], 0.0)), step=0.5, key=f"manual_{p['trade_id']}")
+        if st.form_submit_button("Save manual stops"):
+            for trade_id, value in manual_values.items():
+                set_manual_stop(index, trade_id, value if value > 0 else None)
+            st.success("Saved. The trading program uses it from its next candle.")
+
 # ----------------------------------------------------------------------- journal
 st.markdown("---")
 st.subheader(f"Today: {label}")
-tabs = st.tabs(["Signals", "Trades", "Rejected signals", "KTMI values per candle", "Broker orders"])
+tabs = st.tabs(["Signals", "Trades", "Rejected signals", "KTMI values per candle", "Broker orders", "TSL comparison"])
 sources = (("signals.csv", paper_dir(index)), ("trade_events.csv", paper_dir(index)),
            ("rejections.csv", paper_dir(index)), ("ktmi_bars.csv", paper_dir(index)),
-           ("live_orders.csv", live_dir(index)))
+           ("live_orders.csv", live_dir(index)), ("tsl_shadow_summary.csv", paper_dir(index) / "tsl_shadow"))
 for tab, (name, folder) in zip(tabs, sources):
     with tab:
         frame = journal(name, folder)
