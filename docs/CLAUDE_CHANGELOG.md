@@ -3,6 +3,23 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: Monday live paper day, 2026-10-24 (evening)
+- Order window: `strategies/strike_ladder.py` (1 ITM, ATM, 3 OTM per side; offset counts in the OTM
+  direction, so ATM+1 = CALL one strike above ATM, PUT one strike below), call/put dropdowns and
+  ATM / ATM+1 checkboxes in `strategy_settings.json`. Ticked boxes override the dropdowns; both ticked
+  = two trades per signal via the new `PaperStrategyId.STRATEGY_A_2` slot. `StrikeLadderResolver`
+  wraps the locked resolver (offset 0 = unchanged ATM path). Settings re-read every bar.
+- Warm-up: `PaperMarketDataPipeline.seed_history` + `paper_trading/warmup.py` (FYERS 1m history,
+  ~300 signal bars, closed minutes only).
+- `scripts/run_paper_session.py`: login check, contracts + lot size + expiry from the FYERS symbol
+  master into `data/database/paper_contracts.db` (original KunalQuant DB untouched), warm-up, live
+  feed, 15:10 force exit, `live_status.json` every 2 s. Paper only, no order code.
+- Dashboard `pages/0_Live_Paper_Trading.py` + `data/live.py`: status, positions, order window,
+  settings, today's journals. Screenshot `docs/screenshots/live_paper_trading_page.png`.
+- Tests: 37 new (strike 18, warm-up 9, runner 4, dashboard 6). Suite 522 passed, 5 need local DB.
+- NOT done: real order placement (needs owner approval + limit/buffer exit adapter);
+  BANKNIFTY/SENSEX; chart risk/reward box.
+
 ## claude/affectionate-bardeen-3k5sls: owner settings, 2026-10-24 (later)
 - Timeframes 1, 3, 5, 10, 15, 30, 60 minutes (`market_data/resampling.py`, pipeline). Bars anchored at
   09:15 like TradingView; the day's last shorter bar (10m 15:25, 30m/60m 15:15) is kept and closes at 15:30.

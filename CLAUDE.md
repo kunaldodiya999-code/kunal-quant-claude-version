@@ -36,3 +36,8 @@
 - Owner's paper settings (timeframe 1/3/5/10/15/30/60, LONG/SHORT/BOTH, entry start/end, force exit):
   `scripts/paper_settings.py`, saved in `data/paper_trading/strategy_settings.json`.
   Owner prefers 3 or 5 minutes. Entry start 09:30. Entries only after the signal candle closes.
+- Order window (owner rule): 5 strikes per side (1 ITM, ATM, 3 OTM); CALL/PUT dropdowns; ATM and
+  ATM+1 checkboxes override dropdowns, both = two trades. `strategies/strike_ladder.py`.
+- Live paper day: `python scripts\run_paper_session.py` (window 1) +
+  `cd dashboard; streamlit run app.py` (window 2, page "Live Paper Trading").
+  Daily FYERS login first: `python fyers_auth.py` in the folder holding `.env`.

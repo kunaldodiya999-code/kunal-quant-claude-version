@@ -12,3 +12,7 @@ requests==2.31.0
 
 # Dev/test only
 pytest
+
+# Dashboard (dashboard/pages/0_Live_Paper_Trading.py) - added 2026-10-24
+streamlit>=1.40
+pandas
