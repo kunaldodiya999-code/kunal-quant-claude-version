@@ -14,7 +14,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from data.live import (  # noqa: E402
-    STALE_AFTER_SECONDS, journal, load_status, settings_store, status_age_seconds, strike_options,
+    STALE_AFTER_SECONDS, journal, live_dir, load_status, settings_store, status_age_seconds, strike_options,
 )
 from theme import configure_page  # noqa: E402
 
@@ -37,6 +37,11 @@ def live_panel() -> None:
             "`python scripts\\run_paper_session.py`",
             icon="⏸️",
         )
+    if status and status.get("orders_mode") == "LIVE":
+        st.error("LIVE ORDERS ARE ON: paper trades are also being sent to FYERS with real money.", icon="🚨")
+    elif status:
+        st.info("Broker orders: DRY RUN. Orders that would be sent are listed in the 'Broker orders' tab; "
+                "nothing is sent to FYERS.", icon="🛡️")
     feed = (status or {}).get("feed") or {}
     account = (status or {}).get("account") or {}
     ladders = (status or {}).get("ladders") or {}
@@ -124,10 +129,12 @@ with st.form("strategy_settings"):
 # ----------------------------------------------------------------------- journal
 st.markdown("---")
 st.subheader("Today")
-tab1, tab2, tab3 = st.tabs(["Signals", "Trades", "Rejected signals"])
-for tab, name in ((tab1, "signals.csv"), (tab2, "trade_events.csv"), (tab3, "rejections.csv")):
+tabs = st.tabs(["Signals", "Trades", "Rejected signals", "KTMI values per candle", "Broker orders"])
+sources = (("signals.csv", None), ("trade_events.csv", None), ("rejections.csv", None),
+           ("ktmi_bars.csv", None), ("live_orders.csv", "live_trading"))
+for tab, (name, folder) in zip(tabs, sources):
     with tab:
-        frame = journal(name)
+        frame = journal(name, folder=live_dir() if folder else None)
         if frame.empty:
             st.caption("Nothing yet today.")
         else:

@@ -30,7 +30,10 @@
 ## Other locked things
 - `backtest/option_trade_lifecycle.py`: byte-for-byte unchanged.
 - `indicators/ktmi/` (KTMI Universal engine): do not change calculations.
-- No real orders. Paper mode only. Live trading needs an explicit owner approval gate.
+- Real orders: `live_trading/`, OFF by default. Need BOTH `scripts/live_switch.py arm` (today only)
+  AND `run_paper_session.py --live-orders`. Limit + buffer only, NEVER market (test-guarded).
+  FYERS requires a whitelisted static IP for API orders (SEBI 2026). See docs/LIVE_ORDERS.md.
+- KTMI checker for any past day: `python scripts\ktmi_check.py --date YYYY-MM-DD --timeframe 3`.
 
 ## Where things are
 - Full specification from the owner: `docs/KUNAL_QUANT_MASTER_SPEC.md`.

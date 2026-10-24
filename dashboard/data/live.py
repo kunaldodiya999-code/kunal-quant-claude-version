@@ -32,6 +32,13 @@ DEFAULT_PAPER_DIR = PROJECT_ROOT / "data" / "paper_trading"
 def paper_dir() -> Path:
     """Journals folder. KQ_PAPER_DIR lets tests point the page at a temporary folder."""
     return Path(os.environ.get("KQ_PAPER_DIR") or DEFAULT_PAPER_DIR)
+
+
+def live_dir() -> Path:
+    """Broker-order journals (data/live_trading), next to the paper folder."""
+    return paper_dir().parent / "live_trading"
+
+
 STALE_AFTER_SECONDS = 15
 
 
@@ -80,6 +87,6 @@ def journal(name: str, folder: Path | None = None, today_only: bool = True, limi
 
 
 __all__ = [
-    "STALE_AFTER_SECONDS", "paper_dir", "journal", "load_status", "settings_store",
+    "STALE_AFTER_SECONDS", "live_dir", "paper_dir", "journal", "load_status", "settings_store",
     "status_age_seconds", "strike_options",
 ]

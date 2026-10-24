@@ -1,5 +1,6 @@
 """Monday runner, end to end with a pretend FYERS (no network, no orders)."""
 
+import csv
 import json
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -66,8 +67,8 @@ def test_missing_login_files_give_plain_instructions(tmp_path):
         main(["--credentials-folder", str(tmp_path), "--data-folder", str(tmp_path)])
 
 
-def test_paper_day_end_to_end(tmp_path, monkeypatch):
-    # Fire one LONG signal on the first live 3-minute bar (Uni Lite maths is tested elsewhere).
+def run_day(tmp_path, monkeypatch, extra_args=(), client=None):
+    """Pretend Monday 10:00-10:12 with one LONG signal on the 10:00 3-minute bar."""
     def one_signal(bars, *, paper_config, **kwargs):
         last = bars[-1]
         if last.timestamp == int(datetime(2026, 10, 26, 10, 0, tzinfo=IST).timestamp()):
@@ -86,6 +87,8 @@ def test_paper_day_end_to_end(tmp_path, monkeypatch):
     monkeypatch.setattr("market_data.fyers_quote_cache.time.time", lambda: t["now"].timestamp())
     monkeypatch.setattr("paper_trading.pending_entry_orchestrator.datetime",
                         type("D", (datetime,), {"now": staticmethod(lambda tz=None: t["now"])}))
+    monkeypatch.setattr("live_trading.switch.datetime",
+                        type("D2", (datetime,), {"now": staticmethod(lambda tz=None: t["now"])}), raising=False)
 
     def tick(symbol, price, at):
         return {"symbol": symbol, "ltp": price, "last_traded_time": int(at.timestamp()),
@@ -101,13 +104,20 @@ def test_paper_day_end_to_end(tmp_path, monkeypatch):
                 on_message(tick(sym, 101.5, t["now"]))
         t["now"] += timedelta(minutes=1)
 
-    status_path = tmp_path / "paper_trading" / "live_status.json"
-    main(["--data-folder", str(tmp_path), "--stop-at", "10:12", "--status-every", "0"],
-         client=FakeClient(), raw_master=master(), socket_factory=socket_factory,
+    main(["--data-folder", str(tmp_path), "--stop-at", "10:12", "--status-every", "0", *extra_args],
+         client=client or FakeClient(), raw_master=master(), socket_factory=socket_factory,
          clock=lambda: t["now"], sleep=sleep)
+    return sockets
 
-    status = json.loads(status_path.read_text())
-    assert status["mode"] == "PAPER"
+
+def rows(path):
+    return list(csv.DictReader(path.open()))
+
+
+def test_paper_day_end_to_end(tmp_path, monkeypatch):
+    sockets = run_day(tmp_path, monkeypatch)
+    status = json.loads((tmp_path / "paper_trading" / "live_status.json").read_text())
+    assert status["mode"] == "PAPER" and status["orders_mode"] == "DRY_RUN"
     assert status["contracts"] == {"nearest_expiry": "2026-10-27", "lot_size": 65}
     assert status["ladders"]["call"][1] == {"choice": "ATM", "strike": 22000}
     assert [p["symbol"] for p in status["positions"]] == ["NSE:NIFTY26O2722000CE"]
@@ -115,3 +125,31 @@ def test_paper_day_end_to_end(tmp_path, monkeypatch):
     assert "NSE:NIFTY26O2722000CE" in sockets[0].subscribed
     trades = (tmp_path / "paper_trading" / "trade_events.csv").read_text()
     assert "NSE:NIFTY26O2722000CE" in trades
+    # Dry run: the order that WOULD be sent, nothing sent.
+    log = rows(tmp_path / "live_trading" / "orders_log.csv")
+    assert [(r["action"], r["symbol"], r["side"], r["qty"], r["price"]) for r in log] == [
+        ("WOULD_PLACE", "NSE:NIFTY26O2722000CE", "BUY", "130", "102.5")]
+    assert rows(tmp_path / "live_trading" / "live_orders.csv")[0]["mode"] == "DRY_RUN"
+
+
+def test_live_orders_refused_unless_switch_armed(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit, match="NOT armed"):
+        run_day(tmp_path, monkeypatch, ["--live-orders"])
+
+
+def test_armed_live_day_sends_one_limit_buy(tmp_path, monkeypatch):
+    from live_trading.switch import CONFIRM_PHRASE, LiveSwitch
+    from tests.test_live_orders import FakeFyersModel
+    LiveSwitch(tmp_path / "live_trading").arm(MONDAY, CONFIRM_PHRASE)
+    model = FakeFyersModel(statuses=[(2, 130, 102.0)])
+    client = FakeClient()
+    client.model = model
+    monkeypatch.setattr("live_trading.executor.time.sleep", lambda s: None, raising=False)
+    monkeypatch.setattr("scripts.run_paper_session.time.sleep", lambda s: None)
+    run_day(tmp_path, monkeypatch, ["--live-orders"], client=client)
+    placed = model.sent("place")
+    assert len(placed) == 1
+    assert (placed[0]["symbol"], placed[0]["side"], placed[0]["type"], placed[0]["qty"], placed[0]["limitPrice"]) == (
+        "NSE:NIFTY26O2722000CE", 1, 1, 130, 102.5)
+    live = rows(tmp_path / "live_trading" / "live_orders.csv")
+    assert (live[0]["mode"], live[0]["status"], live[0]["filled_qty"]) == ("LIVE", "FILLED", "130")

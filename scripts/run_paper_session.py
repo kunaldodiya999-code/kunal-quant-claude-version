@@ -62,6 +62,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="folder with .env and fyers_access_token.txt (auto-detected)")
     p.add_argument("--data-folder", type=Path, default=PROJECT_ROOT / "data",
                    help="where journals, settings and the contracts database live")
+    p.add_argument("--live-orders", action="store_true",
+                   help="send REAL orders to FYERS (also needs: python scripts\\live_switch.py arm)")
     p.add_argument("--stop-at", default="15:35", help="stop the program at this IST time (HH:MM)")
     p.add_argument("--status-every", type=float, default=2.0, help="seconds between dashboard updates")
     return p
@@ -78,6 +80,11 @@ def main(argv=None, *, client=None, raw_master=None, socket_factory=None, clock=
     from paper_trading.session import PaperSessionConfig, build_paper_session
     from paper_trading.strategy_settings import StrategySettings, StrategySettingsStore
     from paper_trading.warmup import fetch_minute_history
+    from live_trading.executor import LimitOrderExecutor
+    from live_trading.gateway import DryRunGateway, FyersOrderGateway
+    from live_trading.mirror import MirroringRecorder, LiveOrderMirror
+    from live_trading.orders import LiveOrderPolicy
+    from live_trading.switch import LiveSwitch
 
     print("=" * 72)
     print("KUNAL QUANT - LIVE PAPER TRADING  (real prices, simulated trades, NO real orders)")
@@ -130,6 +137,36 @@ def main(argv=None, *, client=None, raw_master=None, socket_factory=None, clock=
             say("WARNING: some restored trades were opened on an EARLIER day: "
                 f"{', '.join(session.recovery.stale_open_trade_ids)}. Check rejections/exit files.")
 
+    # Broker orders: DRY RUN unless the owner armed the switch today AND passed --live-orders.
+    live_dir = args.data_folder / "live_trading"
+    if args.live_orders and not LiveSwitch(live_dir).armed_for(today):
+        raise SystemExit("--live-orders was given but the live switch is NOT armed for today.\n"
+                         "Arm it first:  python scripts\\live_switch.py arm   (or run without --live-orders).")
+    policy = LiveOrderPolicy()
+    if args.live_orders:
+        gateway = FyersOrderGateway(client.model, journal_path=live_dir / "orders_log.csv",
+                                    product_type=policy.product_type)
+        order_sleep = time.sleep
+        print("!" * 72)
+        print("!!  LIVE ORDERS ARE ON: paper trades will also be sent to FYERS with REAL MONEY  !!")
+        print("!" * 72)
+    else:
+        gateway = DryRunGateway(journal_path=live_dir / "orders_log.csv")
+        order_sleep = lambda _seconds: None   # nothing to wait for in a dry run
+        say("Broker orders: DRY RUN (orders that WOULD be sent are listed in data\\live_trading\\live_orders.csv)")
+
+    def option_price(symbol: str) -> float:
+        quote = session.quote_cache.get_quote(symbol, decision_timestamp=int(clock().timestamp()),
+                                              max_exchange_age_seconds=5, max_receive_age_seconds=5.0)
+        return float(quote["lp"])
+
+    mirror = LiveOrderMirror(
+        LimitOrderExecutor(gateway, policy, option_price, sleep=order_sleep),
+        lot_size=contracts.lot_size, journal_path=live_dir / "live_orders.csv", mode=gateway.mode,
+        on_alert=lambda text: say(f"*** {text} ***"),
+    )
+    session.engine.recorder = MirroringRecorder(session.engine.recorder, mirror)
+
     # 4. Warm-up
     history = fetch_minute_history(client, UNDERLYING, resolution_minutes=settings.timeframe_minutes, now=clock())
     bars = session.pipeline.seed_history(UNDERLYING, history)
@@ -156,6 +193,7 @@ def main(argv=None, *, client=None, raw_master=None, socket_factory=None, clock=
             if time.monotonic() - last_status >= args.status_every:
                 status = build_status(session, underlying_symbol=UNDERLYING, contracts=contracts,
                                       now=now.timestamp())
+                status["orders_mode"] = gateway.mode
                 write_status(OUTPUT_DIR, status)
                 error = status["feed"]["last_error"]
                 if error and error != reported_error:
@@ -166,8 +204,11 @@ def main(argv=None, *, client=None, raw_master=None, socket_factory=None, clock=
     except KeyboardInterrupt:
         say("Stopped by you (Ctrl+C).")
     finally:
-        write_status(OUTPUT_DIR, build_status(session, underlying_symbol=UNDERLYING, contracts=contracts))
+        final = build_status(session, underlying_symbol=UNDERLYING, contracts=contracts)
+        final["orders_mode"] = gateway.mode
+        write_status(OUTPUT_DIR, final)
         session.close()
+        mirror.close()
         say(f"Journals and status saved in {OUTPUT_DIR}")
     return 0
 

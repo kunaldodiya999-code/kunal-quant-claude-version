@@ -3,6 +3,18 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: signal checker + broker orders (OFF), 2026-10-24 (night)
+- Signal checker: session writes `ktmi_bars.csv` (every closed candle: OHLC, Long/Short speed+signal,
+  arrows) via a `bar_sink` hook; `scripts/ktmi_check.py --date --timeframe` gives the same table for
+  any past day (FYERS history or local DB). Test: live journal == checker on all 125 candles.
+- `live_trading/`: limit+buffer order policy, FYERS gateway (fields per FYERS v3 docs), executor
+  (re-price, entry cancel, exit left working + alert, NEVER market), mirror of paper opens/exits,
+  one-day live switch (`scripts/live_switch.py`). Runner: DRY RUN by default; real orders need the
+  switch armed today AND `--live-orders`. Dashboard: LIVE red banner, dry-run note, Broker orders tab.
+- Found and fixed: float noise in tick rounding (0.1+0.2 rounded a BUY a tick too high).
+- SEBI 2026: FYERS accepts API orders only from a whitelisted static IP -> see docs/LIVE_ORDERS.md.
+- Tests: 27 new. Suite 549 passed, 5 need local DB. Market-order guard proven to fail when broken.
+
 ## claude/affectionate-bardeen-3k5sls: Monday live paper day, 2026-10-24 (evening)
 - Order window: `strategies/strike_ladder.py` (1 ITM, ATM, 3 OTM per side; offset counts in the OTM
   direction, so ATM+1 = CALL one strike above ATM, PUT one strike below), call/put dropdowns and

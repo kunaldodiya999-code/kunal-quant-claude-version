@@ -98,3 +98,25 @@ def test_saving_timeframe_and_direction(folder):
     app.run()
     saved = json.loads((folder / "strategy_settings.json").read_text())
     assert (saved["timeframe_minutes"], saved["trade_direction"]) == (5, "LONG")
+
+
+def test_live_orders_banner_and_broker_orders_tab(folder):
+    data = status()
+    data["orders_mode"] = "LIVE"
+    (folder / "live_status.json").write_text(json.dumps(data))
+    live = folder.parent / "live_trading"
+    live.mkdir(exist_ok=True)
+    (live / "live_orders.csv").write_text(
+        "time,mode,kind,symbol,requested_qty,status,filled_qty,avg_price,order_ids,paper_price,message\n"
+        f"{time.strftime('%Y-%m-%d')}T10:03:05+05:30,LIVE,ENTRY,NSE:NIFTY26O2722000CE,130,FILLED,130,102.0,ORD1,101.5,\n")
+    app = run(folder)
+    assert any("LIVE ORDERS ARE ON" in e.value for e in app.error)
+    assert len(app.tabs) == 5
+
+
+def test_dry_run_banner(folder):
+    data = status()
+    data["orders_mode"] = "DRY_RUN"
+    (folder / "live_status.json").write_text(json.dumps(data))
+    app = run(folder)
+    assert any("DRY RUN" in i.value for i in app.info) and not app.error
