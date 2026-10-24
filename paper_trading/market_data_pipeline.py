@@ -122,6 +122,38 @@ class PaperMarketDataPipeline:
 
         return signals
 
+    def seed_history(self, symbol: str, candles) -> int:
+        """Load completed 1-minute candles from earlier sessions (and earlier today)
+        before live ticks start, so KTMI has the same history as the chart.
+
+        No signals are evaluated for seeded bars: history is context, not a trade.
+        Must be called before the first live tick. Returns signal bars added.
+        """
+        symbol = symbol.strip()
+        if self.minute_history.get(symbol):
+            raise RuntimeError("seed_history must run before live ticks arrive.")
+        ordered: dict[int, Candle] = {}
+        for candle in candles:
+            if self._is_regular_session(candle):
+                ordered[int(candle.timestamp)] = candle
+        minutes = [ordered[ts] for ts in sorted(ordered)]
+        self.minute_history[symbol] = list(minutes)
+        if self.resolution_minutes == 1:
+            bars: list[Candle | DerivedBar] = list(minutes)
+        else:
+            by_day: dict = {}
+            for candle in minutes:
+                by_day.setdefault(datetime.fromtimestamp(candle.timestamp, tz=MARKET_TZ).date(), []).append(candle)
+            bars = [
+                bar for day in sorted(by_day)
+                for bar in aggregate_day(by_day[day], self.resolution_minutes)
+                if bar.complete
+            ]
+        self.signal_bar_history[symbol] = list(bars)
+        if bars:
+            self._last_signal_bar_timestamp[symbol] = bars[-1].timestamp
+        return len(bars)
+
     def current_minute(self, symbol: str) -> Candle | None:
         """Expose a snapshot of the in-progress minute."""
         return self.tick_builder.current_minute(symbol)
