@@ -9,3 +9,7 @@ modifies it.
 See `docs/checkpoints/` for session-by-session notes, following the same
 convention as the canonical repo, and **`PENDING_FROM_YOU.md`** for the
 running list of what needs your local machine or a decision from you.
+
+**Current track (2026-10-24): Opening Breakout V2.** Ready-to-apply,
+tested patches for the canonical repo live in **`patches/`**. Start with
+`patches/README.md`.
