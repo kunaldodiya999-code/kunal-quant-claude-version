@@ -147,6 +147,19 @@ def _setup_option_candle(
     return max(candidates, key=lambda bar: bar.timestamp)
 
 
+def premium_direction(event: OpeningBreakoutEvent) -> str:
+    """Return the direction of the option *premium* position.
+
+    CALL and PUT events are both BUY-side option entries: a bearish (SHORT)
+    signal buys a PE and profits when the PE premium rises. Stops, targets,
+    slippage and P&L on the option premium are therefore always LONG for
+    option instruments. The signal direction is still used to choose CE/PE.
+    """
+    if getattr(event, "instrument", None) in {"CALL", "PUT"}:
+        return "LONG"
+    return event.direction
+
+
 def run_opening_breakout_trade(
     *,
     event: OpeningBreakoutEvent,
@@ -242,7 +255,7 @@ def run_opening_breakout_trade(
     if entry.filled:
         adverse_slippage = (
             entry.price - signal_price
-            if event.direction == "LONG"
+            if premium_direction(event) == "LONG"
             else signal_price - entry.price
         )
         if adverse_slippage > execution_policy.max_slippage_points:
@@ -290,7 +303,7 @@ def run_opening_breakout_trade(
             setup.close,
         ),
         config.sl_mode,
-        event.direction,
+        premium_direction(event),
         custom_points=config.custom_sl_points,
     )
     if stop is None:
@@ -345,7 +358,7 @@ def run_opening_breakout_trade(
         entry.price,
         stop,
         config.tp_mode,
-        event.direction,
+        premium_direction(event),
         custom_points=config.custom_tp_points,
         value_target=config.tp_value_target,
         rr_multiplier=config.rr_multiplier,
@@ -355,7 +368,7 @@ def run_opening_breakout_trade(
     exit_result, final_stop = simulate_exit(
         option_bars,
         entry_timestamp=entry.timestamp,
-        direction=event.direction,
+        direction=premium_direction(event),
         quantity=sizing.quantity,
         stop_price=stop,
         target_price=target,
@@ -372,7 +385,7 @@ def run_opening_breakout_trade(
 
     pnl = 0.0
     if exit_result.filled:
-        multiplier = 1.0 if event.direction == "LONG" else -1.0
+        multiplier = 1.0 if premium_direction(event) == "LONG" else -1.0
         pnl = (
             exit_result.price - entry.price
         ) * sizing.quantity * multiplier
@@ -396,6 +409,7 @@ def run_opening_breakout_trade(
 
 __all__ = [
     "ResolvedOpeningBreakoutTrade",
+    "premium_direction",
     "database_lot_size",
     "run_opening_breakout_trade",
 ]

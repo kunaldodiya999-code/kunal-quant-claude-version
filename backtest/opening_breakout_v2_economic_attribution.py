@@ -15,6 +15,7 @@ from backtest.broker_cost_model import (
     calculate_options_trade_costs,
     fyers_options_profile,
 )
+from backtest.opening_breakout_v2_option_integration import premium_direction
 
 
 @dataclass(frozen=True)
@@ -70,7 +71,7 @@ def attribute_trade_economics(
     exit_price = float(trade.exit.price)
     gross = float(trade.gross_pnl)
     exit_reason = str(trade.exit.reason)
-    multiplier = 1.0 if trade.event.direction == "LONG" else -1.0
+    multiplier = 1.0 if premium_direction(trade.event) == "LONG" else -1.0
 
     if exit_reason == "STOP_LOSS":
         theoretical_exit = stop

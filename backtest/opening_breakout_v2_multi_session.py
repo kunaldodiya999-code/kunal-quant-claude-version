@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 from backtest.broker_cost_model import calculate_options_trade_costs, fyers_options_profile
 from backtest.fyers_option_candles import FyersOptionCandleLoader
 from backtest.opening_breakout_v2_option_integration import (
+    LotSizeLoader,
     ResolvedOpeningBreakoutTrade,
     run_opening_breakout_trade,
 )
@@ -75,6 +76,7 @@ def run_multi_session_backtest(
     execution_policy: V2ExecutionPolicy,
     capital: float,
     indicator_provider: IndicatorProvider,
+    lot_size_loader: LotSizeLoader | None = None,
 ) -> MultiSessionResult:
     if capital <= 0:
         raise ValueError("capital must be positive")
@@ -114,6 +116,7 @@ def run_multi_session_backtest(
                 .replace(hour=15, minute=15, second=0, microsecond=0)
                 .timestamp()
             )
+            extra = {} if lot_size_loader is None else {"lot_size_loader": lot_size_loader}
             try:
                 trade = run_opening_breakout_trade(
                     event=event,
@@ -124,6 +127,7 @@ def run_multi_session_backtest(
                     execution_policy=execution_policy,
                     capital=current_capital,
                     force_exit_timestamp=force_exit,
+                    **extra,
                 )
             except Exception as exc:
                 rejection = (
