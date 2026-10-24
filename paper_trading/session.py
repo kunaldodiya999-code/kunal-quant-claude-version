@@ -25,6 +25,7 @@ from paper_trading.recorder import PaperTradeRecorder
 from paper_trading.signals import evaluate_latest_paper_signals
 from paper_trading.uni_lite_signals import evaluate_uni_lite_paper_signals
 from paper_trading.ktmi_journal import KtmiBarJournal
+from paper_trading.minute_journal import MinuteCandleJournal
 from indicators.ktmi_uni_lite import UNI_LITE_CORE, UNI_LITE_DEFAULTS
 import time
 
@@ -168,6 +169,7 @@ def build_paper_session(
         current = settings_store.refresh()
         if "coordinator" in late:
             late["coordinator"].trade_direction = current.trade_direction
+            late["coordinator"].trading_enabled = current.trading_enabled
         out = []
         for signal in base_evaluator(bars, paper_config=paper_config, **sink):
             if signal.strategy_id != PaperStrategyId.STRATEGY_A:
@@ -184,6 +186,7 @@ def build_paper_session(
         paper_config=engine_config,
         signal_evaluator=planned_evaluator,
         recorder=recorder,
+        minute_sink=MinuteCandleJournal(config.output_dir).record,   # chart history
     )
     lifecycle = BuyerOptionTradeLifecycle(
         BuyerLifecycleConfig(
@@ -230,6 +233,7 @@ def build_paper_session(
     engine.allocation_provider = entry_budget
     coordinator = PaperExecutionCoordinator(
         adapter=adapter, engine=engine, controls=controls, trade_direction=settings.trade_direction,
+        trading_enabled=settings.trading_enabled,
     )
     late["coordinator"] = coordinator
     # Rebuild open positions and seen signals from the journal so a restart

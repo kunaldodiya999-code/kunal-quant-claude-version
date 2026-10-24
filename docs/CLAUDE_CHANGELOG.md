@@ -3,6 +3,18 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: "Trade in" (one, several or all indexes) + Chart page with drawing tools, 2026-10-24
+- `StrategySettings.trading_enabled` (default true) per index; coordinator rejects entries with the reason
+  "Trading is switched off for this index"; refreshed per signal like Long/Short. Dashboard box "Trade in"
+  (All indexes / pick), summary column; `paper_settings.py --trade ON|OFF`.
+- Runner saves every 1-minute candle (warm-up + live) to `minute_candles.csv` per index
+  (`paper_trading/minute_journal.py`, pipeline `minute_sink`), so the chart has the whole day.
+- Dashboard page "Chart" (`dashboard/pages/7_Chart.py`): candles + locked KTMI Uni Lite (any timeframe) + arrows;
+  tools trend line, horizontal, vertical, rectangle, path, fib retracement; select/drag/delete; saved in the
+  browser per index. Library TradingView Lightweight Charts 4.2.3 stored in `dashboard/static` (npm shasum checked).
+  Checked in Chromium: all six tools draw, drag moves, drawings survive reload, no page errors.
+- Tests: 593 passed, 5 need local DB.
+
 ## claude/affectionate-bardeen-3k5sls: clean data sweep, KTMI accuracy, Opening Scalp (OFF), 2026-10-24
 - Read the KunalQuant HFT plan/checkpoints (10s via NIFTY futures 5s, Gap-Open V1). Summary in
   `docs/OPENING_SCALP_AND_DATA.md` (the README for all of this).

@@ -33,13 +33,15 @@ class StrategySettings:
     # dropdowns; both ticked = two trades per signal (ATM and ATM+1).
     use_atm: bool = False
     use_atm_plus_1: bool = False
+    # Dashboard "Trade in": False = watch this index (signals, chart) but take no entries.
+    trading_enabled: bool = True
 
     def __post_init__(self) -> None:
         for name in (self.call_strike, self.put_strike):
             if name not in STRIKE_CHOICES:
                 raise ValueError(f"strike choice must be one of {tuple(STRIKE_CHOICES)}")
-        if not isinstance(self.use_atm, bool) or not isinstance(self.use_atm_plus_1, bool):
-            raise ValueError("use_atm and use_atm_plus_1 must be true or false")
+        if not all(isinstance(v, bool) for v in (self.use_atm, self.use_atm_plus_1, self.trading_enabled)):
+            raise ValueError("use_atm, use_atm_plus_1 and trading_enabled must be true or false")
         if self.timeframe_minutes not in SUPPORTED_RESOLUTIONS:
             raise ValueError(f"timeframe must be one of {SUPPORTED_RESOLUTIONS} minutes")
         if self.trade_direction not in TRADE_DIRECTIONS:

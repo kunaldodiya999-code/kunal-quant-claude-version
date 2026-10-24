@@ -39,12 +39,16 @@ class PaperExecutionCoordinator:
         segment: Segment = Segment.FNO,
         marks_provider: Any = None,
         trade_direction: str = "BOTH",
+        trading_enabled: bool = True,
     ) -> None:
         if trade_direction not in TRADE_DIRECTIONS:
             raise ValueError(f"trade_direction must be one of {TRADE_DIRECTIONS}")
         self.adapter = adapter
         # LONG = only BUY CALL trades, SHORT = only BUY PUT trades, BOTH = both.
         self.trade_direction = trade_direction
+        # False = this index is not chosen for trading on the dashboard: signals are
+        # still journaled (and KTMI still drawn) but no entry is taken.
+        self.trading_enabled = trading_enabled
         self.engine = engine
         # Optional SessionControls: entry window, daily loss cap and kill switch.
         self.controls = controls
@@ -122,6 +126,11 @@ class PaperExecutionCoordinator:
         # Mark before validation: a rejected signal must not be retried on each
         # tick with the same signal. A new signal event is required.
         self._seen_signals.add(key)
+        if not self.trading_enabled:
+            return PaperEntryAttempt(
+                signal=signal, candidate=None, trade=None,
+                rejection_reason="Trading is switched off for this index (dashboard 'Trade in').",
+            )
         if self.trade_direction != "BOTH" and str(signal.direction) != self.trade_direction:
             side = "Long (BUY CALL)" if str(signal.direction) == "LONG" else "Short (BUY PUT)"
             return PaperEntryAttempt(

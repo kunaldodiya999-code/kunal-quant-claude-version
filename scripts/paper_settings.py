@@ -6,6 +6,7 @@ Run from C:\\Users\\USER\\Desktop\\Kunal\\kunal-quant-claude-version :
     python scripts\\paper_settings.py --index NIFTY --timeframe 5  (NIFTY: 5-minute candles)
     python scripts\\paper_settings.py --index ALL --direction LONG (all indexes: only BUY CALL)
     python scripts\\paper_settings.py --index SENSEX --start 09:30 --end 15:00
+    python scripts\\paper_settings.py --index BANKNIFTY --trade OFF  (watch BANK NIFTY, no trades)
 
 Each index (NIFTY, BANKNIFTY, SENSEX) has its own settings.
 
@@ -42,6 +43,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--start", help="first time a new trade may start, HH:MM (e.g. 09:30)")
     p.add_argument("--end", help="no new trades from this time, HH:MM (e.g. 15:00)")
     p.add_argument("--force-exit", dest="force_exit", help="close open trades at this time, HH:MM")
+    p.add_argument("--trade", choices=("ON", "OFF"), type=str.upper,
+                   help="ON = this index takes entries, OFF = watch only (same as the dashboard 'Trade in')")
     p.add_argument("--index", default="ALL", help="NIFTY, BANKNIFTY, SENSEX, a comma list, or ALL (default)")
     p.add_argument("--folder", type=Path, default=PROJECT_ROOT / "data" / "paper_trading",
                    help="paper-trading data folder (default: data\\paper_trading)")
@@ -53,6 +56,7 @@ def show(settings: StrategySettings, path: Path | None, label: str = "") -> None
     print(f"KUNAL QUANT - {label} STRATEGY SETTINGS (KTMI Uni Lite core)")
     print("=" * 64)
     print(f"Timeframe          : {settings.timeframe_minutes} minute candles")
+    print(f"Trade in           : {'ON (takes entries)' if settings.trading_enabled else 'OFF (watch only)'}")
     print(f"Trade direction    : {DIRECTION_TEXT[settings.trade_direction]}")
     print(f"New trades from    : {settings.entry_start} IST")
     print(f"No new trades from : {settings.entry_end} IST")
@@ -75,6 +79,7 @@ def main(argv=None) -> int:
             "entry_start": args.start,
             "entry_end": args.end,
             "force_exit": args.force_exit,
+            "trading_enabled": None if args.trade is None else args.trade == "ON",
         }.items()
         if value is not None
     }

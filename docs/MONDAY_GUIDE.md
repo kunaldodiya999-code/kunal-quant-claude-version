@@ -70,6 +70,24 @@ python scripts\paper_settings.py --index SENSEX --timeframe 5     # one index
 python scripts\paper_settings.py --index ALL --direction LONG     # all indexes
 ```
 
+## Which indexes trade ("Trade in")
+
+Start the program as usual (it watches all three). On the dashboard page **Live Paper Trading**,
+box **Trade in**: tick **All indexes**, or untick it and choose one or two indexes, then
+**Save trade-in choice**. Each chosen index takes its own KTMI Uni Lite signals. Indexes not
+chosen are still watched (prices, KTMI, chart) but take no new trades; their signals appear
+under "Rejected signals" with the reason. Open trades always run to their exit.
+Same from PowerShell: `python scripts\paper_settings.py --index BANKNIFTY --trade OFF`.
+
+## Chart with drawing tools
+
+Dashboard page **Chart**: candles of the chosen index and timeframe, KTMI Uni Lite underneath,
+green/red arrows where BUY CALL / BUY PUT fired. Data: "Trading program" (today, including the
+morning even if you start late), "Research data" or "KunalQuant database" (past days).
+Tools on the left: cursor, trend line, horizontal line, vertical line, rectangle, path,
+fib retracement, colour, delete, clear all. Drawings are saved in your browser for each index.
+The chart only shows; it never places a trade.
+
 ## Checking signals against TradingView
 
 ```powershell

@@ -14,8 +14,8 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from data.live import (  # noqa: E402
-    INDEX_KEYS, STALE_AFTER_SECONDS, journal, live_dir, load_status, paper_dir, settings_store,
-    status_age_seconds, strike_options, summary_rows,
+    INDEX_KEYS, STALE_AFTER_SECONDS, journal, live_dir, load_status, paper_dir, set_trading_indexes,
+    settings_store, status_age_seconds, strike_options, summary_rows, trading_indexes,
 )
 from strategies.index_profiles import INDEX_PROFILES  # noqa: E402
 from theme import configure_page  # noqa: E402
@@ -48,6 +48,24 @@ def overview() -> None:
 
 
 overview()
+
+# ---------------------------------------------------------------------- trade in
+st.subheader("Trade in")
+st.caption("Choose one, several or all indexes. Each chosen index takes entries on its own KTMI Uni Lite "
+           "signals. Indexes not chosen are still watched (prices, KTMI, chart) but take no new trades. "
+           "Applies to the next signal; open trades are always managed to their exit.")
+with st.form("trade_in"):
+    chosen_now = trading_indexes()
+    all_box = st.checkbox("All indexes", value=len(chosen_now) == len(INDEX_KEYS), key="trade_in_all")
+    picked = st.multiselect("Indexes to trade", INDEX_KEYS, default=chosen_now,
+                            format_func=lambda k: INDEX_PROFILES[k].label, key="trade_in_pick")
+    if st.form_submit_button("Save trade-in choice"):
+        chosen = list(INDEX_KEYS) if all_box else picked
+        set_trading_indexes(chosen)
+        if chosen:
+            st.success("Trading in: " + ", ".join(INDEX_PROFILES[k].label for k in chosen))
+        else:
+            st.warning("No index chosen: the program watches but takes no new trades.")
 
 st.markdown("---")
 index = st.radio("Index", INDEX_KEYS, format_func=lambda k: INDEX_PROFILES[k].label, horizontal=True, key="index")

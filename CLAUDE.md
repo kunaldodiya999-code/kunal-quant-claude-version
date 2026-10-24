@@ -54,3 +54,8 @@
   KTMI accuracy `scripts/ktmi_accuracy.py`, Opening Scalp `strategies/opening_scalp.py` (OFF, not wired live),
   backtest `scripts/opening_scalp_backtest.py`; both take `--source kq-db` (5-year NIFTY). Dashboard page
   "Research Backtest". Results live in data/research (local only).
+- "Trade in" (2026-10-24): per-index `trading_enabled` in strategy_settings.json; dashboard box on
+  Live Paper Trading; runner still watches all indexes started with `--index`.
+- Chart page `dashboard/pages/7_Chart.py` + `dashboard/static/drawing_chart.js` (drawing tools; browser-saved).
+- OWNER RULE: when the owner says "we are done for the day", give ALL commands to run on their PC in order,
+  step by step (folder for each), with what each one should show, plus everything still pending from their side.

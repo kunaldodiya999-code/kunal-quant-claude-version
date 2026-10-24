@@ -70,13 +70,17 @@ def test_page_works_before_the_runner_ever_ran(folder):
     assert app.selectbox(key="call_strike_NIFTY").options[1] == "ATM (waiting for live price)"
 
 
+def click(app, label):
+    next(b for b in app.button if b.label == label).click()
+
+
 def test_saving_the_order_window_writes_settings(folder):
     (folder / "NIFTY" / "live_status.json").write_text(json.dumps(status()))
     app = run(folder)
     app.selectbox(key="call_strike_NIFTY").set_value("OTM2")
     app.checkbox(key="use_atm_NIFTY").check()
     app.checkbox(key="use_atm_plus_1_NIFTY").check()
-    app.button[0].click()   # "Save order window"
+    click(app, "Save order window")
     app.run()
     saved = json.loads((folder / "NIFTY" / "strategy_settings.json").read_text())
     assert (saved["call_strike"], saved["use_atm"], saved["use_atm_plus_1"]) == ("OTM2", True, True)
@@ -86,7 +90,7 @@ def test_saving_bad_times_is_refused_with_a_message(folder):
     app = run(folder)
     from datetime import time as dtime
     app.time_input(key="start_NIFTY").set_value(dtime(15, 20))
-    app.button[1].click()   # "Save settings"
+    click(app, "Save settings")
     app.run()
     assert any("Not saved" in e.value for e in app.error)
     assert not (folder / "NIFTY" / "strategy_settings.json").exists()
@@ -96,7 +100,7 @@ def test_saving_timeframe_and_direction(folder):
     app = run(folder)
     app.selectbox(key="timeframe_NIFTY").set_value(5)
     app.radio(key="direction_NIFTY").set_value("LONG")
-    app.button[1].click()
+    click(app, "Save settings")
     app.run()
     saved = json.loads((folder / "NIFTY" / "strategy_settings.json").read_text())
     assert (saved["timeframe_minutes"], saved["trade_direction"]) == (5, "LONG")
@@ -145,8 +149,31 @@ def test_summary_table_and_switching_to_sensex(folder):
     app.run()
     assert app.selectbox(key="call_strike_SENSEX").options[1] == "ATM - 75100 CE"
     app.checkbox(key="use_atm_plus_1_SENSEX").check()
-    app.button[0].click()
+    click(app, "Save order window")
     app.run()
     saved = json.loads((folder / "SENSEX" / "strategy_settings.json").read_text())
     assert saved["use_atm_plus_1"] is True
     assert not (folder / "NIFTY" / "strategy_settings.json").exists()
+
+
+def test_trade_in_one_index_only(folder):
+    app = run(folder)
+    assert app.checkbox(key="trade_in_all").value is True        # default: all three trade
+    app.checkbox(key="trade_in_all").uncheck()
+    app.multiselect(key="trade_in_pick").set_value(["SENSEX"])
+    click(app, "Save trade-in choice")
+    app.run()
+    saved = {k: json.loads((folder / k / "strategy_settings.json").read_text())["trading_enabled"]
+             for k in ("NIFTY", "BANKNIFTY", "SENSEX")}
+    assert saved == {"NIFTY": False, "BANKNIFTY": False, "SENSEX": True}
+    app.run()                                                      # table refreshes every 3 s
+    assert list(app.dataframe[0].value["Trade in"]) == ["OFF (watch only)", "OFF (watch only)", "ON"]
+
+
+def test_trade_in_all_box_wins_over_the_list(folder):
+    app = run(folder)
+    app.multiselect(key="trade_in_pick").set_value(["NIFTY"])
+    click(app, "Save trade-in choice")                             # "All indexes" still ticked
+    app.run()
+    assert all(json.loads((folder / k / "strategy_settings.json").read_text())["trading_enabled"]
+               for k in ("NIFTY", "BANKNIFTY", "SENSEX"))

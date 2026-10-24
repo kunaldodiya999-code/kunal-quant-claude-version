@@ -219,3 +219,29 @@ def test_settings_command_all_indexes_and_old_file(tmp_path, capsys):
     for key in ("NIFTY", "BANKNIFTY", "SENSEX"):
         saved = json.loads((tmp_path / key / "strategy_settings.json").read_text())
         assert (saved["timeframe_minutes"], saved["trade_direction"]) == (5, "LONG")
+
+
+# ------------------------------------------------------------ trade in (index on/off)
+
+def test_index_switched_off_takes_no_entry_but_says_why():
+    coord = coordinator()
+    coord.trading_enabled = False
+    result = attempt(coord, "LONG", decision=ts(10, 3))
+    assert result.trade is None and "switched off for this index" in result.rejection_reason
+    assert StrategySettings().trading_enabled is True
+    with pytest.raises(ValueError):
+        replace(StrategySettings(), trading_enabled="yes")
+
+
+def test_session_reads_trade_in_and_command_sets_it(tmp_path, capsys):
+    assert settings_command(["--folder", str(tmp_path), "--index", "BANKNIFTY", "--trade", "off"]) == 0
+    assert "OFF (watch only)" in capsys.readouterr().out
+    session = build_paper_session(
+        client=object(),
+        config=PaperSessionConfig(lot_size=30, output_dir=tmp_path / "BANKNIFTY",
+                                  pending_journal_path=tmp_path / "p.csv"),
+        resolver=object(),
+        socket_factory=lambda **kwargs: None,
+    )
+    assert session.coordinator.trading_enabled is False
+    assert not (tmp_path / "NIFTY" / "strategy_settings.json").exists()

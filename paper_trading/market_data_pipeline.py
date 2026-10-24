@@ -43,6 +43,7 @@ class PaperMarketDataPipeline:
         paper_config: PaperEngineConfig | None = None,
         signal_evaluator: SignalEvaluator = evaluate_latest_paper_signals,
         recorder: PaperTradeRecorder | None = None,
+        minute_sink: Callable[[str, list[Candle]], None] | None = None,
     ) -> None:
         if resolution_minutes not in SUPPORTED_RESOLUTIONS:
             raise ValueError(f"resolution_minutes must be one of {SUPPORTED_RESOLUTIONS}")
@@ -50,6 +51,8 @@ class PaperMarketDataPipeline:
         self.paper_config = paper_config or PaperEngineConfig()
         self.signal_evaluator = signal_evaluator
         self.recorder = recorder
+        # Optional: receives every accepted 1-minute candle (seeded and live), for the chart.
+        self.minute_sink = minute_sink
         self.tick_builder = LiveMinuteBarBuilder()
         self.minute_history: dict[str, list[Candle]] = {}
         self.signal_bar_history: dict[str, list[Candle | DerivedBar]] = {}
@@ -83,6 +86,8 @@ class PaperMarketDataPipeline:
                 # A late tick should not rewind or duplicate signal history.
                 continue
             minutes.append(candle)
+            if self.minute_sink is not None:
+                self.minute_sink(symbol, [candle])
 
             if self.resolution_minutes == 1:
                 new_bars: list[Candle | DerivedBar] = [candle]
@@ -138,6 +143,8 @@ class PaperMarketDataPipeline:
                 ordered[int(candle.timestamp)] = candle
         minutes = [ordered[ts] for ts in sorted(ordered)]
         self.minute_history[symbol] = list(minutes)
+        if self.minute_sink is not None and minutes:
+            self.minute_sink(symbol, list(minutes))
         if self.resolution_minutes == 1:
             bars: list[Candle | DerivedBar] = list(minutes)
         else:

@@ -55,6 +55,18 @@ def settings_store(index: str = "NIFTY") -> StrategySettingsStore:
     return StrategySettingsStore(StrategySettings(), paper_dir(index))
 
 
+def trading_indexes() -> list[str]:
+    """Indexes ticked under "Trade in" (each index's saved trading_enabled)."""
+    return [key for key in INDEX_KEYS if settings_store(key).settings.trading_enabled]
+
+
+def set_trading_indexes(chosen) -> None:
+    """Save the "Trade in" choice: chosen indexes take entries, the others only watch."""
+    chosen = set(chosen)
+    for key in INDEX_KEYS:
+        settings_store(key).update(trading_enabled=key in chosen)
+
+
 def load_status(index: str = "NIFTY") -> dict | None:
     path = paper_dir(index) / STATUS_FILE
     if not path.exists():
@@ -92,6 +104,7 @@ def summary_rows(now: float | None = None) -> list[dict]:
         rows.append({
             "Index": INDEX_PROFILES[key].label,
             "Running": "Yes" if fresh else "No",
+            "Trade in": "ON" if settings_store(key).settings.trading_enabled else "OFF (watch only)",
             "Spot": (status or {}).get("spot"),
             "ATM": ((status or {}).get("ladders") or {}).get("atm"),
             "Open trades": len((status or {}).get("positions") or []),
@@ -118,5 +131,6 @@ def journal(name: str, folder: Path, today_only: bool = True, limit: int = 50) -
 
 __all__ = [
     "INDEX_KEYS", "STALE_AFTER_SECONDS", "journal", "live_dir", "load_status", "paper_dir", "paper_root",
-    "settings_store", "status_age_seconds", "strike_options", "summary_rows",
+    "set_trading_indexes", "settings_store", "status_age_seconds", "strike_options", "summary_rows",
+    "trading_indexes",
 ]
