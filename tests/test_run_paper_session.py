@@ -141,7 +141,7 @@ def test_paper_day_end_to_end(tmp_path, monkeypatch):
     # Dry run: the order that WOULD be sent, nothing sent.
     log = rows(tmp_path / "live_trading" / "NIFTY" / "orders_log.csv")
     assert [(r["action"], r["symbol"], r["side"], r["qty"], r["price"]) for r in log] == [
-        ("WOULD_PLACE", "NSE:NIFTY26O2722000CE", "BUY", "130", "102.5")]
+        ("WOULD_PLACE", "NSE:NIFTY26O2722000CE", "BUY", "195", "102.5")]   # 20% of 1,00,000 cash: 3 lots
     assert rows(tmp_path / "live_trading" / "NIFTY" / "live_orders.csv")[0]["mode"] == "DRY_RUN"
 
 
@@ -154,7 +154,7 @@ def test_armed_live_day_sends_one_limit_buy(tmp_path, monkeypatch):
     from live_trading.switch import CONFIRM_PHRASE, LiveSwitch
     from tests.test_live_orders import FakeFyersModel
     LiveSwitch(tmp_path / "live_trading").arm(MONDAY, CONFIRM_PHRASE)
-    model = FakeFyersModel(statuses=[(2, 130, 102.0)])
+    model = FakeFyersModel(statuses=[(2, 195, 102.0)])
     client = FakeClient()
     client.model = model
     monkeypatch.setattr("live_trading.executor.time.sleep", lambda s: None, raising=False)
@@ -163,9 +163,9 @@ def test_armed_live_day_sends_one_limit_buy(tmp_path, monkeypatch):
     placed = model.sent("place")
     assert len(placed) == 1
     assert (placed[0]["symbol"], placed[0]["side"], placed[0]["type"], placed[0]["qty"], placed[0]["limitPrice"]) == (
-        "NSE:NIFTY26O2722000CE", 1, 1, 130, 102.5)
+        "NSE:NIFTY26O2722000CE", 1, 1, 195, 102.5)
     live = rows(tmp_path / "live_trading" / "NIFTY" / "live_orders.csv")
-    assert (live[0]["mode"], live[0]["status"], live[0]["filled_qty"]) == ("LIVE", "FILLED", "130")
+    assert (live[0]["mode"], live[0]["status"], live[0]["filled_qty"]) == ("LIVE", "FILLED", "195")
 
 
 def test_three_indexes_trade_side_by_side_on_one_connection(tmp_path, monkeypatch):

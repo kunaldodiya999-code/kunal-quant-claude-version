@@ -38,8 +38,8 @@ class OverlayTests(unittest.TestCase):
         self.assertEqual(o["marker"], {"time": T0, "side": "LONG", "label": "LONG CE"})
         self.assertEqual((o["status"], o["entry_price"], o["lots"], o["quantity"]), ("OPEN", 100.0, 3, 195))
         self.assertAlmostEqual(o["initial_stop"], 70.0)        # 30% below the premium paid
-        self.assertAlmostEqual(o["target"], 190.0)
-        self.assertEqual(o["reward_to_risk"], 3.0)
+        self.assertAlmostEqual(o["target"], 160.0)             # 2R partial target (owner default)
+        self.assertEqual(o["reward_to_risk"], 2.0)
         self.assertAlmostEqual(o["max_loss_at_initial_stop"], 30.0 * 195)
         self.assertIsNone(o["exit_time"])
 
@@ -51,20 +51,18 @@ class OverlayTests(unittest.TestCase):
         self.assertLess(o["initial_stop"], o["entry_price"])
         self.assertGreater(o["target"], o["entry_price"])
 
-    def test_effective_stop_is_the_tighter_of_initial_and_the_ticked_trailing_stop(self):
+    def test_effective_stop_is_the_tighter_of_initial_and_the_option_chart_tsl(self):
+        self.manager.store.update(tsl_timeframe="1", partial_enabled=False)
         self.open(A, "LONG", CE)
         for i, (op, hi, lo, cl) in enumerate(CLIMB, 1):
             self.manager.on_option_candle(symbol=CE, candle=OptionCandle(T0 + 60 * i, op, hi, lo, cl))
         o = trade_overlay(self.engine.open_trade(A), self.manager)
         self.assertEqual(o["status"], "OPEN")
-        chandelier = o["trailing_stops"]["Chandelier Exit (ATR 9, x1.5)"]
-        self.assertAlmostEqual(chandelier, 108.5)
-        self.assertAlmostEqual(o["effective_stop"], 108.5)      # above the initial 70
-        self.assertAlmostEqual(o["initial_stop"], 70.0)         # the initial stop stays on record
-        self.manager.set_rules(active_tsl=[])
-        again = trade_overlay(self.engine.open_trade(A), self.manager)
-        self.assertEqual(again["trailing_stops"], {})
-        self.assertAlmostEqual(again["effective_stop"], 70.0)
+        # everget Chandelier: highest close of 9 candles 112 - 1.5 x ATR 3 = 107.5
+        self.assertAlmostEqual(o["tsl"]["tsl_stop"], 107.5)
+        self.assertAlmostEqual(o["effective_stop"], 107.5)      # above the initial 70
+        self.assertAlmostEqual(o["initial_stop"], 70.0)
+        self.assertEqual(len(o["tsl_comparison"]), 6)            # every method shown side by side
 
     def test_closed_trade_carries_its_exit_for_the_box_right_edge(self):
         self.open(A, "LONG", CE)
@@ -84,7 +82,7 @@ class OverlayTests(unittest.TestCase):
     def test_works_without_an_exit_manager(self):
         self.open(A, "LONG", CE)
         o = trade_overlays(self.engine)[0]
-        self.assertEqual(o["trailing_stops"], {})
+        self.assertEqual((o["tsl"], o["tsl_comparison"]), ({}, {}))
         self.assertAlmostEqual(o["effective_stop"], 70.0)
 
 

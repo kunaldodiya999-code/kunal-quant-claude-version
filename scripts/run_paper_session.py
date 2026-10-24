@@ -293,7 +293,9 @@ def main(argv=None, *, client=None, raw_master=None, socket_factory=None, clock=
             stamp = int(now.timestamp())
             for desk in desks:
                 controls = desk.session.controls
-                if controls.exits_due(stamp):
+                manager = desk.session.exit_manager
+                forced_on = manager is None or manager.store.refresh().forced_exit_enabled
+                if forced_on and controls.exits_due(stamp):
                     result = controls.close_due_positions(
                         desk.session.engine, timestamp=stamp, prices=desk.session.coordinator.marks_provider())
                     for strategy, exit_event in result.closed:

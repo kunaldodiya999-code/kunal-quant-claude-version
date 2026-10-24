@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from paper_trading.engine import PaperTradeRecord, PaperTradingEngine
-from paper_trading.exit_manager import ExitManager, TSL_METHODS
+from paper_trading.exit_manager import ExitManager
 
 
 def _instrument(symbol: str) -> str:
@@ -21,15 +21,12 @@ def trade_overlay(record: PaperTradeRecord, exit_manager: Optional[ExitManager] 
     p = record.position
     direction = getattr(p.direction, "value", p.direction)
     initial = float(p.stop_loss)
-    trailing: dict[str, float | None] = {}
-    if exit_manager is not None:
-        trade_id = f"{record.strategy_id.value}:{record.entry_timestamp}:{p.symbol}"
-        shadow = exit_manager.lab.trades.get(trade_id)
-        if shadow is not None:
-            trailing = {name: cand.stop for name, cand in shadow["candidates"].items()}
-    active = exit_manager.rules.active_tsl if exit_manager is not None else ()
-    active_stops = [trailing[n] for n in active if trailing.get(n) is not None]
-    effective = max([initial] + active_stops) if not record.closed else None
+    view = exit_manager.trade_view(record) if exit_manager is not None else {}
+    tsl = view.get("tsl_stop")
+    # On the option chart the TSL and the initial stop are the same kind of number; on the spot
+    # chart the TSL is an index level and is shown separately.
+    option_tsl = tsl if view.get("tsl_source") == "OPTION" and view.get("tsl_enabled") else None
+    effective = max([initial] + ([option_tsl] if option_tsl is not None else [])) if not record.closed else None
     last_exit = record.exits[-1] if record.exits else None
     risk = p.entry_price - initial
     reward = (p.target - p.entry_price) if p.target is not None else None
@@ -45,7 +42,8 @@ def trade_overlay(record: PaperTradeRecord, exit_manager: Optional[ExitManager] 
         "entry_time": record.entry_timestamp, "entry_price": float(p.entry_price),
         "lots": p.lots, "quantity": p.quantity, "remaining_quantity": p.remaining_quantity,
         "initial_stop": initial,
-        "trailing_stops": {TSL_METHODS.get(n, n): s for n, s in trailing.items() if n in active},
+        "tsl": {k: v for k, v in view.items() if k != "comparison"},
+        "tsl_comparison": view.get("comparison", {}),
         "effective_stop": effective,
         "target": None if p.target is None else float(p.target),
         "partial_target_done": bool(p.partial_exit_done),

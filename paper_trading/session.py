@@ -31,7 +31,9 @@ import time
 
 from paper_trading.account import PaperAccount
 from paper_trading.sizing import AllocationSetting, AllocationStore
-from paper_trading.exit_manager import DEFAULT_TSL, ExitManager, ExitRules
+from paper_trading.exit_manager import ExitManager
+from paper_trading.trade_management import TradeManagementStore
+from paper_trading.warmup import parse_history_candles
 from paper_trading.costs import OptionCostModel
 from paper_trading.controls import SessionControls, SessionControlsConfig
 from paper_trading.recovery import RecoveryReport, restore_from_journal
@@ -52,8 +54,8 @@ SIGNAL_PROFILES = {
 @dataclass(frozen=True)
 class PaperSessionConfig:
     lot_size: int
-    allocation: float = 15_000.0          # starting budget per trade (rupees); the saved choice wins on restart
-    allocation_percent: float | None = None   # if set, start in PERCENT mode (of the account balance)
+    allocation: float = 15_000.0          # used only when allocation_percent is None
+    allocation_percent: float | None = 20.0   # owner default: 20% per trade (saved allocation.json wins)
     resolution_minutes: int = 3           # candle timeframe: 1, 3, 5, 10, 15, 30 or 60
     trade_direction: str = "BOTH"         # LONG = calls only, SHORT = puts only, BOTH
     # Which entry rules drive the paper engine:
@@ -69,8 +71,10 @@ class PaperSessionConfig:
     pending_timeout_seconds: int = 8
     max_quote_age_seconds: int = 5
     max_receive_age_seconds: float = 5.0
+    # Initial stop, partial target, TSL, forced exit, daily-loss cutoff: trade_management.json
+    # (paper_trading/trade_management.py) decides; these are only the lifecycle's starting values.
     stop_loss_pct: float = 0.30           # initial stop: 30% below the premium paid (owner default)
-    target_rr: float = 3.0
+    target_rr: float = 2.0                # partial booking at 2R (owner default)
     target_enabled: bool = True
     restore_from_journal: bool = True
     # Session rules (owner-configurable). Window and forced exit apply to NSE & BSE F&O.
@@ -82,8 +86,6 @@ class PaperSessionConfig:
     max_daily_loss_amount: float | None = None    # rupees; None = off
     max_daily_loss_pct: float | None = None       # percent of the day's opening equity; None = off
     kill_hours: float = 12.0
-    # Exit rules (checkboxes). A saved choice in exit_rules.json wins over these on restart.
-    active_tsl: tuple[str, ...] = DEFAULT_TSL
     kama_exit_enabled: bool = False
     mark_max_age_seconds: int = 30   # option price older than this cannot value an open position
 
@@ -121,6 +123,8 @@ class PaperSession:
         self.feed.start()
 
     def close(self) -> None:
+        if self.exit_manager is not None:
+            self.exit_manager.finish_comparison(int(time.time()))
         self.feed.close()
 
 
@@ -159,6 +163,7 @@ def build_paper_session(
                                   symbol=config.underlying_symbol)
     sink = {"bar_sink": ktmi_journal.record} if config.signal_profile.startswith("UNI_LITE") else {}
     late: dict[str, Any] = {}
+    trade_store = TradeManagementStore(config.output_dir)
 
     def planned_evaluator(bars, *, paper_config):
         """Split each Strategy A signal into one entry per chosen strike.
@@ -167,6 +172,9 @@ def build_paper_session(
         dropdowns, ATM / ATM+1 boxes, Long/Short/Both) applies to the next signal.
         """
         current = settings_store.refresh()
+        if "exit_manager" in late:                 # next trade opens with the latest trade-management settings
+            late["exit_manager"].apply_settings_to_lifecycle()
+            apply_loss_cutoff()
         if "coordinator" in late:
             late["coordinator"].trade_direction = current.trade_direction
             late["coordinator"].trading_enabled = current.trading_enabled
@@ -181,12 +189,27 @@ def build_paper_session(
                                    reason=f"{signal.reason}|{label}"))
         return out
 
+    minute_journal = MinuteCandleJournal(config.output_dir)
+
+    def minute_sink(symbol, candles) -> None:
+        minute_journal.record(symbol, candles)
+        if "exit_manager" in late and symbol == config.underlying_symbol:
+            late["exit_manager"].on_spot_minutes(symbol, candles)
+
+    def apply_loss_cutoff() -> None:
+        """Daily-loss cutoff from trade_management.json (off by default)."""
+        if "controls" not in late:
+            return
+        tm = trade_store.refresh()
+        pct = tm.daily_loss_cutoff_pct if tm.daily_loss_cutoff_enabled else config.max_daily_loss_pct
+        late["controls"].config = replace(late["controls"].config, max_daily_loss_pct=pct)
+
     pipeline = PaperMarketDataPipeline(
         resolution_minutes=settings.timeframe_minutes,
         paper_config=engine_config,
         signal_evaluator=planned_evaluator,
         recorder=recorder,
-        minute_sink=MinuteCandleJournal(config.output_dir).record,   # chart history
+        minute_sink=minute_sink,                 # chart history + spot-chart trailing stops
     )
     lifecycle = BuyerOptionTradeLifecycle(
         BuyerLifecycleConfig(
@@ -219,16 +242,20 @@ def build_paper_session(
     )
     account = PaperAccount(engine, starting_capital=config.starting_capital, cost_model=config.cost_model)
     controls.bind(engine, account)
+    late["controls"] = controls
+    apply_loss_cutoff()
     default_setting = (AllocationSetting.from_percent(config.allocation_percent)
                        if config.allocation_percent is not None
                        else AllocationSetting.from_amount(config.allocation))
     allocation_store = AllocationStore(default_setting, journal_dir=config.output_dir)
 
     def entry_budget(*, timestamp: int, entry_price: float) -> float:
-        """Rupee budget for the next entry: the chosen allocation, capped by balance and free cash."""
+        """Rupee budget for the next entry: the chosen allocation (percent of AVAILABLE CASH by default,
+        or of the account balance), capped by balance and free cash."""
         snap = account.snapshot(timestamp)
+        base = snap.available_cash if trade_store.settings.allocation_basis == "AVAILABLE_CASH" else snap.balance
         return allocation_store.setting.budget(
-            balance=snap.balance, available_cash=snap.available_cash).budget
+            balance=min(base, snap.balance), available_cash=snap.available_cash).budget
 
     engine.allocation_provider = entry_budget
     coordinator = PaperExecutionCoordinator(
@@ -243,12 +270,29 @@ def build_paper_session(
     # Late-bound callbacks resolve entry wiring and shadow exit tracking.
     holder: dict[str, PendingEntryOrchestrator] = {}
     tsl_shadow = TslShadowLab(Path(config.output_dir) / "tsl_shadow")
+
+    def option_history(symbol: str):
+        """Today's 1-minute candles of an option, so its trailing stop is ready from the entry."""
+        today = time.strftime("%Y-%m-%d", time.localtime())
+        return parse_history_candles(client.history(symbol, resolution="1", range_from=today, range_to=today))
+
+    def option_mark(symbol: str):
+        try:
+            quote = quote_cache.get_quote(symbol, decision_timestamp=int(time.time()),
+                                          max_exchange_age_seconds=config.mark_max_age_seconds,
+                                          max_receive_age_seconds=float(config.mark_max_age_seconds))
+            return float(quote["lp"])
+        except (LookupError, ValueError, KeyError, TypeError):
+            return None
+
     exit_manager = ExitManager(
-        engine, tsl_shadow,
-        rules=ExitRules(active_tsl=config.active_tsl, partial_target=config.target_enabled,
-                        kama_exit=config.kama_exit_enabled),
-        journal_dir=config.output_dir,
+        engine, tsl_shadow, store=trade_store, journal_dir=config.output_dir,
+        strategy_timeframe=lambda: settings_store.settings.timeframe_minutes,
+        option_history=option_history if hasattr(client, "history") else None,
+        spot_minutes=lambda: pipeline.minute_history.get(config.underlying_symbol, []),
+        option_price=option_mark, kama_exit=config.kama_exit_enabled,
     )
+    late["exit_manager"] = exit_manager
 
     def current_marks() -> dict:
         """Latest fresh option price per open paper position; stale or missing prices are omitted."""

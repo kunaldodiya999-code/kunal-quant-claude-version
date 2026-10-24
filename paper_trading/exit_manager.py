@@ -1,152 +1,128 @@
-"""Switchable exits for the paper engine: pick trailing-stop methods with checkboxes.
+"""Exits of open paper trades: initial stop, 2R partial, trailing stop (TSL), manual stop.
 
-Exit rules on a trade, in the order they are evaluated on each COMPLETED option candle:
+Settings come from ``trade_management.json`` (paper_trading/trade_management.py). Every trade
+keeps the settings it was opened with (snapshot), saved in ``trade_management_state.json`` so a
+restart continues the same rules and the same ratcheted stop.
 
-1. Initial stop-loss: always on. It is separate from trailing stops.
-2. Trailing stops: any of the six methods the shadow lab already computes may be ticked
-   active. Every method keeps running in the shadow lab for every trade whether ticked or
-   not, so switching takes effect on the very next candle with no warm-up.
-3. 3R partial target: a checkbox (default on).
-4. KAMA exit on the underlying: a checkbox (default off, parked by the handover).
+Order on each event:
+* Every finished 1-minute OPTION candle: the lifecycle checks the initial stop (30% of premium)
+  and the 2R partial booking (stop first if a candle touches both). After the partial the
+  remaining lots' stop moves as chosen (breakeven by default).
+* When a TSL candle (strategy timeframe or the chosen one) finishes on the chosen chart
+  (option or spot), the trade's trail checks its exit and then tightens.
+* Manual mode: the stop is the level the owner sets for that trade (it may move either way).
 
-Combining rules (explicit, because the brief asks for them):
-
-* The effective stop is the TIGHTER of the initial stop and every ticked trailing stop. A
-  trailing stop that is looser than the initial stop changes nothing. Stops never loosen:
-  each method's own trail only ratchets up.
-* A stop calculated at a candle's close protects only the NEXT candle (no look-ahead).
-* Stop fill price = the stop level, or the candle's open if it gapped below the stop.
-  If several ticked methods are hit on the same candle, the highest stop (hit first on the
-  way down) fills. The initial stop fills first when it is higher than the trailing stop.
-* If a stop and the 3R target touch in one candle, the stop wins.
-* Parabolic SAR methods also exit at the candle close when the SAR flips against the trade.
-* A ticked method that already "exited" in the shadow run for this trade is SPENT: its
-  frozen result is kept for comparison but it cannot drive the live trade.
-* Nothing here talks to a broker. Trailing exits are recorded as STOP_LOSS in the journal
-  (the locked lifecycle enum is unchanged); the method name goes to ``exit_events.csv``.
-* With candles counted only from entry, Chandelier ATR(9) has no stop for the first 9
-  candles; only the initial stop protects the trade until then.
+The TSL exit closes the remaining lots: on the option chart at the TSL price, on the spot chart
+at the option's latest price. The journal reason stays STOP_LOSS (locked enum); the TSL detail
+goes to ``exit_events.csv``. Nothing here talks to a broker.
 """
+
 from __future__ import annotations
 
 import csv
 import json
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Callable, Iterable, Optional
 from zoneinfo import ZoneInfo
 
 from backtest.option_trade_lifecycle import OptionExitReason
+from market_data.resampling import Candle
 from paper_trading.engine import PaperStrategyId, PaperTradeRecord, PaperTradingEngine
+from paper_trading.trade_management import (
+    LABELS, TradeManagementSettings, TradeManagementStore, TslTracker, session_bars,
+)
 from paper_trading.tsl_shadow_lab import OptionCandle, TslShadowLab
 
 IST = ZoneInfo("Asia/Kolkata")
 EVENT_FIELDS = ["recorded_at", "event_timestamp", "event_type", "trade_id", "detail"]
-
-TSL_METHODS: dict[str, str] = {
-    "chandelier_atr9_mult1.5": "Chandelier Exit (ATR 9, x1.5)",
-    "supertrend_atr5_factor1.0": "Supertrend A (ATR 5, x1.0)",
-    "supertrend_atr7_factor1.5": "Supertrend B (ATR 7, x1.5)",
-    "psar_start0.02_inc0.02_max0.20": "Parabolic SAR A (0.02 / 0.02 / 0.20)",
-    "psar_start0.04_inc0.04_max0.10": "Parabolic SAR B (0.04 / 0.04 / 0.10)",
-    "kunal_atr_structure_atr5_swing2.5_buffer0.25": "Kunal Quant ATR structure trail",
-}
-DEFAULT_TSL = ("chandelier_atr9_mult1.5",)
-_STOP_HIT = "OPTION_LOW_HIT_TRAILING_STOP"
-_SAR_FLIP = "INDICATOR_CLOSE_REVERSAL"
+STATE_FILE = "trade_management_state.json"
+MANUAL_FILE = "manual_stops.json"
 
 
-@dataclass(frozen=True)
-class ExitRules:
-    active_tsl: tuple[str, ...] = DEFAULT_TSL
-    partial_target: bool = True
-    kama_exit: bool = False
-
-    def __post_init__(self) -> None:
-        names = tuple(self.active_tsl)
-        if len(set(names)) != len(names):
-            raise ValueError("active_tsl contains duplicates.")
-        unknown = [n for n in names if n not in TSL_METHODS]
-        if unknown:
-            raise ValueError(f"Unknown trailing-stop method(s): {unknown}")
-        object.__setattr__(self, "active_tsl", names)
-
-
-@dataclass(frozen=True)
-class ExitDecision:
-    strategy_id: PaperStrategyId
-    timestamp: int
-    kind: str           # TSL_STOP, SAR_FLIP or LIFECYCLE
-    detail: str
-    price: float | None
-
-
-def _trade_id(record: PaperTradeRecord) -> str:
+def trade_id_of(record: PaperTradeRecord) -> str:
     return f"{record.strategy_id.value}:{record.entry_timestamp}:{record.position.symbol}"
 
 
+class ExitDecision:
+    def __init__(self, strategy_id, timestamp, kind, detail, price):
+        self.strategy_id, self.timestamp, self.kind, self.detail, self.price = strategy_id, timestamp, kind, detail, price
+
+    def __repr__(self) -> str:
+        return f"ExitDecision({self.kind}, {self.detail}, {self.price})"
+
+
+def lifecycle_config(base, settings: TradeManagementSettings):
+    """The lifecycle settings a new trade should be opened with."""
+    return replace(base, stop_loss_pct=settings.initial_sl_pct / 100.0, target_rr=settings.partial_r,
+                   target_enabled=settings.partial_enabled, partial_exit_fraction=settings.partial_pct / 100.0,
+                   single_lot_at_target=settings.one_lot_at_target, after_partial=settings.after_partial)
+
+
 class ExitManager:
-    def __init__(self, engine: PaperTradingEngine, tsl_shadow: TslShadowLab, *,
-                 rules: ExitRules | None = None, journal_dir: str | Path | None = None) -> None:
+    def __init__(self, engine: PaperTradingEngine, tsl_shadow: TslShadowLab | None = None, *,
+                 store: TradeManagementStore | None = None, journal_dir: str | Path | None = None,
+                 strategy_timeframe: Callable[[], int] = lambda: 3,
+                 option_history: Callable[[str], Iterable] | None = None,
+                 spot_minutes: Callable[[], list] | None = None,
+                 option_price: Callable[[str], Optional[float]] | None = None,
+                 kama_exit: bool = False) -> None:
         self.engine = engine
         self.lab = tsl_shadow
         self._dir = Path(journal_dir) if journal_dir is not None else None
-        self._rules = rules or ExitRules()
         if self._dir is not None:
             self._dir.mkdir(parents=True, exist_ok=True)
-            self._load_saved_rules()
-        self._apply_to_lifecycle()
+        self.store = store or TradeManagementStore(self._dir)
+        self.strategy_timeframe = strategy_timeframe
+        self.option_history = option_history
+        self.spot_minutes_provider = spot_minutes
+        self.option_price = option_price
+        self.kama_exit = kama_exit
+        self.option_minutes: dict[str, dict[int, Candle]] = {}
+        self.spot_minutes: dict[int, Candle] = {}
+        self.trackers: dict[str, TslTracker] = {}
+        self.snapshots: dict[str, dict] = self._load_state()
+        self._manual_mtime = None
+        self._pending: dict = {}
+        self.apply_settings_to_lifecycle()
 
-    # ---- rules (the checkboxes) --------------------------------------
+    # ---------------------------------------------------------------- settings
     @property
-    def rules(self) -> ExitRules:
-        return self._rules
+    def settings(self) -> TradeManagementSettings:
+        return self.store.settings
 
-    def set_rules(self, *, active_tsl: Iterable[str] | None = None, partial_target: bool | None = None,
-                  kama_exit: bool | None = None, timestamp: int | None = None) -> ExitRules:
-        """Change which exits are active. Takes effect from the next completed candle."""
-        new = ExitRules(
-            active_tsl=tuple(active_tsl) if active_tsl is not None else self._rules.active_tsl,
-            partial_target=self._rules.partial_target if partial_target is None else bool(partial_target),
-            kama_exit=self._rules.kama_exit if kama_exit is None else bool(kama_exit),
-        )
-        old, self._rules = self._rules, new
-        self._apply_to_lifecycle()
-        self._save_rules()
-        self._log("RULES_CHANGED", "",
-                  f"tsl {list(old.active_tsl)} -> {list(new.active_tsl)}; "
-                  f"partial_target {old.partial_target} -> {new.partial_target}; "
-                  f"kama_exit {old.kama_exit} -> {new.kama_exit}", timestamp)
-        return new
+    def apply_settings_to_lifecycle(self) -> TradeManagementSettings:
+        """Refresh the settings for the NEXT trade (call before entries; open trades keep their snapshot)."""
+        settings = self.store.refresh()
+        lifecycle = self.engine.lifecycle
+        if hasattr(lifecycle, "config") and hasattr(lifecycle.config, "after_partial"):
+            lifecycle.config = lifecycle_config(lifecycle.config, settings)
+        return settings
 
-    def _apply_to_lifecycle(self) -> None:
-        config = getattr(self.engine.lifecycle, "config", None)
-        if config is not None and hasattr(config, "target_enabled"):
-            self.engine.lifecycle.config = replace(config, target_enabled=self._rules.partial_target)
+    # ---------------------------------------------------------------- persistence
+    def _state_path(self) -> Optional[Path]:
+        return None if self._dir is None else self._dir / STATE_FILE
 
-    @property
-    def _rules_path(self) -> Optional[Path]:
-        return None if self._dir is None else self._dir / "exit_rules.json"
-
-    def _load_saved_rules(self) -> None:
-        path = self._rules_path
+    def _load_state(self) -> dict:
+        path = self._state_path()
         if path is None or not path.exists():
-            return
+            return {}
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            self._rules = ExitRules(tuple(data["active_tsl"]), bool(data["partial_target"]),
-                                    bool(data["kama_exit"]))
-        except (ValueError, KeyError, TypeError):
-            self._log("RULES_RESET", "", "exit_rules.json unreadable; defaults used.", None)
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            self._log("STATE_RESET", "", f"{STATE_FILE} unreadable; open trades use the current settings.", None)
+            return {}
 
-    def _save_rules(self) -> None:
-        path = self._rules_path
-        if path is not None:
-            path.write_text(json.dumps({
-                "active_tsl": list(self._rules.active_tsl),
-                "partial_target": self._rules.partial_target, "kama_exit": self._rules.kama_exit,
-            }), encoding="utf-8")
+    def _save_state(self) -> None:
+        path = self._state_path()
+        if path is None:
+            return
+        for tid, tracker in self.trackers.items():
+            self.snapshots.setdefault(tid, {})["tracker"] = tracker.state()
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(self.snapshots, indent=1), encoding="utf-8")
+        tmp.replace(path)
 
     def _log(self, event_type: str, trade_id: str, detail: str, timestamp: int | None) -> None:
         if self._dir is None:
@@ -157,104 +133,260 @@ class ExitManager:
             writer = csv.DictWriter(handle, fieldnames=EVENT_FIELDS)
             if is_new:
                 writer.writeheader()
-            writer.writerow({
-                "recorded_at": datetime.now(IST).isoformat(timespec="seconds"),
-                "event_timestamp": "" if timestamp is None else int(timestamp),
-                "event_type": event_type, "trade_id": trade_id, "detail": detail,
-            })
+            writer.writerow({"recorded_at": datetime.now(IST).isoformat(timespec="seconds"),
+                             "event_timestamp": "" if timestamp is None else int(timestamp),
+                             "event_type": event_type, "trade_id": trade_id, "detail": detail})
 
-    # ---- trades and candles ------------------------------------------
+    # ---------------------------------------------------------------- manual stops
+    def _manual_path(self) -> Optional[Path]:
+        return None if self._dir is None else self._dir / MANUAL_FILE
+
+    def set_manual_stop(self, trade_id: str, price: float | None) -> None:
+        """Owner's manual stop for one open trade (used in MANUAL mode; may move either way)."""
+        path = self._manual_path()
+        stops = self._read_manual()
+        if price is None:
+            stops.pop(trade_id, None)
+        else:
+            stops[trade_id] = float(price)
+        if path is not None:
+            path.write_text(json.dumps(stops), encoding="utf-8")
+        self._apply_manual(stops)
+
+    def _read_manual(self) -> dict:
+        path = self._manual_path()
+        if path is None or not path.exists():
+            return {}
+        try:
+            return {k: float(v) for k, v in json.loads(path.read_text(encoding="utf-8")).items()}
+        except (ValueError, OSError, TypeError):
+            return {}
+
+    def _apply_manual(self, stops: dict | None = None) -> None:
+        stops = self._read_manual() if stops is None else stops
+        for tid, tracker in self.trackers.items():
+            tracker.manual_stop = stops.get(tid)
+
+    def _refresh_manual(self) -> None:
+        path = self._manual_path()
+        if path is None or not path.exists():
+            return
+        mtime = path.stat().st_mtime
+        if mtime != self._manual_mtime:
+            self._manual_mtime = mtime
+            self._apply_manual()
+
+    # ---------------------------------------------------------------- trades
+    def _spot_at(self, ts: int) -> Optional[float]:
+        minutes = self._spot_series()
+        before = [c for c in minutes if c.timestamp < ts]
+        return before[-1].close if before else (minutes[0].open if minutes else None)
+
+    def _spot_series(self) -> list:
+        if self.spot_minutes_provider is not None:
+            try:
+                return list(self.spot_minutes_provider() or [])
+            except Exception:
+                pass
+        return [self.spot_minutes[t] for t in sorted(self.spot_minutes)]
+
+    def _option_series(self, symbol: str) -> list:
+        data = self.option_minutes.get(symbol, {})
+        return [data[t] for t in sorted(data)]
+
+    def option_price_at(self, symbol: str, ts: int) -> Optional[float]:
+        series = [c for c in self._option_series(symbol) if c.timestamp < ts]
+        if series:
+            return series[-1].close
+        if self.option_price is not None:
+            try:
+                return self.option_price(symbol)
+            except Exception:
+                return None
+        return None
+
     def enroll_open_trades(self) -> None:
-        """Register every open paper trade with the shadow lab (safe to call repeatedly)."""
-        for record in self.engine.active_positions.values():
+        """Give every open trade its settings snapshot and its trail (safe to call repeatedly)."""
+        changed = False
+        for record in list(self.engine.active_positions.values()):
             if record.closed:
                 continue
+            tid = trade_id_of(record)
+            if tid in self.trackers:
+                continue
             position = record.position
-            self.lab.register_trade(
-                trade_id=_trade_id(record), symbol=position.symbol,
-                direction=getattr(position.direction, "value", position.direction),
-                entry_timestamp=record.entry_timestamp,
-                entry_price=position.entry_price, quantity=position.quantity,
-            )
+            saved = self.snapshots.get(tid, {})
+            if "settings" in saved:
+                try:
+                    settings = TradeManagementSettings(**saved["settings"])
+                except (TypeError, ValueError):
+                    settings = self.store.settings
+            else:
+                settings = self.store.settings
+                self._log("TRADE_SETTINGS", tid, json.dumps(settings.to_dict()), record.entry_timestamp)
+            lifecycle = self.engine.lifecycle
+            if hasattr(lifecycle, "remember") and hasattr(lifecycle.config, "after_partial"):
+                lifecycle.remember(position, lifecycle_config(lifecycle.config, settings))
+            timeframe = int(saved.get("timeframe") or settings.timeframe_minutes(self.strategy_timeframe()))
+            direction = getattr(position.direction, "value", position.direction)
+            if settings.tsl_source == "SPOT":
+                side = "LONG" if direction == "LONG" else "SHORT"
+                entry_price = saved.get("source_entry_price") or self._spot_at(record.entry_timestamp)
+            else:
+                side, entry_price = "LONG", position.entry_price
+                if self.option_history is not None and position.symbol not in self.option_minutes:
+                    try:
+                        history = [c for c in (self.option_history(position.symbol) or [])
+                                   if c.timestamp < record.entry_timestamp]
+                        # safety: history that does not look like this option's price is not used
+                        if history and not (position.entry_price / 3 <= history[-1].close <= position.entry_price * 3):
+                            self._log("HISTORY_MISMATCH", tid, f"history last close {history[-1].close} vs entry "
+                                      f"{position.entry_price}; not used", None)
+                            history = []
+                        for c in history:
+                            self.option_minutes.setdefault(position.symbol, {})[int(c.timestamp)] = c
+                    except Exception as exc:
+                        self._log("HISTORY_MISSING", tid, f"option history not loaded ({exc}); TSL warms up live", None)
+            if entry_price is None:
+                entry_price = position.entry_price
+            tracker = TslTracker(trade_id=tid, settings=settings, side=side, entry_timestamp=record.entry_timestamp,
+                                 entry_price=float(entry_price), timeframe=timeframe)
+            state = saved.get("tracker") or {}
+            tracker.stop, tracker.last_bar_ts = state.get("stop"), state.get("last_bar_ts")
+            self.trackers[tid] = tracker
+            self.snapshots[tid] = {"settings": settings.to_dict(), "timeframe": timeframe, "side": side,
+                                   "source_entry_price": float(entry_price), "symbol": position.symbol,
+                                   "tracker": tracker.state()}
+            if self.lab is not None:
+                self.lab.register(trade_id=tid, symbol=position.symbol, settings=settings, side=side,
+                                  entry_timestamp=record.entry_timestamp, entry_price=float(entry_price),
+                                  option_entry_price=position.entry_price, quantity=position.quantity,
+                                  timeframe=timeframe)
+            changed = True
+        if changed:
+            self._apply_manual()
+            self._save_state()
 
-    def spent_methods(self, strategy_id: PaperStrategyId) -> tuple[str, ...]:
-        """Ticked methods that already hit their shadow stop for the open trade (cannot drive it)."""
-        record = self.engine.open_trade(strategy_id)
-        trade = None if record is None else self.lab.trades.get(_trade_id(record))
-        if trade is None:
-            return ()
-        return tuple(n for n in self._rules.active_tsl if trade["candidates"][n].exited)
+    def _close_by_tsl(self, record: PaperTradeRecord, tracker: TslTracker, exit_, price: float) -> ExitDecision:
+        ts = max(int(exit_.timestamp), int(record.last_processed_timestamp or 0))
+        self.engine.force_close(record.strategy_id, timestamp=ts, price=price, reason=OptionExitReason.STOP_LOSS)
+        detail = f"{exit_.detail}; option sold at {round(price, 2)} ({tracker.settings.tsl_source} chart)"
+        self._log("TSL_EXIT", tracker.trade_id, detail, ts)
+        self._pending.pop(tracker.trade_id, None)
+        self._save_state()
+        return ExitDecision(record.strategy_id, ts, exit_.reason, detail, price)
 
-    def on_option_candle(self, *, symbol: str, candle: OptionCandle,
-                         underlying_close: float | None = None,
+    def _feed_comparison(self, *, source: str, symbol: Optional[str] = None) -> None:
+        """Every method keeps following its trade (even after the real trade closed) until it exits."""
+        if self.lab is None:
+            return
+        for tid, trade in self.lab.trades.items():
+            if trade["done"] or trade["settings"].tsl_source != source:
+                continue
+            if source == "OPTION" and trade["symbol"] != symbol:
+                continue
+            minutes = self._option_series(trade["symbol"]) if source == "OPTION" else self._spot_series()
+            self.lab.on_bars(tid, session_bars(minutes, trade["timeframe"]),
+                             lambda t, sym=trade["symbol"]: self.option_price_at(sym, t + 1))
+
+    def _run_trails(self, *, source: str, symbol: Optional[str] = None) -> list[ExitDecision]:
+        decisions = []
+        self._refresh_manual()
+        self._feed_comparison(source=source, symbol=symbol)
+        for record in list(self.engine.active_positions.values()):
+            if record.closed:
+                continue
+            tid = trade_id_of(record)
+            tracker = self.trackers.get(tid)
+            if tracker is None or tracker.settings.tsl_source != source:
+                continue
+            if source == "OPTION" and record.position.symbol != symbol:
+                continue
+            pending = self._pending.get(tid)
+            if pending is not None:                       # an exit waiting for an option price
+                price = self.option_price_at(record.position.symbol, 2**62)
+                if price is not None and price > 0:
+                    decisions.append(self._close_by_tsl(record, tracker, pending, float(price)))
+                continue
+            minutes = self._option_series(record.position.symbol) if source == "OPTION" else self._spot_series()
+            bars = session_bars(minutes, tracker.timeframe)
+            if not tracker.settings.tsl_enabled:
+                tracker.last_bar_ts = bars[-1].timestamp if bars else tracker.last_bar_ts
+                continue
+            hit = tracker.on_bars(bars)
+            if hit is None:
+                continue
+            price = hit.option_price if source == "OPTION" else self.option_price_at(record.position.symbol, hit.timestamp + 1)
+            if price is None or price <= 0:
+                self._log("TSL_WAITING", tid, f"{hit.detail}; no option price yet, exit on the next price", hit.timestamp)
+                self._pending[tid] = hit
+                continue
+            decisions.append(self._close_by_tsl(record, tracker, hit, float(price)))
+        self._save_state()
+        return decisions
+
+    # ---------------------------------------------------------------- events
+    def on_option_candle(self, *, symbol: str, candle, underlying_close: float | None = None,
                          kama_value: float | None = None) -> list[ExitDecision]:
-        """Advance every shadow method, then apply the active exit rules to open paper trades."""
+        """A finished 1-minute candle of an option: lifecycle first, then the option-chart trails."""
+        self.option_minutes.setdefault(symbol, {})[int(candle.timestamp)] = Candle(
+            int(candle.timestamp), candle.open, candle.high, candle.low, candle.close, None)
         self.enroll_open_trades()
         decisions: list[ExitDecision] = []
-        before = {sid: self.engine.open_trade(sid) for sid in PaperStrategyId}
-        self.lab.on_candle(symbol=symbol, candle=candle)
-        for sid, record in before.items():
+        for sid in PaperStrategyId:
+            record = self.engine.open_trade(sid)
             if (record is None or record.closed or record.position.symbol != symbol
-                    or candle.timestamp <= record.last_processed_timestamp):
+                    or (record.last_processed_timestamp is not None and candle.timestamp <= record.last_processed_timestamp)):
                 continue
-            trade = self.lab.trades.get(_trade_id(record))
-            candidates = trade["candidates"] if trade is not None else {}
-            # A spent method's frozen exit has an older timestamp, so it can never match this candle.
-            live = set(self._rules.active_tsl) & set(candidates)
-            hits = [candidates[n] for n in live
-                    if candidates[n].exited and candidates[n].exit_timestamp == candle.timestamp
-                    and candidates[n].exit_reason == _STOP_HIT]
-            flips = [candidates[n] for n in live
-                     if candidates[n].exited and candidates[n].exit_timestamp == candle.timestamp
-                     and candidates[n].exit_reason == _SAR_FLIP]
-            initial = record.position.stop_loss
-            if hits:
-                best = max(hits, key=lambda c: c.exit_price)
-                if not (candle.low <= initial and best.exit_price < initial):
-                    self.engine.force_close(sid, timestamp=candle.timestamp, price=best.exit_price,
-                                            reason=OptionExitReason.STOP_LOSS)
-                    self._log("TSL_EXIT", _trade_id(record),
-                              f"{TSL_METHODS[best.name]} stop hit; filled at {best.exit_price}", candle.timestamp)
-                    decisions.append(ExitDecision(sid, candle.timestamp, "TSL_STOP", best.name, best.exit_price))
-                    continue
-            kama = kama_value if (self._rules.kama_exit and underlying_close is not None) else None
+            stop_before = record.position.stop_loss
             exits = self.engine.process_option_candle(
-                strategy_id=sid, timestamp=candle.timestamp, option_high=candle.high,
-                option_low=candle.low, option_close=candle.close,
-                underlying_close=0.0 if underlying_close is None else float(underlying_close),
-                kama_value=kama,
+                strategy_id=sid, timestamp=candle.timestamp, option_high=candle.high, option_low=candle.low,
+                option_close=candle.close, underlying_close=0.0 if underlying_close is None else float(underlying_close),
+                kama_value=kama_value if (self.kama_exit and underlying_close is not None) else None,
             )
             for event in exits:
                 decisions.append(ExitDecision(sid, candle.timestamp, "LIFECYCLE", event.reason.value, event.price))
-            if flips and self.engine.open_trade(sid) is not None:
-                best = flips[0]
-                self.engine.force_close(sid, timestamp=candle.timestamp, price=candle.close,
-                                        reason=OptionExitReason.STOP_LOSS)
-                self._log("TSL_EXIT", _trade_id(record),
-                          f"{TSL_METHODS[best.name]} flipped against the trade; filled at close {candle.close}",
-                          candle.timestamp)
-                decisions.append(ExitDecision(sid, candle.timestamp, "SAR_FLIP", best.name, candle.close))
+                if event.reason == OptionExitReason.TARGET_3R:
+                    self._log("PARTIAL_TARGET", trade_id_of(record),
+                              f"booked {event.lots} lot(s) at {event.price}; stop {round(stop_before, 2)} -> "
+                              f"{round(record.position.stop_loss, 2)}", candle.timestamp)
+        decisions += self._run_trails(source="OPTION", symbol=symbol)
         return decisions
 
-    def catch_up(self, *, symbol: str, candles: Iterable[OptionCandle],
-                 underlying_close: float | None = None) -> int:
-        """Rebuild trailing-stop state after a restart from the option's completed candles.
-
-        Candles the engine already processed before the restart only advance the shadow
-        lab. Later candles go through the full exit rules. Returns the candles replayed.
-        """
+    def on_spot_minutes(self, symbol: str, candles) -> list[ExitDecision]:
+        """Finished 1-minute index candles (pipeline minute sink): runs the spot-chart trails."""
+        for c in candles:
+            self.spot_minutes[int(c.timestamp)] = c
         self.enroll_open_trades()
+        return self._run_trails(source="SPOT")
+
+    def finish_comparison(self, timestamp: int) -> None:
+        """Session end: close every TSL comparison at the option's latest price."""
+        if self.lab is None:
+            return
+        for tid, trade in self.lab.trades.items():
+            if not trade["done"]:
+                self.lab.finish(tid, timestamp=timestamp, option_price=self.option_price_at(trade["symbol"], timestamp + 1))
+
+    def catch_up(self, *, symbol: str, candles: Iterable, underlying_close: float | None = None) -> int:
+        """After a restart: replay the option's finished candles (already-processed ones only warm up the trail)."""
         count = 0
         for candle in sorted(candles, key=lambda c: c.timestamp):
-            already = [r for r in self.engine.active_positions.values()
-                       if not r.closed and r.position.symbol == symbol
-                       and candle.timestamp <= r.last_processed_timestamp]
-            if already:
-                self.lab.on_candle(symbol=symbol, candle=candle)
-            else:
-                self.on_option_candle(symbol=symbol, candle=candle, underlying_close=underlying_close)
+            self.on_option_candle(symbol=symbol, candle=candle, underlying_close=underlying_close)
             count += 1
         return count
 
+    # ---------------------------------------------------------------- dashboard
+    def trade_view(self, record: PaperTradeRecord) -> dict:
+        tid = trade_id_of(record)
+        tracker = self.trackers.get(tid)
+        if tracker is None:
+            return {}
+        s = tracker.settings
+        return {"tsl_enabled": s.tsl_enabled, "tsl_mode": s.tsl_mode, "tsl_method": LABELS.get(s.tsl_method, s.tsl_method),
+                "tsl_source": s.tsl_source, "tsl_timeframe": tracker.timeframe, "tsl_trigger": s.tsl_trigger,
+                "tsl_stop": tracker.current_stop(), "tsl_side": tracker.side,
+                "comparison": self.lab.stops(tid) if self.lab is not None else {}}
 
-__all__ = ["DEFAULT_TSL", "ExitDecision", "ExitManager", "ExitRules", "TSL_METHODS"]
+
+__all__ = ["ExitDecision", "ExitManager", "OptionCandle", "lifecycle_config", "trade_id_of"]
