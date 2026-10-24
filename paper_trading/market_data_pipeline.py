@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from config.settings import TIMEZONE
 from market_data.live_ticks import LiveMinuteBarBuilder
-from market_data.resampling import Candle, DerivedBar, aggregate_day
+from market_data.resampling import SUPPORTED_MINUTES, Candle, DerivedBar, aggregate_day
 from paper_trading.engine import PaperEngineConfig
 from paper_trading.recorder import PaperTradeRecorder
 from paper_trading.signals import PaperSignal, evaluate_latest_paper_signals
@@ -16,6 +17,15 @@ from paper_trading.signals import PaperSignal, evaluate_latest_paper_signals
 
 MARKET_TZ = ZoneInfo(TIMEZONE)
 SignalEvaluator = Callable[..., list[PaperSignal]]
+SUPPORTED_RESOLUTIONS = (1, *SUPPORTED_MINUTES)   # 1, 3, 5, 10, 15, 30, 60 minutes
+
+
+def bar_close_timestamp(bar_timestamp: int, resolution_minutes: int) -> int:
+    """Moment a bar is complete: its end, or the 15:30 session close for the
+    day's last, shorter bar (e.g. the 60-minute bar that starts at 15:15)."""
+    local = datetime.fromtimestamp(bar_timestamp, tz=MARKET_TZ)
+    session_close = int(local.replace(hour=15, minute=30, second=0, microsecond=0).timestamp())
+    return min(int(bar_timestamp) + resolution_minutes * 60, session_close)
 
 
 class PaperMarketDataPipeline:
@@ -34,8 +44,8 @@ class PaperMarketDataPipeline:
         signal_evaluator: SignalEvaluator = evaluate_latest_paper_signals,
         recorder: PaperTradeRecorder | None = None,
     ) -> None:
-        if resolution_minutes not in (1, 3, 5):
-            raise ValueError("resolution_minutes must be 1, 3, or 5")
+        if resolution_minutes not in SUPPORTED_RESOLUTIONS:
+            raise ValueError(f"resolution_minutes must be one of {SUPPORTED_RESOLUTIONS}")
         self.resolution_minutes = resolution_minutes
         self.paper_config = paper_config or PaperEngineConfig()
         self.signal_evaluator = signal_evaluator
@@ -100,9 +110,11 @@ class PaperMarketDataPipeline:
             for bar in unseen:
                 history.append(bar)
                 self._last_signal_bar_timestamp[symbol] = bar.timestamp
-                bar_signals = self.signal_evaluator(
-                    history, paper_config=self.paper_config
-                )
+                close_ts = bar_close_timestamp(bar.timestamp, self.resolution_minutes)
+                bar_signals = [
+                    replace(signal, close_timestamp=close_ts)
+                    for signal in self.signal_evaluator(history, paper_config=self.paper_config)
+                ]
                 if self.recorder is not None:
                     for signal in bar_signals:
                         self.recorder.record_signal(signal, symbol=symbol)
@@ -115,4 +127,4 @@ class PaperMarketDataPipeline:
         return self.tick_builder.current_minute(symbol)
 
 
-__all__ = ["PaperMarketDataPipeline"]
+__all__ = ["PaperMarketDataPipeline", "SUPPORTED_RESOLUTIONS", "bar_close_timestamp"]

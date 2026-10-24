@@ -35,6 +35,9 @@ class PaperSignal:
     timestamp: int
     index: int
     reason: str
+    # When the signal candle closed (IST epoch seconds). Entries are only
+    # allowed at or after this moment. Set by the market-data pipeline.
+    close_timestamp: int | None = None
 
 
 def _bar_value(bar: object, name: str) -> float:

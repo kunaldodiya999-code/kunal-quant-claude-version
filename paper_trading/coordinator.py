@@ -24,6 +24,9 @@ class PaperEntryAttempt:
     rejection_reason: str | None
 
 
+TRADE_DIRECTIONS = ("LONG", "SHORT", "BOTH")
+
+
 class PaperExecutionCoordinator:
     """Resolve, validate, deduplicate and open simulated option positions."""
 
@@ -35,8 +38,13 @@ class PaperExecutionCoordinator:
         controls: Any = None,
         segment: Segment = Segment.FNO,
         marks_provider: Any = None,
+        trade_direction: str = "BOTH",
     ) -> None:
+        if trade_direction not in TRADE_DIRECTIONS:
+            raise ValueError(f"trade_direction must be one of {TRADE_DIRECTIONS}")
         self.adapter = adapter
+        # LONG = only BUY CALL trades, SHORT = only BUY PUT trades, BOTH = both.
+        self.trade_direction = trade_direction
         self.engine = engine
         # Optional SessionControls: entry window, daily loss cap and kill switch.
         self.controls = controls
@@ -95,6 +103,12 @@ class PaperExecutionCoordinator:
                 signal=signal, candidate=None, trade=None,
                 rejection_reason="Entry decision must occur after the signal timestamp.",
             )
+        close_ts = getattr(signal, "close_timestamp", None)
+        if close_ts is not None and int(decision_timestamp) < int(close_ts):
+            return PaperEntryAttempt(
+                signal=signal, candidate=None, trade=None,
+                rejection_reason="Signal candle has not closed yet; entries wait for the candle close.",
+            )
         if (key[0], key[1], key[2]) in self._restored_bar_keys:
             return PaperEntryAttempt(
                 signal=signal, candidate=None, trade=None,
@@ -108,6 +122,12 @@ class PaperExecutionCoordinator:
         # Mark before validation: a rejected signal must not be retried on each
         # tick with the same signal. A new signal event is required.
         self._seen_signals.add(key)
+        if self.trade_direction != "BOTH" and str(signal.direction) != self.trade_direction:
+            side = "Long (BUY CALL)" if str(signal.direction) == "LONG" else "Short (BUY PUT)"
+            return PaperEntryAttempt(
+                signal=signal, candidate=None, trade=None,
+                rejection_reason=f"{side} trades are switched off (trade direction = {self.trade_direction}).",
+            )
         if self.controls is not None:
             blocked = self.controls.entry_block_reason(
                 int(decision_timestamp), self.segment,
@@ -141,4 +161,4 @@ class PaperExecutionCoordinator:
             )
 
 
-__all__ = ["PaperEntryAttempt", "PaperExecutionCoordinator"]
+__all__ = ["PaperEntryAttempt", "PaperExecutionCoordinator", "TRADE_DIRECTIONS"]

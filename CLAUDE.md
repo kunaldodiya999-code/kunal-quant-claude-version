@@ -33,3 +33,6 @@
 - Project handover and roadmap: `docs/KUNAL_QUANT_PROJECT_HANDOVER.md`.
 - Change log of Claude's work: `docs/CLAUDE_CHANGELOG.md` (append, newest first).
 - Paper engine: `paper_trading/` (session.py is the composition root).
+- Owner's paper settings (timeframe 1/3/5/10/15/30/60, LONG/SHORT/BOTH, entry start/end, force exit):
+  `scripts/paper_settings.py`, saved in `data/paper_trading/strategy_settings.json`.
+  Owner prefers 3 or 5 minutes. Entry start 09:30. Entries only after the signal candle closes.

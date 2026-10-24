@@ -11,6 +11,7 @@ from config.settings import TIMEZONE
 MARKET_TZ = ZoneInfo(TIMEZONE)
 SESSION_START = time(9, 15)
 SESSION_END = time(15, 29)
+SUPPORTED_MINUTES = (3, 5, 10, 15, 30, 60)
 
 
 @dataclass(frozen=True)
@@ -56,8 +57,8 @@ def _expected_timestamps(start: int, end: int) -> list[int]:
 
 
 def aggregate_day(candles: Sequence[Candle], minutes: int) -> list[DerivedBar]:
-    if minutes not in (3, 5):
-        raise ValueError("minutes must be 3 or 5")
+    if minutes not in SUPPORTED_MINUTES:
+        raise ValueError(f"minutes must be one of {SUPPORTED_MINUTES}")
 
     if not candles:
         return []
@@ -75,16 +76,18 @@ def aggregate_day(candles: Sequence[Candle], minutes: int) -> list[DerivedBar]:
             continue
         offset = candle.timestamp - session_start
         bucket_start = session_start + (offset // (minutes * 60)) * minutes * 60
-        if bucket_start + minutes * 60 - 60 > session_end:
-            continue
         buckets.setdefault(bucket_start, []).append(candle)
 
     bars: list[DerivedBar] = []
-    expected = minutes
 
     for bucket_start in sorted(buckets):
         bucket = sorted(buckets[bucket_start], key=lambda c: c.timestamp)
-        expected_ts = _expected_timestamps(bucket_start, bucket_start + (minutes - 1) * 60)
+        # Buckets are anchored at 09:15 like TradingView. The day's last bucket
+        # may be shorter (e.g. 60m: 15:15-15:29) and closes with the session;
+        # 3m and 5m divide the 375-minute session exactly, so never shorter.
+        last_minute = min(bucket_start + (minutes - 1) * 60, session_end)
+        expected_ts = _expected_timestamps(bucket_start, last_minute)
+        expected = len(expected_ts)
         actual_ts = {c.timestamp for c in bucket}
         complete = len(bucket) == expected and actual_ts == set(expected_ts)
 

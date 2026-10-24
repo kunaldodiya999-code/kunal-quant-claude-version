@@ -33,6 +33,8 @@ from paper_trading.exit_manager import DEFAULT_TSL, ExitManager, ExitRules
 from paper_trading.costs import OptionCostModel
 from paper_trading.controls import SessionControls, SessionControlsConfig
 from paper_trading.recovery import RecoveryReport, restore_from_journal
+from paper_trading.market_data_pipeline import SUPPORTED_RESOLUTIONS
+from paper_trading.strategy_settings import StrategySettings, StrategySettingsStore
 from paper_trading.tsl_shadow_lab import OptionCandle, TslShadowLab
 from strategies.option_contract_resolver import OptionContractResolver
 
@@ -49,7 +51,8 @@ class PaperSessionConfig:
     lot_size: int
     allocation: float = 15_000.0          # starting budget per trade (rupees); the saved choice wins on restart
     allocation_percent: float | None = None   # if set, start in PERCENT mode (of the account balance)
-    resolution_minutes: int = 3
+    resolution_minutes: int = 3           # candle timeframe: 1, 3, 5, 10, 15, 30 or 60
+    trade_direction: str = "BOTH"         # LONG = calls only, SHORT = puts only, BOTH
     # Which entry rules drive the paper engine:
     #   UNI_LITE_CORE     owner's current rules: Long Speed crosses above +0.5 -> BUY CE,
     #                     Short Speed crosses above +0.5 -> BUY PE (all other arrows silent)
@@ -86,8 +89,8 @@ class PaperSessionConfig:
             raise ValueError("Supply the verified current contract lot size.")
         if self.allocation <= 0:
             raise ValueError("allocation must be positive.")
-        if self.resolution_minutes not in (1, 3, 5):
-            raise ValueError("resolution_minutes must be 1, 3, or 5.")
+        if self.resolution_minutes not in SUPPORTED_RESOLUTIONS:
+            raise ValueError(f"resolution_minutes must be one of {SUPPORTED_RESOLUTIONS}.")
         if self.signal_profile not in SIGNAL_PROFILES:
             raise ValueError(f"signal_profile must be one of {sorted(SIGNAL_PROFILES)}.")
 
@@ -108,6 +111,7 @@ class PaperSession:
     account: PaperAccount | None = None
     allocation_store: AllocationStore | None = None
     exit_manager: ExitManager | None = None
+    settings_store: StrategySettingsStore | None = None
 
     def start(self) -> None:
         """Start market-data streaming only; no broker orders are submitted."""
@@ -133,8 +137,22 @@ def build_paper_session(
             database_path=config.database_path
         ) if config.database_path is not None else OptionContractResolver()
 
+    # Timeframe, Long/Short/Both and the entry window come from
+    # strategy_settings.json when it exists (owner's saved choice), else from config.
+    settings_store = StrategySettingsStore(
+        StrategySettings(
+            timeframe_minutes=config.resolution_minutes,
+            trade_direction=config.trade_direction,
+            entry_start=config.entry_start_hhmm,
+            entry_end=config.entry_end_hhmm,
+            force_exit=config.force_exit_hhmm,
+        ),
+        journal_dir=config.output_dir,
+    )
+    settings = settings_store.settings
+
     pipeline = PaperMarketDataPipeline(
-        resolution_minutes=config.resolution_minutes,
+        resolution_minutes=settings.timeframe_minutes,
         paper_config=engine_config,
         signal_evaluator=SIGNAL_PROFILES[config.signal_profile],
         recorder=recorder,
@@ -161,7 +179,7 @@ def build_paper_session(
     )
     controls = SessionControls(
         SessionControlsConfig.from_hhmm(
-            config.entry_start_hhmm, config.entry_end_hhmm, config.force_exit_hhmm,
+            settings.entry_start, settings.entry_end, settings.force_exit,
             max_daily_loss_amount=config.max_daily_loss_amount,
             max_daily_loss_pct=config.max_daily_loss_pct,
             kill_hours=config.kill_hours,
@@ -182,7 +200,9 @@ def build_paper_session(
             balance=snap.balance, available_cash=snap.available_cash).budget
 
     engine.allocation_provider = entry_budget
-    coordinator = PaperExecutionCoordinator(adapter=adapter, engine=engine, controls=controls)
+    coordinator = PaperExecutionCoordinator(
+        adapter=adapter, engine=engine, controls=controls, trade_direction=settings.trade_direction,
+    )
     # Rebuild open positions and seen signals from the journal so a restart
     # cannot lose a position or enter the same signal twice.
     recovery = restore_from_journal(engine, coordinator) if config.restore_from_journal else None
@@ -283,6 +303,7 @@ def build_paper_session(
         account=account,
         allocation_store=allocation_store,
         exit_manager=exit_manager,
+        settings_store=settings_store,
     )
 
 

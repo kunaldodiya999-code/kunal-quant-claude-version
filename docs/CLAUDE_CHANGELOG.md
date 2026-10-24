@@ -3,6 +3,20 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: owner settings, 2026-10-24 (later)
+- Timeframes 1, 3, 5, 10, 15, 30, 60 minutes (`market_data/resampling.py`, pipeline). Bars anchored at
+  09:15 like TradingView; the day's last shorter bar (10m 15:25, 30m/60m 15:15) is kept and closes at 15:30.
+  3m/5m output unchanged.
+- Enter only after the signal candle closes: `PaperSignal.close_timestamp` (set by the pipeline);
+  the coordinator rejects any decision before it.
+- Long/Short/Both switch: `trade_direction` LONG (calls only) / SHORT (puts only) / BOTH. Switched-off
+  signals are still journaled in `rejections.csv` with the reason.
+- `paper_trading/strategy_settings.py` + `strategy_settings.json` (saved choice wins on restart):
+  timeframe, direction, entry start (default 09:30), entry end (15:00), force exit (15:10).
+  Owner command: `python scripts\paper_settings.py --timeframe 5 --direction BOTH --start 09:30 --end 15:00`.
+- Tests: 29 new. Suite 485 passed (IST), 5 need local DB. Under TZ=UTC two pre-existing
+  `test_dhan_client.py` session-quality tests fail on unchanged code too (timezone-dependent).
+
 ## claude/affectionate-bardeen-3k5sls (on top of claude/allocation-sizing), 2026-10-24
 - KTMI Uni Lite saved and LOCKED in `indicators/ktmi_uni_lite/`: original Pine (SHA-256 test),
   compact Pine (139 vs 866 lines, same 32 inputs/plots/fills/arrows/alerts, test-compared),
