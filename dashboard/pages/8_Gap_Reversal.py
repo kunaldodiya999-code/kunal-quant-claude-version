@@ -175,7 +175,8 @@ with backtest_tab:
         summary = backtest("summary", interval)
         meta = backtest_meta(interval) or {}
         cap = float(meta.get("capital_per_trade", 50_000))
-        st.caption(f"{meta.get('symbols', '?')} symbols, {meta.get('first_day', '?')} to {meta.get('last_day', '?')}, "
+        st.caption(f"Gap {(meta.get('settings') or {}).get('gap_pct', '?')}% or more. "
+                   f"{meta.get('symbols', '?')} symbols, {meta.get('first_day', '?')} to {meta.get('last_day', '?')}, "
                    f"source {meta.get('source', '?')}, made {meta.get('generated_at', '?')}. First qualifying setup per "
                    f"symbol and day; Rs {cap:,.0f} per entry; net = after estimated intraday charges. 1 R = the risk "
                    "to the stop (day's high / low). Stop first if one candle touches stop and target.")

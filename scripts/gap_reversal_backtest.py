@@ -10,6 +10,8 @@ Run from C:\\Users\\USER\\Desktop\\Kunal\\kunal-quant-claude-version :
     python scripts\\gap_reversal_backtest.py --source cache
         (re-run on data already downloaded, e.g. after changing settings)
     python scripts\\gap_reversal_backtest.py --interval 5m
+    python scripts\\gap_reversal_backtest.py --gap-pct 1
+        (test gaps of 1% or more; the dashboard setting stays as it is)
         (Yahoo 5-minute data: about 60 days instead of 29; entries and stops less precise)
 
 Every trade is run with each exit plan: fixed targets 1:1.5, 1:2, 1:2.5, 1:3 and "TSL only" (empty reward
@@ -78,6 +80,8 @@ def main(argv=None, *, client=None, yahoo_get=None, master=None) -> int:
     p.add_argument("--days", type=int, default=None, help="days back (default 29 for 1m, 59 for 5m)")
     p.add_argument("--interval", choices=("1m", "5m"), default="1m")
     p.add_argument("--capital-per-trade", type=float, default=CAPITAL_PER_TRADE)
+    p.add_argument("--gap-pct", type=float, default=None,
+                   help="test another gap size (e.g. 1); the saved dashboard setting is not changed")
     p.add_argument("--cache-source", default="yahoo", help="with --source cache: which download to use")
     p.add_argument("--data-folder", type=Path, default=PROJECT_ROOT / "data")
     p.add_argument("--credentials-folder", type=Path, default=None)
@@ -86,6 +90,9 @@ def main(argv=None, *, client=None, yahoo_get=None, master=None) -> int:
     days = args.days or (29 if args.interval == "1m" else 59)
 
     settings = GapReversalStore(args.data_folder / "gap_reversal").settings
+    if args.gap_pct is not None:
+        from dataclasses import replace
+        settings = replace(settings, gap_pct=args.gap_pct)
     if args.symbols.strip():
         stocks = [x.strip().upper() for x in args.symbols.split(",") if x.strip()]
     else:

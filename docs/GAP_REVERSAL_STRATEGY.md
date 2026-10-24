@@ -168,6 +168,35 @@ PSAR B -162; point trail -3,211. On those 4 weeks nothing made money: too few tr
 Next step before any decision: the FYERS 1-minute run over a long period on your PC (needs the daily FYERS login),
 `python scripts\gap_reversal_backtest.py --source fyers --days 365`.
 
+## Test with gaps of 1% or more (owner, 25 Oct 2026)
+
+`python scripts\gap_reversal_backtest.py --gap-pct 1` (the saved dashboard setting is not changed). Same rules,
+Rs 50,000 per entry, BREAK entry, net after estimated charges, long + short together.
+
+| Exit plan | 5-min data, 28 Aug - 23 Oct: 661 trades | | | 1-min data, 29 Sep - 23 Oct: 268 trades | |
+|---|---|---|---|---|---|
+| | win % | net Rs | worst drawdown | win % | net Rs |
+| Fixed 1:1.5 | 54.0% | +19,377 | -24,152 | 53.7% | +13,370 |
+| Fixed 1:2 | 49.9% | +28,366 | -27,491 | 50.7% | +14,888 |
+| Fixed 1:2.5 | 47.4% | +34,005 | -27,721 | 47.0% | +14,048 |
+| Fixed 1:3 | 46.4% | +41,453 | -27,924 | 46.3% | +16,610 |
+| TSL Chandelier 9 x 1.5 | 47.5% | +18,477 | -15,567 | 48.9% | +12,635 |
+| TSL Supertrend 5 x 1 | 47.2% | +15,644 | -14,259 | 47.4% | +6,929 |
+| TSL Supertrend 7 x 1.5 | 47.5% | +29,627 | -16,198 | 46.6% | +12,412 |
+| TSL PSAR 0.02/0.02/0.20 | 50.7% | +39,985 | -14,000 | 48.1% | +17,976 |
+| TSL PSAR 0.04/0.04/0.10 | 51.1% | **+40,789** | **-10,044** | 49.6% | **+18,738** |
+| TSL Point trail 10/15 | 50.8% | +37,527 | -23,562 | 52.6% | +15,965 |
+
+- Every exit plan was profitable on both data sets (at 3% the 1-minute check was negative).
+- Best balance: **PSAR B (0.04/0.04/0.10)**: highest net on both data sets and the smallest drawdown. Fixed 1:3 made
+  about the same on 5-minute data but with almost 3x the drawdown.
+- SHORT (268 trades on 5-min): fixed 1:3 best (+33,879), PSAR A / point trail next (~+22,000). LONG (393): every
+  TSL beat every fixed target; PSAR B best (+23,563).
+- **Thin edge**: about Rs 60 net per trade on Rs 50,000 (0.12%); charges took Rs 34,000 of Rs 75,000 gross.
+  Slippage is NOT included: 0.05% per trade (Rs 25 in, Rs 25 out) would remove about Rs 33,000 of the 5-min total.
+- **Many trades at once**: on average 17 trades a day, up to 63 on one day (Rs 31 lakh of positions at Rs 50,000
+  each). In practice a cap is needed (e.g. the strongest N setups per day).
+
 ## Limits to know
 
 - Yahoo gives only about 29 days of 1-minute data (60 days of 5-minute), so the sample is small. Use

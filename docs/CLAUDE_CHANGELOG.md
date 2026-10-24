@@ -3,6 +3,11 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: Gap Reversal test at 1% gap, 2026-10-25
+- `scripts/gap_reversal_backtest.py --gap-pct N` (test only, settings unchanged); Backtest tab shows the gap used.
+- 1%: 661 trades (5-min, 28 Aug - 23 Oct) / 268 (1-min): every exit plan positive; best PSAR B +40,789 / +18,738 net,
+  smallest drawdown. Thin edge (~Rs 60/trade), slippage not included, up to 63 trades/day. Guide updated.
+
 ## claude/affectionate-bardeen-3k5sls: exit plan for every strategy, deploy single/several/all, TSL backtest, 2026-10-25
 - Owner rule: every strategy has "Reward 1:[box]": a number = the whole trade closes at 1:number; EMPTY = no fixed
   target, the chosen TSL (owner's presets and numbers) exits when a candle CLOSES beyond it.
