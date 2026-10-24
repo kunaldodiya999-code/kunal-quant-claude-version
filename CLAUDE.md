@@ -72,5 +72,10 @@
   Compare: live "TSL comparison" tab, `scripts/tsl_lab.py`, `scripts/tsl_check.py`.
 - HFT Gap-Open: research only, OFF. PUT mirrored (Open=High, break low, stop setup high, PE ladder ATM..-250).
   Audit `docs/HFT_GAP_OPEN_AUDIT.md`.
+- Gap Reversal (2026-10-25): `docs/GAP_REVERSAL_STRATEGY.md`. Gap >= 3% (setting) -> reversal setup in first 10x5m /
+  16x3m candles; 10 setups (sheet `docs/reversal_setups.png`, owner approved "build with all 10"), LONG/SHORT separate,
+  strength % (rejection/absorption/location/confirmation), stop = day's high/low, RR 1.5/2/2.5/3, entry BREAK or CLOSE
+  (owner: both switchable). Universe ALL F&O stocks (+ indexes). Owner plan: scanner + paper first, later cash MIS,
+  then maybe CE/PE. OFF by default. `scripts/run_gap_reversal.py`, `scripts/gap_reversal_backtest.py`, page "Gap Reversal".
 - OWNER RULE: when the owner says "we are done for the day", give ALL commands to run on their PC in order,
   step by step (folder for each), with what each one should show, plus everything still pending from their side.

@@ -211,8 +211,12 @@ def _frame(bars, *, first_shown: int | None, daily: bool = False) -> dict:
     return out
 
 
-def chart_payload(data: ChartData, *, index: str, show_days: int = 2, timeframe: int | str = 3) -> dict:
-    """Everything the chart needs, for every timeframe, as compact columns."""
+def chart_payload(data: ChartData, *, index: str, show_days: int = 2, timeframe: int | str = 3,
+                  marks: list | None = None) -> dict:
+    """Everything the chart needs, for every timeframe, as compact columns.
+
+    ``index`` may also be a stock name (title only). ``marks``: extra markers, e.g. Gap Reversal setups:
+    [{"time": epoch seconds of the candle, "side": "SHORT"/"LONG", "text": "78%"}]."""
     minutes = with_futures_volume(data.minutes, data.futures)
     days = trading_days(minutes)
     shown = days[-show_days:] if days else []
@@ -228,7 +232,8 @@ def chart_payload(data: ChartData, *, index: str, show_days: int = 2, timeframe:
     return {
         "version": f"{last}-{len(frames['1']['t'])}-{(oi or {}).get('updated_at', '')}-{len(data.futures)}",
         "updated_at": datetime.now(IST).strftime("%H:%M:%S"),
-        "index": index, "title": INDEX_PROFILES[index].label, "frames": frames,
+        "index": index, "title": INDEX_PROFILES[index].label if index in INDEX_PROFILES else index, "frames": frames,
+        "marks": [{**m, "time": int(m["time"]) + IST_OFFSET} for m in (marks or [])],
         "default_tf": str(timeframe), "days": [d.isoformat() for d in shown],
         "volume_source": data.volume_source, "oi": oi,
         "levels": {"center": 0.0, "upper": 0.5, "lower": -0.5, "overbought": 3.0, "oversold": -3.0},

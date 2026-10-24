@@ -96,6 +96,20 @@ rectangle, path, measure, volume profile with POC / VAH / VAL / high / low). Upd
 few seconds. The trading program now also saves futures volume, daily candles and option-chain OI
 for it. The chart only shows; it never places a trade.
 
+## Gap Reversal scanner (stocks, optional third window)
+
+Gap of 3% or more at the open, then a reversal setup in the first candles (full guide: `docs/GAP_REVERSAL_STRATEGY.md`).
+Third PowerShell window, folder `C:\Users\USER\Desktop\Kunal\kunal-quant-claude-version`, `(.venv)` active, after
+the FYERS login, before 09:15:
+
+```powershell
+python scripts\run_gap_reversal.py
+```
+
+It waits until 09:16, lists today's gap stocks, then checks every minute until 15:35. Dashboard page **Gap Reversal**
+shows the gaps, setups with their strength %, and paper trades (only when "Strategy ON" is ticked in its Settings tab;
+OFF by default = marking only). Paper only, never real orders.
+
 ## Checking signals against TradingView
 
 ```powershell

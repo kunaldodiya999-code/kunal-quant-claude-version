@@ -48,16 +48,24 @@ def parse_chart(payload: dict) -> list[Candle]:
     return out
 
 
+def yahoo_symbol(key: str, *, stock: bool = False) -> str:
+    """Index keys map to Yahoo index symbols; with ``stock`` an NSE stock (HCLTECH -> HCLTECH.NS)."""
+    if key in YAHOO_SYMBOLS:
+        return YAHOO_SYMBOLS[key]
+    if stock:
+        return f"{key}.NS"
+    raise ValueError(f"Yahoo source has no '{key}'. Choose from {', '.join(YAHOO_SYMBOLS)}.")
+
+
 def fetch(key: str, interval: str, *, now: datetime | None = None, days: int | None = None,
-          get=_get, pause: float = 0.5) -> list[Candle]:
-    if key not in YAHOO_SYMBOLS:
-        raise ValueError(f"Yahoo source has no '{key}'. Choose from {', '.join(YAHOO_SYMBOLS)}.")
+          get=_get, pause: float = 0.5, stock: bool = False) -> list[Candle]:
+    yahoo_key = yahoo_symbol(key, stock=stock)
     if interval not in LIMITS:
         raise ValueError(f"interval must be one of {tuple(LIMITS)}")
     max_back, per_request = LIMITS[interval]
     now = now or datetime.now(IST)
     start = now - timedelta(days=min(days or max_back, max_back))
-    symbol = urllib.request.quote(YAHOO_SYMBOLS[key])
+    symbol = urllib.request.quote(yahoo_key)
     candles: dict[int, Candle] = {}
     chunk_start = start
     while chunk_start < now:
@@ -72,4 +80,4 @@ def fetch(key: str, interval: str, *, now: datetime | None = None, days: int | N
     return [candles[t] for t in sorted(candles)]
 
 
-__all__ = ["LIMITS", "YAHOO_SYMBOLS", "fetch", "parse_chart"]
+__all__ = ["LIMITS", "YAHOO_SYMBOLS", "fetch", "parse_chart", "yahoo_symbol"]

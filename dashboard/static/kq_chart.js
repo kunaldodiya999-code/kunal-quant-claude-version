@@ -243,6 +243,15 @@
       for (const t of F.long) marks.push({ time: t, position: "belowBar", color: "#26a69a", shape: "arrowUp" });
     if (show === "Both" || show === "Short")
       for (const t of F.short) marks.push({ time: t, position: "aboveBar", color: "#ef5350", shape: "arrowDown" });
+    // extra marks (Gap Reversal setups): on the candle that holds that moment, with the strength %
+    for (const m of P.marks || []) {
+      let lo = 0, hi = N - 1, at = -1;
+      while (lo <= hi) { const mid = (lo + hi) >> 1; if (times[mid] <= m.time) { at = mid; lo = mid + 1; } else hi = mid - 1; }
+      if (at < 0) continue;
+      const short = m.side === "SHORT";
+      marks.push({ time: times[at], position: short ? "aboveBar" : "belowBar", color: "#f7c948",
+                   shape: short ? "arrowDown" : "arrowUp", text: m.text || "" });
+    }
     marks.sort((a, b) => a.time - b.time);
     candles.setMarkers(marks);
   }
