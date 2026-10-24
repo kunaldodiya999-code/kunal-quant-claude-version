@@ -64,5 +64,13 @@
   Exception (owner 2026-10-25): Smart Money titles ON by default, every title group styleable
   (size, placement, colour) and boxes have opacity settings. Volume profile titles: "Show titles" switch
   (default off). KTMI signals = arrows only, no text. OI values white inside bars, no titles.
+- TSL / trade management (2026-10-25): `docs/TSL_AND_TRADE_MANAGEMENT.md`. Settings per index in
+  `trade_management.json` (dashboard form), nothing hard-coded, snapshot per trade (new trades only).
+  Owner answers: after 2R -> breakeven then TSL; exit on candle CLOSE; TSL candles = strategy TF; TSL chart
+  OPTION (default) or SPOT dropdown. Methods: Chandelier everget 9x1.5 (default), Supertrend 5x1 / 7x1.5,
+  PSAR 0.02/0.02/0.2 and 0.04/0.04/0.1, point trail 10/15. No Donchian / rolling-swing; KAMA not a TSL.
+  Compare: live "TSL comparison" tab, `scripts/tsl_lab.py`, `scripts/tsl_check.py`.
+- HFT Gap-Open: research only, OFF. PUT mirrored (Open=High, break low, stop setup high, PE ladder ATM..-250).
+  Audit `docs/HFT_GAP_OPEN_AUDIT.md`.
 - OWNER RULE: when the owner says "we are done for the day", give ALL commands to run on their PC in order,
   step by step (folder for each), with what each one should show, plus everything still pending from their side.

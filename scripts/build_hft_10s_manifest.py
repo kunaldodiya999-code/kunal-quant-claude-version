@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from api.fyers_client import FyersClient
-from config.hft_data import HFT_OPTION_TYPES, HFT_RESOLUTION, HFT_STRIKE_OFFSETS
+from config.hft_data import HFT_OPTION_TYPES, HFT_PE_STRIKE_OFFSETS, HFT_RESOLUTION, HFT_STRIKE_OFFSETS
 from config.settings import DATABASE_PATH, TIMEZONE
 from database.repository import DatabaseRepository
 from research.hft_contract_discovery import (
@@ -99,8 +99,9 @@ def main():
             continue
 
         atm_strike = atm(day["open"])
+        offsets = {"CE": HFT_STRIKE_OFFSETS, "PE": HFT_PE_STRIKE_OFFSETS}
         required = {(atm_strike + offset, option_type)
-                    for offset in HFT_STRIKE_OFFSETS for option_type in HFT_OPTION_TYPES}
+                    for option_type in HFT_OPTION_TYPES for offset in offsets[option_type]}
         option_symbols = find_option_symbols(contracts_for(option_expiry), option_expiry, required)
         future_symbol = find_nearest_future_symbol(contracts_for(future_expiry))
 

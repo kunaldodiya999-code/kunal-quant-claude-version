@@ -3,6 +3,24 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: TSL + trade management (owner brief), HFT audit, 2026-10-25
+- Owner decisions (asked 25 Oct): after 2R partial -> breakeven then TSL; TSL exit on candle CLOSE beyond
+  the stop; TSL candles = strategy timeframe (separate dropdown); HFT PUT side mirrored with PE ladder below ATM.
+- `paper_trading/tsl_methods.py`: Chandelier everget (Pine port), Supertrend `ta.supertrend`, PSAR `ta.sar`
+  (matches the `ta` library from bar 3), point trail; LONG/SHORT sides for spot charts; presets = owner's 5 + point trail.
+- `paper_trading/trade_management.py`: settings per index (`trade_management.json`): initial SL 30%, TSL on/mode/
+  method/every number, source OPTION or SPOT (dropdown), timeframe, trigger, partial 2R 50%, one lot closes in full,
+  after-partial policy, forced exit switch, 20% of available cash, daily-loss cutoff (off). Snapshot per trade.
+- `exit_manager.py` rewritten on it (manual stops, option history warm-up, spot minutes from the pipeline, pending
+  exit until an option price exists, state survives restart); `tsl_shadow_lab.py` = live comparison of all methods;
+  lifecycle: partial % and one-lot rule, stop move after the partial, per-trade config snapshot.
+- Defaults changed to the brief: partial target 2R (was 3R), allocation 20% (was 15,000 fixed). TARGET_3R journal
+  label kept (locked enum) for any partial target.
+- Dashboard: trade-management form + manual stops + "TSL comparison" tab (Live Paper Trading); "TSL Lab" tab
+  (Research Backtest). Scripts: `tsl_lab.py` (historical comparison), `tsl_check.py` (values vs TradingView).
+- HFT Gap-Open audit `docs/HFT_GAP_OPEN_AUDIT.md`: PUT mirror, targets 2R/3R/4R, exit limit, PE ladder, `HftGapOpenConfig`.
+- Guide: `docs/TSL_AND_TRADE_MANAGEMENT.md`. Tests: 622 passed, 5 need local DB.
+
 ## claude/affectionate-bardeen-3k5sls: Smart Money titles back, with style settings, 2026-10-25
 - Owner wants SMC titles shown (OB, FVG, Premium/Discount, Strong/Weak ...) with settings: per title group
   (BOS/CHoCH, OB, FVG, zones, strong/weak, EQH/EQL, previous D/W/M levels) show on/off, size Tiny-Huge,

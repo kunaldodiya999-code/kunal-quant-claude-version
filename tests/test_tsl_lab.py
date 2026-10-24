@@ -58,3 +58,16 @@ def test_command_runs_on_the_kunalquant_database(tmp_path, capsys):
     with (tmp_path / "research" / "results" / "tsl_lab_summary.csv").open(newline="", encoding="utf-8") as h:
         rows = list(csv.DictReader(h))
     assert len(rows) == 6 and "NIFTY 3m" in capsys.readouterr().out
+
+
+def test_tsl_checker_prints_every_indicator_for_a_day(tmp_path, capsys):
+    from scripts.tsl_check import main
+    from tests.test_research_backtests import make_kq_db
+    db = make_kq_db(tmp_path)
+    assert main(["--date", "2026-10-21", "--timeframe", "3", "--database", str(db),
+                 "--data-folder", str(tmp_path), "--out", str(tmp_path / "out")]) == 0
+    out = capsys.readouterr().out
+    assert "TSL CHECK" in out and "PSAR A" in out
+    with next((tmp_path / "out").glob("*.csv")).open(newline="", encoding="utf-8") as h:
+        rows = list(csv.DictReader(h))
+    assert len(rows) == 125 and rows[-1]["chandelier_long_stop"] and rows[-1]["psar_0.02_0.02_0.2"]

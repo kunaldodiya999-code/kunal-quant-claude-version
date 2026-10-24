@@ -10,9 +10,10 @@ from __future__ import annotations
 HFT_RESOLUTION = "10S"
 HFT_FETCH_RESOLUTION = "5S"  # FYERS historical API source; 10S is derived locally.
 
-# Exact user-approved strike ladder, applied identically to CE and PE:
-# ATM, ATM+50, ATM+100, ATM+150, ATM+200, ATM+250.
-HFT_STRIKE_OFFSETS = (0, 50, 100, 150, 200, 250)
+# Strike ladder. CE: ATM, ATM+50 ... ATM+250. PE: mirrored to ATM, ATM-50 ... ATM-250 so both
+# sides are out of the money (owner decision 2026-10-25; the brief listed +50..+250 for both).
+HFT_STRIKE_OFFSETS = (0, 50, 100, 150, 200, 250)          # CE
+HFT_PE_STRIKE_OFFSETS = (0, -50, -100, -150, -200, -250)  # PE
 
 HFT_OPTION_TYPES = ("CE", "PE")
 

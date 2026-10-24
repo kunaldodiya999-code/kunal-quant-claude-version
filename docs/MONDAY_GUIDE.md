@@ -79,6 +79,14 @@ chosen are still watched (prices, KTMI, chart) but take no new trades; their sig
 under "Rejected signals" with the reason. Open trades always run to their exit.
 Same from PowerShell: `python scripts\paper_settings.py --index BANKNIFTY --trade OFF`.
 
+## Stop-loss, trailing stop (TSL) and 2R booking
+
+Dashboard page **Live Paper Trading**, box **Trade management and trailing stop (TSL)** (per index).
+Defaults: stop 30% of premium, Chandelier Exit 9 x 1.5 on the option chart, exit when a candle closes
+beyond it, 50% booked at 2R then stop to entry, 20% of available cash per trade. Changes apply to new
+trades. Tab **TSL comparison** shows how every TSL method would have done on each trade.
+Full guide: `docs/TSL_AND_TRADE_MANAGEMENT.md`.
+
 ## Chart with drawing tools
 
 Dashboard page **Chart** (TradingView style, full guide: `docs/CHART_GUIDE.md`): timeframe buttons
