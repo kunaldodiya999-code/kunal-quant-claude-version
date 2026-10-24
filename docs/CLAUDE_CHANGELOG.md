@@ -3,6 +3,19 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: NIFTY + BANK NIFTY + SENSEX, Monday hardening, 2026-10-25
+- `strategies/index_profiles.py` (checked against FYERS masters 2026-10-24): NIFTY gap 50 lot 65 weekly Tue;
+  BANKNIFTY gap 100 lot 30 monthly; SENSEX (BSE_FO) gap 100 lot 20 weekly Thu. Lots/expiries read daily.
+- Runner `--index` (default all three): one login, one shared FYERS socket (`paper_trading/shared_socket.py`
+  routes ticks per index), per-index folders `data/paper_trading/<INDEX>`, `data/live_trading/<INDEX>`
+  (switch file stays global), daily-cached NSE_FO/BSE_FO masters, old settings file carried over.
+- Monday fixes found by reading the FYERS SDK: feed close used `close` (SDK: `close_connection`, could hang);
+  SDK forgets subscriptions on reconnect -> hub re-subscribes everything; reconnect tries 5 -> 50;
+  runner warns when an index has no price for > 60 s in market hours.
+- `paper_settings.py --index`, `ktmi_check.py --index`; dashboard: all-index summary, index chooser,
+  per-index order window/settings/journals. `docs/MONDAY_GUIDE.md`.
+- Tests: 559 passed, 5 need local DB. Cost model still uses NSE exchange charges for SENSEX (approximate).
+
 ## claude/affectionate-bardeen-3k5sls: signal checker + broker orders (OFF), 2026-10-24 (night)
 - Signal checker: session writes `ktmi_bars.csv` (every closed candle: OHLC, Long/Short speed+signal,
   arrows) via a `bar_sink` hook; `scripts/ktmi_check.py --date --timeframe` gives the same table for

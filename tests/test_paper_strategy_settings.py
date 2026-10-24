@@ -201,9 +201,21 @@ def test_session_uses_the_saved_settings(tmp_path):
 
 
 def test_settings_command_saves_and_rejects(tmp_path, capsys):
-    assert settings_command(["--folder", str(tmp_path), "--timeframe", "60", "--direction", "short"]) == 0
+    assert settings_command(["--folder", str(tmp_path), "--index", "NIFTY", "--timeframe", "60",
+                             "--direction", "short"]) == 0
     assert "60 minute candles" in capsys.readouterr().out
-    assert settings_command(["--folder", str(tmp_path), "--start", "15:20"]) == 1
+    assert settings_command(["--folder", str(tmp_path), "--index", "NIFTY", "--start", "15:20"]) == 1
     assert "NOT SAVED" in capsys.readouterr().out
-    saved = json.loads((tmp_path / "strategy_settings.json").read_text())
+    saved = json.loads((tmp_path / "NIFTY" / "strategy_settings.json").read_text())
     assert saved["timeframe_minutes"] == 60 and saved["entry_start"] == "09:30"
+    assert not (tmp_path / "SENSEX" / "strategy_settings.json").exists()   # other indexes untouched
+
+
+def test_settings_command_all_indexes_and_old_file(tmp_path, capsys):
+    (tmp_path / "strategy_settings.json").write_text(json.dumps({"timeframe_minutes": 5}))
+    assert settings_command(["--folder", str(tmp_path), "--direction", "LONG"]) == 0   # default ALL
+    out = capsys.readouterr().out
+    assert "NIFTY 50" in out and "BANK NIFTY" in out and "SENSEX" in out
+    for key in ("NIFTY", "BANKNIFTY", "SENSEX"):
+        saved = json.loads((tmp_path / key / "strategy_settings.json").read_text())
+        assert (saved["timeframe_minutes"], saved["trade_direction"]) == (5, "LONG")

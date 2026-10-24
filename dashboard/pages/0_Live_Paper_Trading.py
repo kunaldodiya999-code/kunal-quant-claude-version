@@ -1,8 +1,8 @@
-"""Live Paper Trading: status, order window, settings and today's journal.
+"""Live Paper Trading: NIFTY, BANK NIFTY and SENSEX status, order window, settings, journals.
 
 Start the trading program first (separate window):
     python scripts\\run_paper_session.py
-This page reads its live status file and saves your settings. It never places orders.
+This page reads its live status files and saves your settings. It never places orders.
 """
 
 import sys
@@ -14,40 +14,58 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from data.live import (  # noqa: E402
-    STALE_AFTER_SECONDS, journal, live_dir, load_status, settings_store, status_age_seconds, strike_options,
+    INDEX_KEYS, STALE_AFTER_SECONDS, journal, live_dir, load_status, paper_dir, settings_store,
+    status_age_seconds, strike_options, summary_rows,
 )
+from strategies.index_profiles import INDEX_PROFILES  # noqa: E402
 from theme import configure_page  # noqa: E402
 
 configure_page("Live Paper Trading")
 st.title("Live Paper Trading")
-st.success("PAPER MODE: real FYERS prices, simulated trades. No real orders are sent.", icon="🧪")
+st.success("PAPER MODE: real FYERS prices, simulated trades.", icon="🧪")
 
 TIMEFRAMES = (1, 3, 5, 10, 15, 30, 60)
 DIRECTIONS = {"BOTH": "Both (calls and puts)", "LONG": "Long only (BUY CALL)", "SHORT": "Short only (BUY PUT)"}
 
 
 @st.fragment(run_every=3)
-def live_panel() -> None:
-    status = load_status()
-    age = status_age_seconds(status)
-    if status is None or age is None or age > STALE_AFTER_SECONDS:
+def overview() -> None:
+    st.subheader("All indexes")
+    rows = summary_rows()
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    if not any(r["Running"] == "Yes" for r in rows):
         st.warning(
             "The trading program is not running (no fresh status). In VS Code, folder "
             "`C:\\Users\\USER\\Desktop\\Kunal\\kunal-quant-claude-version`, run:  "
             "`python scripts\\run_paper_session.py`",
             icon="⏸️",
         )
-    if status and status.get("orders_mode") == "LIVE":
+    if any(r["Orders"] == "LIVE" for r in rows):
         st.error("LIVE ORDERS ARE ON: paper trades are also being sent to FYERS with real money.", icon="🚨")
-    elif status:
+    elif any(r["Orders"] == "DRY_RUN" for r in rows):
         st.info("Broker orders: DRY RUN. Orders that would be sent are listed in the 'Broker orders' tab; "
                 "nothing is sent to FYERS.", icon="🛡️")
+
+
+overview()
+
+st.markdown("---")
+index = st.radio("Index", INDEX_KEYS, format_func=lambda k: INDEX_PROFILES[k].label, horizontal=True, key="index")
+label = INDEX_PROFILES[index].label
+
+
+@st.fragment(run_every=3)
+def live_panel(index: str) -> None:
+    status = load_status(index)
+    age = status_age_seconds(status)
+    if status is not None and (age is None or age > STALE_AFTER_SECONDS):
+        st.caption(f"{label}: last update is old ({status.get('updated_at')}); the program may have stopped.")
     feed = (status or {}).get("feed") or {}
     account = (status or {}).get("account") or {}
     ladders = (status or {}).get("ladders") or {}
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("FYERS feed", "Connected" if feed.get("connected") else "Not connected")
-    c2.metric("NIFTY spot", f"{status['spot']:,.2f}" if status and status.get("spot") else "-")
+    c2.metric(f"{label} spot", f"{status['spot']:,.2f}" if status and status.get("spot") else "-")
     c3.metric("ATM strike", ladders.get("atm", "-"))
     c4.metric("Equity (paper)", f"₹{account['equity']:,.0f}" if account else "-")
     c5.metric("Day P&L", f"₹{account['day_pnl']:,.0f}" if account else "-")
@@ -58,7 +76,7 @@ def live_panel() -> None:
             f"expiry {contracts.get('nearest_expiry', '-')} · lot size {contracts.get('lot_size', '-')}"
             + (f" · feed message: {feed['last_error']}" if feed.get("last_error") else "")
         )
-    st.subheader("Open paper positions")
+    st.subheader(f"Open paper positions: {label}")
     positions = (status or {}).get("positions") or []
     if positions:
         st.dataframe(pd.DataFrame(positions), hide_index=True, width="stretch")
@@ -66,55 +84,56 @@ def live_panel() -> None:
         st.caption("No open paper positions.")
 
 
-live_panel()
+live_panel(index)
 
-store = settings_store()
+store = settings_store(index)
 current = store.settings
-status = load_status()
+status = load_status(index)
 
 # ------------------------------------------------------------------ order window
 st.markdown("---")
-st.subheader("Order window: which strike to buy")
-st.caption("5 strikes from the live NIFTY spot: 1 ITM, ATM, 3 OTM. Changes apply to the next signal.")
-with st.form("order_window"):
+st.subheader(f"Order window: which {label} strike to buy")
+st.caption(f"5 strikes from the live {label} spot: 1 ITM, ATM, 3 OTM. Changes apply to the next signal.")
+with st.form(f"order_window_{index}"):
     left, right = st.columns(2)
     call_opts, put_opts = strike_options(status, "call"), strike_options(status, "put")
     with left:
         call_choice = st.selectbox(
             "CALL strike (Long Speed signal)", [c for c, _ in call_opts],
             index=[c for c, _ in call_opts].index(current.call_strike),
-            format_func=dict(call_opts).get, key="call_strike",
+            format_func=dict(call_opts).get, key=f"call_strike_{index}",
         )
     with right:
         put_choice = st.selectbox(
             "PUT strike (Short Speed signal)", [c for c, _ in put_opts],
             index=[c for c, _ in put_opts].index(current.put_strike),
-            format_func=dict(put_opts).get, key="put_strike",
+            format_func=dict(put_opts).get, key=f"put_strike_{index}",
         )
     b1, b2 = st.columns(2)
-    use_atm = b1.checkbox("ATM strike (calls and puts)", value=current.use_atm, key="use_atm")
-    use_plus1 = b2.checkbox("ATM+1 strike (calls and puts)", value=current.use_atm_plus_1, key="use_atm_plus_1")
+    use_atm = b1.checkbox("ATM strike (calls and puts)", value=current.use_atm, key=f"use_atm_{index}")
+    use_plus1 = b2.checkbox("ATM+1 strike (calls and puts)", value=current.use_atm_plus_1,
+                            key=f"use_atm_plus_1_{index}")
     st.caption(
         "Ticked boxes override the dropdowns. ATM only = enter ATM. ATM+1 only = one strike out of the money "
         "(CALL: one strike above ATM, PUT: one strike below ATM). Both ticked = two trades per signal."
     )
     if st.form_submit_button("Save order window"):
         store.update(call_strike=call_choice, put_strike=put_choice, use_atm=use_atm, use_atm_plus_1=use_plus1)
-        st.success("Saved. Applies to the next signal.")
+        st.success(f"Saved for {label}. Applies to the next signal.")
 
 # ---------------------------------------------------------------------- settings
 st.markdown("---")
-st.subheader("Strategy settings (KTMI Uni Lite core)")
-with st.form("strategy_settings"):
+st.subheader(f"Strategy settings: {label} (KTMI Uni Lite core)")
+with st.form(f"strategy_settings_{index}"):
     c1, c2 = st.columns(2)
     timeframe = c1.selectbox("Timeframe (minutes)", TIMEFRAMES, index=TIMEFRAMES.index(current.timeframe_minutes),
-                             key="timeframe")
+                             key=f"timeframe_{index}")
     direction = c2.radio("Trade direction", list(DIRECTIONS), index=list(DIRECTIONS).index(current.trade_direction),
-                         format_func=DIRECTIONS.get, horizontal=True, key="direction")
+                         format_func=DIRECTIONS.get, horizontal=True, key=f"direction_{index}")
     t1, t2, t3 = st.columns(3)
-    start = t1.time_input("New trades from", dtime.fromisoformat(current.entry_start), step=60, key="start")
-    end = t2.time_input("No new trades from", dtime.fromisoformat(current.entry_end), step=60, key="end")
-    force = t3.time_input("Force exit at", dtime.fromisoformat(current.force_exit), step=60, key="force")
+    start = t1.time_input("New trades from", dtime.fromisoformat(current.entry_start), step=60, key=f"start_{index}")
+    end = t2.time_input("No new trades from", dtime.fromisoformat(current.entry_end), step=60, key=f"end_{index}")
+    force = t3.time_input("Force exit at", dtime.fromisoformat(current.force_exit), step=60, key=f"force_{index}")
     st.caption("Entries happen only after the signal candle has closed. "
                "A timeframe change applies when the trading program is restarted; the rest apply to the next signal.")
     if st.form_submit_button("Save settings"):
@@ -122,19 +141,20 @@ with st.form("strategy_settings"):
             store.update(timeframe_minutes=int(timeframe), trade_direction=direction,
                          entry_start=start.strftime("%H:%M"), entry_end=end.strftime("%H:%M"),
                          force_exit=force.strftime("%H:%M"))
-            st.success("Saved.")
+            st.success(f"Saved for {label}.")
         except ValueError as exc:
             st.error(f"Not saved: {exc}")
 
 # ----------------------------------------------------------------------- journal
 st.markdown("---")
-st.subheader("Today")
+st.subheader(f"Today: {label}")
 tabs = st.tabs(["Signals", "Trades", "Rejected signals", "KTMI values per candle", "Broker orders"])
-sources = (("signals.csv", None), ("trade_events.csv", None), ("rejections.csv", None),
-           ("ktmi_bars.csv", None), ("live_orders.csv", "live_trading"))
+sources = (("signals.csv", paper_dir(index)), ("trade_events.csv", paper_dir(index)),
+           ("rejections.csv", paper_dir(index)), ("ktmi_bars.csv", paper_dir(index)),
+           ("live_orders.csv", live_dir(index)))
 for tab, (name, folder) in zip(tabs, sources):
     with tab:
-        frame = journal(name, folder=live_dir() if folder else None)
+        frame = journal(name, folder)
         if frame.empty:
             st.caption("Nothing yet today.")
         else:

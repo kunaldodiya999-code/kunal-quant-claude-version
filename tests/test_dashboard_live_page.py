@@ -33,6 +33,8 @@ def status(fresh=True):
 @pytest.fixture()
 def folder(tmp_path, monkeypatch):
     monkeypatch.setenv("KQ_PAPER_DIR", str(tmp_path))
+    for key in ("NIFTY", "BANKNIFTY", "SENSEX"):
+        (tmp_path / key).mkdir()
     return tmp_path
 
 
@@ -44,68 +46,68 @@ def run(folder):
 
 
 def test_page_shows_live_status_and_strike_dropdowns(folder):
-    (folder / "live_status.json").write_text(json.dumps(status()))
+    (folder / "NIFTY" / "live_status.json").write_text(json.dumps(status()))
     app = run(folder)
     metrics = {m.label: m.value for m in app.metric}
-    assert metrics["NIFTY spot"] == "22,010.50"
+    assert metrics["NIFTY 50 spot"] == "22,010.50"
     assert metrics["ATM strike"] == "22000"
     assert metrics["FYERS feed"] == "Connected"
-    call = app.selectbox(key="call_strike")
-    put = app.selectbox(key="put_strike")
+    call = app.selectbox(key="call_strike_NIFTY")
+    put = app.selectbox(key="put_strike_NIFTY")
     assert call.options == ["ITM1 - 21950 CE", "ATM - 22000 CE", "OTM1 - 22050 CE", "OTM2 - 22100 CE", "OTM3 - 22150 CE"]
     assert put.options == ["ITM1 - 22050 PE", "ATM - 22000 PE", "OTM1 - 21950 PE", "OTM2 - 21900 PE", "OTM3 - 21850 PE"]
     assert not app.warning   # runner is fresh: no "not running" warning
 
 
 def test_stale_status_tells_owner_to_start_the_runner(folder):
-    (folder / "live_status.json").write_text(json.dumps(status(fresh=False)))
+    (folder / "NIFTY" / "live_status.json").write_text(json.dumps(status(fresh=False)))
     app = run(folder)
     assert any("run_paper_session.py" in w.value for w in app.warning)
 
 
 def test_page_works_before_the_runner_ever_ran(folder):
     app = run(folder)
-    assert app.selectbox(key="call_strike").options[1] == "ATM (waiting for live price)"
+    assert app.selectbox(key="call_strike_NIFTY").options[1] == "ATM (waiting for live price)"
 
 
 def test_saving_the_order_window_writes_settings(folder):
-    (folder / "live_status.json").write_text(json.dumps(status()))
+    (folder / "NIFTY" / "live_status.json").write_text(json.dumps(status()))
     app = run(folder)
-    app.selectbox(key="call_strike").set_value("OTM2")
-    app.checkbox(key="use_atm").check()
-    app.checkbox(key="use_atm_plus_1").check()
+    app.selectbox(key="call_strike_NIFTY").set_value("OTM2")
+    app.checkbox(key="use_atm_NIFTY").check()
+    app.checkbox(key="use_atm_plus_1_NIFTY").check()
     app.button[0].click()   # "Save order window"
     app.run()
-    saved = json.loads((folder / "strategy_settings.json").read_text())
+    saved = json.loads((folder / "NIFTY" / "strategy_settings.json").read_text())
     assert (saved["call_strike"], saved["use_atm"], saved["use_atm_plus_1"]) == ("OTM2", True, True)
 
 
 def test_saving_bad_times_is_refused_with_a_message(folder):
     app = run(folder)
     from datetime import time as dtime
-    app.time_input(key="start").set_value(dtime(15, 20))
+    app.time_input(key="start_NIFTY").set_value(dtime(15, 20))
     app.button[1].click()   # "Save settings"
     app.run()
     assert any("Not saved" in e.value for e in app.error)
-    assert not (folder / "strategy_settings.json").exists()
+    assert not (folder / "NIFTY" / "strategy_settings.json").exists()
 
 
 def test_saving_timeframe_and_direction(folder):
     app = run(folder)
-    app.selectbox(key="timeframe").set_value(5)
-    app.radio(key="direction").set_value("LONG")
+    app.selectbox(key="timeframe_NIFTY").set_value(5)
+    app.radio(key="direction_NIFTY").set_value("LONG")
     app.button[1].click()
     app.run()
-    saved = json.loads((folder / "strategy_settings.json").read_text())
+    saved = json.loads((folder / "NIFTY" / "strategy_settings.json").read_text())
     assert (saved["timeframe_minutes"], saved["trade_direction"]) == (5, "LONG")
 
 
 def test_live_orders_banner_and_broker_orders_tab(folder):
     data = status()
     data["orders_mode"] = "LIVE"
-    (folder / "live_status.json").write_text(json.dumps(data))
-    live = folder.parent / "live_trading"
-    live.mkdir(exist_ok=True)
+    (folder / "NIFTY" / "live_status.json").write_text(json.dumps(data))
+    live = folder.parent / "live_trading" / "NIFTY"
+    live.mkdir(parents=True, exist_ok=True)
     (live / "live_orders.csv").write_text(
         "time,mode,kind,symbol,requested_qty,status,filled_qty,avg_price,order_ids,paper_price,message\n"
         f"{time.strftime('%Y-%m-%d')}T10:03:05+05:30,LIVE,ENTRY,NSE:NIFTY26O2722000CE,130,FILLED,130,102.0,ORD1,101.5,\n")
@@ -117,6 +119,34 @@ def test_live_orders_banner_and_broker_orders_tab(folder):
 def test_dry_run_banner(folder):
     data = status()
     data["orders_mode"] = "DRY_RUN"
-    (folder / "live_status.json").write_text(json.dumps(data))
+    (folder / "NIFTY" / "live_status.json").write_text(json.dumps(data))
     app = run(folder)
     assert any("DRY RUN" in i.value for i in app.info) and not app.error
+
+
+def test_summary_table_and_switching_to_sensex(folder):
+    nifty = status()
+    nifty["orders_mode"] = "DRY_RUN"
+    (folder / "NIFTY" / "live_status.json").write_text(json.dumps(nifty))
+    sensex = status()
+    sensex.update(spot=75060.0, orders_mode="DRY_RUN", ladders={
+        "atm": 75100,
+        "call": [{"choice": c, "strike": k} for c, k in
+                 zip(("ITM1", "ATM", "OTM1", "OTM2", "OTM3"), (75000, 75100, 75200, 75300, 75400))],
+        "put": [{"choice": c, "strike": k} for c, k in
+                zip(("ITM1", "ATM", "OTM1", "OTM2", "OTM3"), (75200, 75100, 75000, 74900, 74800))]})
+    (folder / "SENSEX" / "live_status.json").write_text(json.dumps(sensex))
+    app = run(folder)
+    table = app.dataframe[0].value
+    assert list(table["Index"]) == ["NIFTY 50", "BANK NIFTY", "SENSEX"]
+    assert list(table["Running"]) == ["Yes", "No", "Yes"]
+
+    app.radio(key="index").set_value("SENSEX")
+    app.run()
+    assert app.selectbox(key="call_strike_SENSEX").options[1] == "ATM - 75100 CE"
+    app.checkbox(key="use_atm_plus_1_SENSEX").check()
+    app.button[0].click()
+    app.run()
+    saved = json.loads((folder / "SENSEX" / "strategy_settings.json").read_text())
+    assert saved["use_atm_plus_1"] is True
+    assert not (folder / "NIFTY" / "strategy_settings.json").exists()

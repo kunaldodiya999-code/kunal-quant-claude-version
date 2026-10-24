@@ -8,8 +8,9 @@ Built 2026-10-24. **OFF by default.** Code: `live_trading/`.
    Valid **for today only**; it is OFF again tomorrow.
 2. Start the day with `python scripts\run_paper_session.py --live-orders`.
 
-Without both, every order is a **DRY RUN**: listed in
-`data\live_trading\live_orders.csv` and `orders_log.csv` as `WOULD_PLACE`, never sent.
+Without both, every order is a **DRY RUN**: listed per index in
+`data\live_trading\<INDEX>\live_orders.csv` and `orders_log.csv` as `WOULD_PLACE`, never sent.
+The switch (`data\live_trading\live_switch.json`) covers all indexes.
 `--live-orders` without the switch refuses to start.
 
 ## What happens to each paper trade (mirror mode)

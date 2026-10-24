@@ -71,7 +71,7 @@ def test_command_with_fyers_prints_and_saves(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "Fri 23 Oct 2026 - 5-minute candles" in out
     assert "Arrows today:" in out
-    rows = list(csv.DictReader((tmp_path / "ktmi_2026-10-23_5m.csv").open()))
+    rows = list(csv.DictReader((tmp_path / "ktmi_NIFTY_2026-10-23_5m.csv").open()))
     assert len(rows) == 75 and rows[0]["candle_time"] == "2026-10-23 09:15"
 
 
@@ -90,5 +90,19 @@ def test_command_with_local_database(tmp_path, capsys):
 
 
 def test_holiday_gives_a_clear_message(tmp_path):
-    with pytest.raises(SystemExit, match="No NIFTY candles"):
+    with pytest.raises(SystemExit, match="No NIFTY 50 candles"):
         main(["--date", "2026-10-25", "--out", str(tmp_path)], client=FakeClient(flat_minutes([23])))
+
+
+def test_command_for_sensex_uses_the_bse_index(tmp_path, capsys):
+    class Recording(FakeClient):
+        symbols = []
+
+        def history(self, symbol, **kwargs):
+            Recording.symbols.append(symbol)
+            return super().history(symbol, **kwargs)
+    main(["--date", "2026-10-23", "--index", "SENSEX", "--out", str(tmp_path)],
+         client=Recording(flat_minutes([22, 23])))
+    assert set(Recording.symbols) == {"BSE:SENSEX-INDEX"}
+    assert "SENSEX" in capsys.readouterr().out
+    assert (tmp_path / "ktmi_SENSEX_2026-10-23_3m.csv").exists()
