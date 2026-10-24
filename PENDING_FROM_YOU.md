@@ -1,34 +1,13 @@
 # Pending From You
 
-_Updated 2026-10-24. Start at step 1 and send me the output of each step._
+_Updated 2026-10-24._
 
-## Do this next: Opening Breakout V2 (current track)
+## Do this next
 
-**Step 1: apply the two patches.** Follow `patches/README.md`. Send me the
-last line of the pytest output.
+Work only in this folder: `C:\Users\USER\Desktop\Kunal\kunal-quant-claude-version`
+(the one that has the `.venv`). Leave the `KunalQuant` folder alone.
 
-**Step 2: run one real backtest.** Use the same window as the earlier
-sample, CALL side, plain candle-high breakout:
-
-```powershell
-cd C:\Users\USER\Desktop\Kunal\KunalQuant
-$env:PYTHONUTF8="1"
-python scripts\run_opening_breakout_v2_backtest.py --from 2026-08-21 --to 2026-09-23 --instrument CALL --triggers CANDLE_HIGH --open-low | Tee-Object "$HOME\Desktop\v2_call.txt"
-```
-
-**Step 3: run the PUT side,** which was broken before patch 0001:
-
-```powershell
-python scripts\run_opening_breakout_v2_backtest.py --from 2026-08-21 --to 2026-09-23 --instrument PUT --triggers CANDLE_LOW --open-high | Tee-Object "$HOME\Desktop\v2_put.txt"
-```
-
-Send me both `.txt` files. Each run also saves `trades.csv` and
-`summary.json` in `data\reports\opening_breakout_v2\<time>\`, and the
-`.txt` shows the exact folder. `trades.csv` opens in Excel.
-
-Useful options: `--triggers CANDLE_HIGH,DMI` (comma = AND), `--trailing`,
-`--sl-points 15`, `--rr 3`, `--risk 3000`, `--capital 200000`.
-Run `python scripts\run_opening_breakout_v2_backtest.py --help` for all of them.
+Next steps are given one at a time in the chat.
 
 ## Decisions I need from you
 
