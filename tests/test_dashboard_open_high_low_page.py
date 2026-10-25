@@ -28,6 +28,8 @@ def test_page_with_a_live_day_saves_settings(tmp_path, monkeypatch):
     at.number_input(key="oh_top").set_value(3)
     at.selectbox(key="oh_first").set_value(15)
     at.number_input(key="oh_entry_candles").set_value(2)
+    at.checkbox(key="oh_vwap").check()
+    at.selectbox(key="oh_bb_band").set_value("MIDDLE")
     at.selectbox(key="oh_instr").set_value("OPTION")
     at.text_input(key="oh_long_rr").set_value("")
     at.selectbox(key="oh_long_tsl").set_value("PSAR_0.04_0.04_0.10")
@@ -36,6 +38,6 @@ def test_page_with_a_live_day_saves_settings(tmp_path, monkeypatch):
     from strategies.open_high_low import OpenHighLowStore
     saved = OpenHighLowStore(folder).settings
     assert saved.top_n == 3 and saved.instrument == "OPTION" and saved.scan_at == "09:30"
-    assert saved.entry_valid_candles == 2
+    assert saved.entry_valid_candles == 2 and saved.vwap_filter and not saved.bb_filter and saved.bb_band == "MIDDLE"
     assert saved.long.target_rr is None and saved.long.tsl_method == "PSAR_0.04_0.04_0.10"
     assert saved.short.target_rr == 2.0

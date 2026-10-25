@@ -101,5 +101,9 @@
   a closed box on Gap Reversal / Open High Low (owner: no lines on the chart, just %). Information only, NEVER a filter:
   check (`scripts/time_machine_check.py`) showed target chances rank right but cautious; win chance did not pick winners.
   On demand: `scripts/time_machine.py`. Live programs fetch 90 d of 5-min per symbol (`--no-odds` off).
+- BETA TSL (owner 2026-10-25, "test phase, must not interrupt the original TSL"): `research/tsl_beta.py` two-key,
+  tightening Chandelier, R-ladder; ONLY in the TSL Lab (rows "BETA"), never in PRESETS / live / dropdowns.
+- Open High Low first-candle filters (owner 2026-10-25, on/off, OFF default): VWAP (close above / below) and Bollinger
+  (outer band default, or middle line; 20, 2 on 5-min with earlier days). `candle_filters`.
 - OWNER RULE: when the owner says "we are done for the day", give ALL commands to run on their PC in order,
   step by step (folder for each), with what each one should show, plus everything still pending from their side.

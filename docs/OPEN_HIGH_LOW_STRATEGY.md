@@ -98,3 +98,29 @@ candle, top 5, Rs 50,000 per entry, net Rs after charges):
   numbers are the more exact ones.
 - Before the breakout rule (entry at 09:20 at once) the stock-only rule was also roughly break-even.
 The futures and option confirmation is the part meant to lift the quality; only the live journal can show if it does.
+
+## First-candle filters (owner, 25 Oct 2026; on / off, OFF by default)
+
+Settings tab, "First-candle filters":
+- **VWAP**: LONG only if the first 5-minute candle CLOSES above VWAP (SHORT: below). VWAP = volume-weighted typical
+  price of the minutes so far.
+- **Bollinger**: LONG only if the first candle CLOSES above the Bollinger band (SHORT: below). Line: the **outer band**
+  (upper for LONG, lower for SHORT; default) or the **middle line**. Bollinger 20, 2 on 5-minute candles, earlier days
+  included (as on TradingView).
+On the stock chart (futures chart for "Trade in: Future"). Missing data with a filter ON = the stock is left out.
+Backtest: `python scripts\open_high_low_backtest.py --vwap-filter on --bb-filter on --bb-band UPPER`.
+
+Result (stock part only, top 5, Rs 50,000 per entry, net Rs, fixed 1:3 / PSAR 0.04/0.04/0.10):
+
+| Filters | 1-min data, 17 days | 5-min data, 38 days |
+|---|---|---|
+| none | +3,305 / +2,551 (38 trades) | -1,260 / -2,098 (78) |
+| VWAP | +443 / -139 (55) | +4,148 / +938 (91) |
+| Bollinger outer band | **+7,366 / +5,577** (45) | **+3,605 / +513** (92) |
+| Bollinger middle line | +2,550 / +2,259 (36) | +609 / -2,005 (86) |
+| VWAP + Bollinger outer band | +4,766 / +4,618 (63) | +2,486 / +482 (107) |
+| VWAP + Bollinger middle line | -599 / -287 (54) | -2,517 / -4,848 (102) |
+
+The Bollinger outer-band filter was the only one that improved both data sets. VWAP helped on the 5-minute data but
+hurt on the 1-minute data (5-minute Yahoo data has no volume on the first candle, so its VWAP is only approximate).
+Small samples: confirm with the paper journal before relying on it.

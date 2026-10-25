@@ -57,7 +57,13 @@ def test_command_runs_on_the_kunalquant_database(tmp_path, capsys):
                  "--triggers", "CLOSE", "--data-folder", str(tmp_path)]) == 0
     with (tmp_path / "research" / "results" / "tsl_lab_summary.csv").open(newline="", encoding="utf-8") as h:
         rows = list(csv.DictReader(h))
-    assert len(rows) == 6 and "NIFTY 3m" in capsys.readouterr().out
+    assert len(rows) == 9 and "NIFTY 3m" in capsys.readouterr().out                 # 6 methods + 3 BETA
+    assert sorted(r["method"] for r in rows if r["trigger"] == "BETA") == ["BETA_R_LADDER", "BETA_TIGHT_CHANDELIER",
+                                                                           "BETA_TWO_KEY"]
+    assert main(["--source", "kq-db", "--kq-db", str(db), "--index", "NIFTY", "--timeframes", "3",
+                 "--triggers", "CLOSE", "--data-folder", str(tmp_path), "--no-beta"]) == 0
+    with (tmp_path / "research" / "results" / "tsl_lab_summary.csv").open(newline="", encoding="utf-8") as h:
+        assert len(list(csv.DictReader(h))) == 6
 
 
 def test_tsl_checker_prints_every_indicator_for_a_day(tmp_path, capsys):

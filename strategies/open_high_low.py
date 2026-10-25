@@ -86,6 +86,12 @@ class OpenHighLowSettings:
     instrument: str = "STOCK"
     capital_per_trade: float = 50_000.0   # STOCK: rupees per trade
     lots: int = 1                         # FUTURE / OPTION: lots per trade
+    # first-candle filters (owner 25 Oct, on / off): the first candle (09:15-09:20) must CLOSE ...
+    vwap_filter: bool = False             # ... above VWAP (LONG) / below VWAP (SHORT)
+    bb_filter: bool = False               # ... above the Bollinger band (LONG) / below it (SHORT)
+    bb_band: str = "UPPER"                # UPPER: beyond the outer band (LONG upper, SHORT lower); MIDDLE: the middle line
+    bb_length: int = 20                   # Bollinger on the first-candle timeframe (5 min), earlier days included
+    bb_mult: float = 2.0
     long: OHOLSide = field(default_factory=OHOLSide)
     short: OHOLSide = field(default_factory=OHOLSide)
 
@@ -110,6 +116,8 @@ class OpenHighLowSettings:
             raise ValueError("strikes_each_side must be 1 to 10")
         if not 0 <= self.min_option_matches <= 2 * (2 * self.strikes_each_side + 1):
             raise ValueError("min_option_matches must be between 0 and the number of options checked")
+        if self.bb_band not in ("UPPER", "MIDDLE") or self.bb_length < 2 or self.bb_mult <= 0:
+            raise ValueError("bb_band must be UPPER or MIDDLE, bb_length at least 2, bb_mult positive")
         if self.top_n < 1 or self.lots < 1 or self.capital_per_trade <= 0:
             raise ValueError("top_n, lots and capital_per_trade must be positive")
         if min(self.tolerance_pct, self.option_tolerance_pct, self.min_fut_value_cr, self.max_atm_spread_pct,
@@ -236,6 +244,7 @@ class Candidate:
     atm_put: Optional[str] = None
     atm_call_ltp: Optional[float] = None
     atm_put_ltp: Optional[float] = None
+    filters: Optional[dict] = None      # first-candle VWAP / Bollinger values (candle_filters)
 
     @property
     def option_matches(self) -> int:
@@ -269,12 +278,14 @@ class Candidate:
                 "atm_spread_pct": None if self.atm_spread_pct is None else round(self.atm_spread_pct, 2),
                 "option_volume": int(self.option_volume), "liquidity": self.liquidity_score,
                 "liquidity_ok": self.liquidity_ok, "passes": self.passes, "why_not": "; ".join(self.reasons),
-                "price": None if self.spot is None else self.spot.ltp, "atm_strike": self.atm_strike}
+                "price": None if self.spot is None else self.spot.ltp, "atm_strike": self.atm_strike,
+                **({"above_vwap" if self.side != "SHORT" else "below_vwap": (self.filters or {}).get("vwap_ok"),
+                    "beyond_bb": (self.filters or {}).get("bb_ok")} if self.filters else {})}
 
 
 def evaluate(stock: str, spot: Optional[Quote], fut: Optional[Quote], options: Sequence[tuple[float, Optional[Quote],
              Optional[Quote]]], s: OpenHighLowSettings, *, atm_strike: float | None = None,
-             atm_symbols: tuple = (None, None)) -> Candidate:
+             atm_symbols: tuple = (None, None), filters: Optional[dict] = None) -> Candidate:
     """``options`` = [(strike, CE quote, PE quote)] of the 11 strikes (missing quote = no match)."""
     spot_side, fut_side = side_of(spot, s.tolerance_pct), side_of(fut, s.tolerance_pct)
     side = spot_side or fut_side
@@ -310,11 +321,60 @@ def evaluate(stock: str, spot: Optional[Quote], fut: Optional[Quote], options: S
         liquid = False
         reasons.append("ATM spread " + ("unknown (no buyer or no seller)" if atm_spread is None else f"{atm_spread:.2f}%") +
                        f" not below {s.max_atm_spread_pct:g}%")
+    if s.vwap_filter:
+        ok = (filters or {}).get("vwap_ok")
+        if not ok:
+            reasons.append("first candle " + ("VWAP unknown" if ok is None else
+                                              ("not above VWAP" if side == "LONG" else "not below VWAP")))
+    if s.bb_filter:
+        ok = (filters or {}).get("bb_ok")
+        if not ok:
+            where = "middle line" if s.bb_band == "MIDDLE" else ("upper band" if side == "LONG" else "lower band")
+            reasons.append("first candle " + ("Bollinger unknown" if ok is None else
+                                              f"not {'above' if side == 'LONG' else 'below'} the Bollinger {where}"))
     if s.min_option_volume and volume < s.min_option_volume:
         liquid = False
         reasons.append(f"option volume {volume:.0f} < {s.min_option_volume}")
     return Candidate(stock, side, spot_ok, fut_ok, calls, puts, s.options_checked, fut_value, atm_spread, volume,
-                     liquid, not reasons, reasons, spot, fut, atm_strike, *atm_symbols, *atm_ltp)
+                     liquid, not reasons, reasons, spot, fut, atm_strike, *atm_symbols, *atm_ltp, filters)
+
+
+def candle_filters(minutes: Sequence, side: str, s: OpenHighLowSettings) -> dict:
+    """The first candle's VWAP and Bollinger checks on one chart.
+
+    ``minutes`` = 1-minute candles (5-minute works too) of today AND a few earlier days (for the Bollinger band).
+    VWAP = sum(typical price x volume) / sum(volume) over today's minutes up to the first candle's close (no volume:
+    the plain average of the typical prices). Bollinger = ``bb_length`` candles of ``first_candle_minutes`` minutes
+    (today's first candle the last one), middle = average close, bands = middle +- ``bb_mult`` x the standard deviation
+    (population, like TradingView ``ta.stdev``). Missing data -> None (an ON filter then refuses the stock)."""
+    from paper_trading.trade_management import session_bars
+    if not minutes:
+        return {"vwap_ok": None, "bb_ok": None}
+    last = max(m.timestamp for m in minutes)
+    day = datetime.fromtimestamp(last, IST).date()
+    start = int(datetime.combine(day, time(9, 15), tzinfo=IST).timestamp())
+    first_end = start + s.first_candle_minutes * 60
+    first = sorted((m for m in minutes if start <= m.timestamp < first_end), key=lambda m: m.timestamp)
+    out: dict = {"vwap_ok": None, "bb_ok": None}
+    if not first:
+        return out
+    close = first[-1].close
+    tps = [((m.high + m.low + m.close) / 3, float(getattr(m, "volume", 0) or 0)) for m in first]
+    vol = sum(v for _, v in tps)
+    vwap = sum(tp * v for tp, v in tps) / vol if vol > 0 else sum(tp for tp, _ in tps) / len(tps)
+    long = side == "LONG"
+    out.update(close=round(close, 2), vwap=round(vwap, 2), vwap_ok=(close > vwap) if long else (close < vwap))
+    bars = [b for b in session_bars([m for m in minutes if m.timestamp < first_end], s.first_candle_minutes,
+                                    now=first_end) if b.timestamp < first_end]
+    if len(bars) >= s.bb_length and bars[-1].timestamp == start:
+        closes = [b.close for b in bars[-s.bb_length:]]
+        mid = sum(closes) / len(closes)
+        sd = (sum((c - mid) ** 2 for c in closes) / len(closes)) ** 0.5
+        upper, lower = mid + s.bb_mult * sd, mid - s.bb_mult * sd
+        line = mid if s.bb_band == "MIDDLE" else (upper if long else lower)
+        out.update(bb_mid=round(mid, 2), bb_upper=round(upper, 2), bb_lower=round(lower, 2),
+                   bb_ok=(close > line) if long else (close < line))
+    return out
 
 
 def select_top(candidates: Sequence[Candidate], s: OpenHighLowSettings) -> list[Candidate]:
@@ -374,6 +434,6 @@ def levels(c: Candidate, s: OpenHighLowSettings) -> tuple[float, float]:
 
 
 __all__ = [
-    "CONFIRM", "Candidate", "INSTRUMENTS", "breakout", "OHOLSide", "OpenHighLowSettings", "OpenHighLowStore", "Quote", "condition",
+    "CONFIRM", "Candidate", "INSTRUMENTS", "breakout", "candle_filters", "OHOLSide", "OpenHighLowSettings", "OpenHighLowStore", "Quote", "condition",
     "evaluate", "levels", "open_is_high", "open_is_low", "option_lot", "option_strikes", "select_top", "side_of",
 ]

@@ -104,3 +104,28 @@ candles (`tests/test_tsl_methods.py`). A TradingView export comparison is the la
 `paper_trading/exit_manager.py` (live exits), `paper_trading/tsl_shadow_lab.py` (live comparison),
 `paper_trading/buyer_lifecycle.py` (initial stop, 2R partial), `research/tsl_lab.py` + `scripts/tsl_lab.py`,
 `scripts/tsl_check.py`, tests `tests/test_tsl_methods.py`, `tests/test_trade_management.py`, `tests/test_tsl_lab.py`.
+
+## BETA test methods (TSL Lab only, owner 25 Oct 2026: "test phase, must not interrupt the original TSL")
+
+Research only (`research/tsl_beta.py`): never used by live or paper trading, not in any dropdown. The TSL Lab shows
+them as rows starting with **BETA**. 1R = the live 30% premium stop as an index move (premium ~0.6% of the index,
+ATM delta 0.5: about 0.36% of NIFTY).
+
+| BETA method | Rule |
+|---|---|
+| Two-key | key 1: index Chandelier 9 x 1.5, exit on a candle CLOSE beyond it; key 2: premium lock (estimated premium): -1R stop, BE at +1R, lock +1R at +2R ..., and after +1R at most 35% of the peak profit given back (TOUCH). First key wins. |
+| Tightening Chandelier | Chandelier ATR 9 at 3x, tightened to 1.5x once the trade was +1.5R; CLOSE exit; only tightens. |
+| R-ladder | -1R stop, BE at +1R, +1R locked at +2R, +2R at +3R ...; TOUCH exit. |
+
+Run: `python scripts\tsl_lab.py --source kq-db --index NIFTY` (5 years, on your PC; `--no-beta` leaves them out).
+First result here (Yahoo NIFTY 1-minute, 17 days, KTMI signals; index points):
+
+| | 3-min signals (107) | 5-min signals (58) |
+|---|---|---|
+| BETA Tightening Chandelier | **1,734** (PF 1.76) | 811 |
+| BETA R-ladder | 1,471 | **1,089** (PF 1.67) |
+| BETA Two-key | 919 | 655 |
+| Best existing method | Chandelier 9x1.5 close 803 | Supertrend 7x1.5 close 945, PSAR A close 935 |
+
+The BETA methods have a -1R hard stop (the existing rows have none) and their premium part ignores time decay; 17
+days is far too little. Decide only after the 5-year run.

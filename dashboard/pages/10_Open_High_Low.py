@@ -97,6 +97,15 @@ with settings_tab:
                                   key="oh_minopt")
         min_days = b5.number_input("Skip expiry closer than (days)", 0, 30, int(s.min_days_to_expiry), 1,
                                    key="oh_mindays")
+        st.markdown("**First-candle filters** (OFF = not used)")
+        f1, f2, f3 = st.columns(3)
+        vwap_on = f1.checkbox("First candle closes above VWAP (LONG) / below VWAP (SHORT)", value=s.vwap_filter,
+                              key="oh_vwap")
+        bb_on = f2.checkbox("First candle closes beyond the Bollinger band", value=s.bb_filter, key="oh_bb")
+        bb_band = f3.selectbox("Bollinger line", ("UPPER", "MIDDLE"), index=("UPPER", "MIDDLE").index(s.bb_band),
+                               key="oh_bb_band", format_func={"UPPER": "Outer band (LONG: upper, SHORT: lower)",
+                                                              "MIDDLE": "Middle line (20 average)"}.get,
+                               help="Bollinger 20, 2 on the first-candle timeframe (5 min), earlier days included.")
         st.markdown("**Liquidity**")
         l1, l2, l3 = st.columns(3)
         fut_cr = l1.number_input("Futures traded since the open, at least (Rs crore)", 0.0, 10_000.0,
@@ -162,6 +171,7 @@ with settings_tab:
                            strikes_each_side=int(each), min_option_matches=int(min_opt),
                            min_days_to_expiry=int(min_days), min_fut_value_cr=float(fut_cr),
                            max_atm_spread_pct=float(spread), min_option_volume=int(opt_vol), instrument=instrument,
+                           vwap_filter=vwap_on, bb_filter=bb_on, bb_band=bb_band,
                            capital_per_trade=float(cap), lots=int(lots), timeframe=int(tf), long=sides["long"],
                            short=sides["short"])
                 st.success("Saved. The program uses it from its next start.")

@@ -22,7 +22,7 @@ from market_data.day_quality import group_by_day
 from paper_trading.trade_management import session_bars
 from research.gap_reversal_backtest import _stats, default_exits, exit_label
 from strategies.gap_reversal import GapReversalSettings
-from strategies.open_high_low import OpenHighLowSettings, Quote, breakout, side_of
+from strategies.open_high_low import OpenHighLowSettings, Quote, breakout, candle_filters, side_of
 from strategies.trade_sim import manage_trade, step_of
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -58,8 +58,14 @@ def day_candidates(symbol: str, minutes: Sequence, s: OpenHighLowSettings, min_v
         value = sum((m.volume or 0) * m.close for m in days[prev]) / 1e7       # yesterday's traded value
         if side is None or value < min_value_cr:
             continue
+        filters = None
+        if s.vwap_filter or s.bb_filter:                    # first-candle VWAP / Bollinger, earlier days for the band
+            k = order.index(day)
+            filters = candle_filters([m for d in order[max(0, k - 3):k] for m in days[d]] + done, side, s)
+            if (s.vwap_filter and not filters.get("vwap_ok")) or (s.bb_filter and not filters.get("bb_ok")):
+                continue
         out[day] = {"symbol": symbol, "day": day, "side": side, "quote": q, "value_cr": value,
-                    "entry_ts": done[-1].timestamp, "minutes": mins}
+                    "entry_ts": done[-1].timestamp, "minutes": mins, "filters": filters}
     return out
 
 

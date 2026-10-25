@@ -53,6 +53,9 @@ def main(argv=None, *, yahoo_get=None, master=None) -> int:
     p.add_argument("--symbols", default="")
     p.add_argument("--first-candle", type=int, default=None, help="test another first-candle length in minutes")
     p.add_argument("--entry-candles", type=int, default=None, help="test entries in the next N candles (default 1)")
+    p.add_argument("--vwap-filter", choices=("on", "off"), default=None, help="test the first-candle VWAP filter")
+    p.add_argument("--bb-filter", choices=("on", "off"), default=None, help="test the first-candle Bollinger filter")
+    p.add_argument("--bb-band", choices=("UPPER", "MIDDLE"), default=None)
     p.add_argument("--top-n", type=int, default=None, help="test another top N (setting unchanged)")
     p.add_argument("--min-value-cr", type=float, default=50.0,
                    help="liquidity: Rs crore traded in the stock the previous day (default 50)")
@@ -64,6 +67,12 @@ def main(argv=None, *, yahoo_get=None, master=None) -> int:
     s = OpenHighLowStore(args.data_folder / "open_high_low").settings
     if args.first_candle:
         s = replace(s, first_candle_minutes=args.first_candle)
+    if args.vwap_filter:
+        s = replace(s, vwap_filter=args.vwap_filter == "on")
+    if args.bb_filter:
+        s = replace(s, bb_filter=args.bb_filter == "on")
+    if args.bb_band:
+        s = replace(s, bb_band=args.bb_band)
     if args.entry_candles:
         s = replace(s, entry_valid_candles=args.entry_candles)
     if args.top_n:
@@ -86,7 +95,8 @@ def main(argv=None, *, yahoo_get=None, master=None) -> int:
         except Exception as exc:                     # one bad symbol must not stop the run
             failed.append(f"{stock}: {exc}")
     series = {k: v for k, v in series.items() if v}
-    print(f"Open High Low backtest: {len(series)} stocks with {args.interval} candles, first candle to {s.scan_at}, entry in the next {s.entry_valid_candles} candle(s), top "
+    print(f"Open High Low backtest: {len(series)} stocks with {args.interval} candles, first candle to {s.scan_at}, entry in the next {s.entry_valid_candles} candle(s), VWAP filter "
+          f"{'ON' if s.vwap_filter else 'off'}, Bollinger filter {'ON (' + s.bb_band + ')' if s.bb_filter else 'off'}, top "
           f"{s.top_n}, tolerance {s.tolerance_pct}%, liquidity >= Rs {args.min_value_cr} cr traded the day before")
     if not series:
         print("No candles. Run the Gap Reversal backtest first, or add --source yahoo.")

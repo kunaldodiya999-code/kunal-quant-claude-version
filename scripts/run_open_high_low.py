@@ -12,7 +12,8 @@ What it does:
   1. Loads every F&O stock from FYERS' contract list.
   2. Quotes of every stock (spot) and its current-month future: open, high, low, price, volume.
      A stock where spot OR futures shows OPEN = LOW (long) or OPEN = HIGH (short) is a candidate.
-  3. For candidates: (setting "Both must agree": the other chart must agree too), then quotes of the 11 strikes (ATM, 5 ITM, 5 OTM)
+  3. For candidates: (setting "Both must agree": the other chart must agree too), the first-candle VWAP /
+     Bollinger filters when switched ON (1-minute candles of the last days), then quotes of the 11 strikes (ATM, 5 ITM, 5 OTM)
      of the nearest expiry, calls and puts: how many options show the same picture (calls open = low and
      puts open = high for a LONG; the opposite for a SHORT). Liquidity: futures traded value, ATM spread.
   4. The best 5 (most matches: spot + future + calls + puts, then liquidity) are shortlisted when the strategy is ON (dashboard); each one is
@@ -71,6 +72,14 @@ def today_minutes(client, symbol: str, now: datetime, days_back: int = 0) -> lis
     return [c for c in candles if c.timestamp + 60 <= cutoff]
 
 
+def recent_minutes(client, symbol: str, today, days: int = 7) -> list:
+    """1-minute candles of the last few sessions and today (first-candle VWAP and the Bollinger warm-up)."""
+    from paper_trading.warmup import parse_history_candles
+    return parse_history_candles(client.history(symbol, resolution="1",
+                                                range_from=(today - timedelta(days=days)).isoformat(),
+                                                range_to=today.isoformat()))
+
+
 def scan(client, master: dict, settings, today, *, pause: float = 0.12) -> tuple[list, dict, dict]:
     """Every F&O stock -> candidates (strategies.open_high_low.Candidate), plus symbols and lot sizes."""
     from market_data.sources.fyers_history import nearest_future
@@ -98,8 +107,19 @@ def scan(client, master: dict, settings, today, *, pause: float = 0.12) -> tuple
         price = (spot or fut).ltp
         atm = min(ladder, key=lambda r: (abs(r[0] - price), r[0])) if ladder else None
         options = [(k, option_q.get(ce), option_q.get(pe)) for k, ce, pe in ladder]
+        filters = None
+        if settings.vwap_filter or settings.bb_filter:                # first-candle VWAP / Bollinger (when ON)
+            from strategies.open_high_low import candle_filters, side_of as _side
+            chart = names["future"] if settings.instrument == "FUTURE" else names["spot"]
+            side = _side(spot, settings.tolerance_pct) or _side(fut, settings.tolerance_pct)
+            try:
+                filters = candle_filters(recent_minutes(client, chart, today), side, settings)
+            except Exception:                                          # no data: an ON filter refuses the stock
+                filters = {"vwap_ok": None, "bb_ok": None}
+            if pause:
+                time.sleep(pause)
         candidates.append(evaluate(stock, spot, fut, options, settings, atm_strike=atm[0] if atm else None,
-                                   atm_symbols=(atm[1], atm[2]) if atm else (None, None)))
+                                   atm_symbols=(atm[1], atm[2]) if atm else (None, None), filters=filters))
     return candidates, symbols, lots
 
 

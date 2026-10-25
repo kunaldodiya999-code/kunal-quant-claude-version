@@ -279,3 +279,43 @@ def test_no_breakout_means_no_trade_in_the_program(tmp_path, monkeypatch):
     status = run_day(tmp_path)
     (trade,) = status["trades"]
     assert trade["status"] == "NO ENTRY" and trade["pnl"] == 0 and trade["entry"] == ""
+
+
+def test_first_candle_vwap_and_bollinger_filters():
+    from dataclasses import replace
+    from strategies.open_high_low import candle_filters
+    s = OpenHighLowSettings()
+    assert (s.vwap_filter, s.bb_filter, s.bb_band) == (False, False, "UPPER")        # OFF by default
+    # two earlier days flat at 100 (5-min closes 100 +- 0.1), then today: a strong first candle 100 -> 101.5
+    prev = []
+    for d, day in enumerate((22, 23)):
+        t0 = int(datetime(2026, 10, day, 9, 15, tzinfo=IST).timestamp())
+        prev += [Candle(t0 + 60 * i, 100, 100.1, 99.9, 100 + (0.1 if i % 2 else -0.1), 1000) for i in range(375)]
+    today = [Candle(ts(9, 15) + 60 * i, 100 + 0.3 * i, 100.3 + 0.3 * i, 100 + 0.3 * i, 100.3 + 0.3 * i, 1000 + 500 * i)
+             for i in range(5)]
+    f = candle_filters(prev + today, "LONG", s)
+    assert f["vwap_ok"] and f["bb_ok"] and f["close"] == 101.5 and f["close"] > f["bb_upper"] > f["bb_mid"]
+    assert not candle_filters(prev + today, "SHORT", s)["vwap_ok"]
+    weak = [Candle(ts(9, 15) + 60 * i, 100, 100.15, 99.95, 100.0 + (0.12 if i == 4 else 0.05), 1000) for i in range(5)]
+    w = candle_filters(prev + weak, "LONG", s)
+    assert w["bb_ok"] is False and candle_filters(prev + weak, "LONG", replace(s, bb_band="MIDDLE"))["bb_ok"]
+    assert candle_filters(today, "LONG", s)["bb_ok"] is None                         # no earlier days: band unknown
+    # ON filters refuse the stock; OFF ignores them
+    spot, fut = q("S", 100, 101, 100, 100.8), q("F", 100.2, 101.2, 100.2, 101, vol=1_000_000)
+    on = replace(s, vwap_filter=True, bb_filter=True)
+    bad = {"vwap_ok": False, "bb_ok": None}
+    c = evaluate("AAA", spot, fut, ladder(9, 8), on, atm_strike=100.0, filters=bad)
+    assert not c.passes and any("not above VWAP" in r for r in c.reasons) and any("Bollinger unknown" in r
+                                                                                  for r in c.reasons)
+    assert evaluate("AAA", spot, fut, ladder(9, 8), s, atm_strike=100.0, filters=bad).passes
+    good = evaluate("AAA", spot, fut, ladder(9, 8), on, atm_strike=100.0, filters={"vwap_ok": True, "bb_ok": True})
+    assert good.passes and good.row()["above_vwap"] is True and good.row()["beyond_bb"] is True
+
+
+def test_program_applies_the_filters_when_switched_on(tmp_path):
+    vwap = run_day(tmp_path / "vwap", vwap_filter=True)               # AAA's first candle closes above its VWAP
+    assert [t["stock"] for t in vwap["trades"]] == ["AAA"]
+    row = next(r for r in vwap["scan"] if r["stock"] == "AAA")
+    assert row["above_vwap"] is True
+    bb = run_day(tmp_path / "bb", bb_filter=True)                     # the fake has no earlier days: band unknown
+    assert bb["trades"] == [] and "Bollinger unknown" in next(r for r in bb["scan"] if r["stock"] == "AAA")["why_not"]

@@ -10,6 +10,9 @@ Results are index points; "capture %" = total points kept / total best move in f
 
 Option-chart TSL needs historical option candles; it is compared live by the trading
 program's TSL comparison (paper_trading/tsl_shadow_lab.py) instead.
+
+``beta=True`` adds the BETA methods (research/tsl_beta.py: two-key, tightening Chandelier, R-ladder), marked
+BETA in every table; they are research only and never used by the live engine.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from market_data.day_quality import group_by_day
 from paper_trading.trade_management import TradeManagementSettings, TslTracker, bar_end, session_bars
 from paper_trading.tsl_methods import PRESETS
 from research.trade_outcomes import option_points_estimate, stats
+from research.tsl_beta import BETA_METHODS, run_signal_beta
 
 IST = ZoneInfo("Asia/Kolkata")
 WARMUP_DAYS = 3
@@ -72,7 +76,8 @@ def run_signal(signal, minutes_by_day: dict, days: list, *, preset: str, trigger
 
 def run(signals: Sequence, minutes: Sequence, *, presets: Iterable[str] = tuple(PRESETS),
         triggers: Iterable[str] = ("CLOSE", "TOUCH"), tsl_timeframes: Iterable[int] | None = None,
-        settings: TradeManagementSettings = TradeManagementSettings()) -> tuple[list[dict], list[dict]]:
+        settings: TradeManagementSettings = TradeManagementSettings(), beta: bool = False,
+        beta_params: dict | None = None) -> tuple[list[dict], list[dict]]:
     by_day = group_by_day(minutes)
     days = sorted(by_day)
     trades, summary = [], []
@@ -87,6 +92,13 @@ def run(signals: Sequence, minutes: Sequence, *, presets: Iterable[str] = tuple(
                         trades.append(row)
                         groups.setdefault((row["index"], row["timeframe"], row["tsl_timeframe"], preset, trigger),
                                           []).append(row)
+            for method in (BETA_METHODS if beta else ()):
+                row = run_signal_beta(sig, by_day, days, method=method, timeframe=int(tf), params=beta_params,
+                                      warmup_days=WARMUP_DAYS)
+                if row is not None:
+                    trades.append(row)
+                    groups.setdefault((row["index"], row["timeframe"], row["tsl_timeframe"], method, "BETA"),
+                                      []).append(row)
     for (index, tf, tsl_tf, preset, trigger), rows in sorted(groups.items()):
         st = stats([r["points"] for r in rows])
         summary.append({

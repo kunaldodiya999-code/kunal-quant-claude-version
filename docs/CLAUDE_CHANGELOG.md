@@ -3,6 +3,14 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: BETA trailing stops in the TSL Lab, Open High Low VWAP / Bollinger filters, 2026-10-25
+- `research/tsl_beta.py`: BETA two-key, tightening Chandelier, R-ladder (1R = the 30% premium stop as an index move);
+  TSL Lab includes them (`--no-beta` to skip), Research page labels them BETA. Not in the live engine. 17-day result
+  here: BETA tightening Chandelier best on 3-min (1,734 pts), BETA R-ladder on 5-min (1,089). 5-year run on the PC.
+- Open High Low: `vwap_filter`, `bb_filter`, `bb_band` (UPPER / MIDDLE), `candle_filters()`; live scan (fetches 1-min
+  history only when a filter is ON), backtest (`--vwap-filter`, `--bb-filter`, `--bb-band`), Settings tab. Outer
+  band filter improved both data sets; VWAP mixed.
+
 ## claude/affectionate-bardeen-3k5sls: Time Machine (odds off the chart), 2026-10-25
 - Checked github.com/Jakeschincariol/day-trader-skill (+ v1 trader-skill): genuine, MIT, 315/175 tests pass, works
   live on US stocks only (NY hours hard-coded, US symbols, Alpaca/IBKR). Not installed. Its Time Machine idea rebuilt.

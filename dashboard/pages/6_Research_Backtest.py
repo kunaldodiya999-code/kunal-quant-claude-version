@@ -15,6 +15,7 @@ from data.research import (  # noqa: E402
     tsl_lab_meta, tsl_lab_summary, tsl_lab_trades,
 )
 from paper_trading.trade_management import LABELS  # noqa: E402
+from research.tsl_beta import BETA_LABELS  # noqa: E402
 from theme import configure_page  # noqa: E402
 
 configure_page("Research Backtest")
@@ -108,11 +109,14 @@ with tsl_tab:
         st.caption(f"Source: {meta.get('source', '?')}, generated {meta.get('generated_at', '?')}. KTMI Uni Lite "
                    "signals, entry at the next minute, each TSL on the SPOT chart (same rules as live), forced exit "
                    "15:10. Index points. Capture = points kept / best move in favour. Option-chart TSLs are compared "
-                   "live on the Live Paper Trading page (tab 'TSL comparison').")
+                   "live on the Live Paper Trading page (tab 'TSL comparison'). Rows starting with BETA are test methods "
+                   "(two-key, tightening Chandelier, R-ladder): research only, never used by live trading; they "
+                   "include a -1R stop (the live 30% premium stop as an index move) and their premium part is "
+                   "estimated (ATM delta 0.5, no time decay).")
         indexes = sorted(summary["index"].unique())
         index = st.selectbox("Index", indexes, key="tsl_index")
         rows = summary[summary["index"] == index].copy()
-        rows["method"] = rows["method"].map(lambda m: LABELS.get(m, m))
+        rows["method"] = rows["method"].map(lambda m: LABELS.get(m, BETA_LABELS.get(m, m)))
         rows = rows.sort_values("total_points", ascending=False)
         best = rows.iloc[0]
         c1, c2, c3, c4 = st.columns(4)
