@@ -67,7 +67,7 @@ def ladder(long_calls, long_puts, side="LONG", n=11, base=95):
 
 def test_every_match_counts_and_liquidity_is_checked():
     s = OpenHighLowSettings()                     # owner defaults: one of spot / future enough, no minimum, 0.30%
-    assert (s.confirm, s.min_option_matches, s.max_atm_spread_pct) == ("EITHER", 0, 0.30)
+    assert (s.confirm, s.min_option_matches, s.max_atm_spread_pct) == ("EITHER", 0, 2.0)
     spot, fut = q("S", 100, 101, 100, 100.8), q("F", 100.2, 101.2, 100.2, 101, vol=1_000_000)
     c = evaluate("AAA", spot, fut, ladder(9, 8), s, atm_strike=100.0)
     assert (c.side, c.spot_ok, c.fut_ok, c.call_matches, c.put_matches) == ("LONG", True, True, 9, 8)
@@ -83,17 +83,24 @@ def test_every_match_counts_and_liquidity_is_checked():
                                                          atm_strike=100.0).reasons)
     thin = evaluate("CCC", spot, q("F", 100, 101, 100, 101, vol=1000), ladder(11, 11), s, atm_strike=100.0)
     assert not thin.passes and any("futures value" in r for r in thin.reasons)
-    wide = [(k, q("ce", 2, 2.6, 2, 2.5, 1000, 2.49, 2.5), pe) for k, _, pe in ladder(11, 11)]     # 0.40% spread
-    assert any("ATM spread 0.40% not below 0.3%" in r for r in evaluate("WWW", spot, fut, wide, s,
-                                                                         atm_strike=100.0).reasons)
+    # owner's example: buyers at 15, sellers at 20 = 28.6% of the middle price -> no real market, rejected
+    wide = [(k, q("ce", 2, 2.6, 2, 18, 1000, 15.0, 20.0), pe) for k, _, pe in ladder(11, 11)]
+    assert any("ATM spread 28.57% not below 2%" in r for r in evaluate("WWW", spot, fut, wide, s,
+                                                                        atm_strike=100.0).reasons)
+    nobid = [(k, q("ce", 2, 2.6, 2, 2.5, 1000, 0.0, 2.5), pe) for k, _, pe in ladder(11, 11)]
+    assert not evaluate("NNN", spot, fut, nobid, s, atm_strike=100.0).liquidity_ok          # no buyer at all
+    tight = OpenHighLowSettings(max_atm_spread_pct=0.30)
     # exactly 0.30% is NOT less than 0.30% (owner: strictly less); 0.25% passes
     exact = [(k, q("ce", 2, 2.6, 2, 20.0, 1000, 19.94, 20.0), q("pe", 2, 2, 1.5, 20.0, 1000, 19.95, 20.0))
              for k, _, _ in ladder(11, 11)]
-    assert not evaluate("XXX", spot, fut, exact, s, atm_strike=100.0).liquidity_ok
+    assert not evaluate("XXX", spot, fut, exact, tight, atm_strike=100.0).liquidity_ok
     under = [(k, q("ce", 2, 2.6, 2, 20.0, 1000, 19.95, 20.0), q("pe", 2, 2, 1.5, 20.0, 1000, 19.95, 20.0))
              for k, _, _ in ladder(11, 11)]
-    assert evaluate("YYY", spot, fut, under, s, atm_strike=100.0).liquidity_ok
-    assert evaluate("WWW", spot, fut, wide, OpenHighLowSettings(max_atm_spread_pct=0.50), atm_strike=100.0).passes
+    assert evaluate("YYY", spot, fut, under, tight, atm_strike=100.0).liquidity_ok
+    assert evaluate("ZZZ", spot, fut, [(k, q("ce", 2, 2.6, 2, 99.5, 1000, 99.0, 100.0),
+                                        q("pe", 2, 2, 1.5, 99.5, 1000, 99.0, 100.0)) for k, _, _ in ladder(1, 1)],
+                    s, atm_strike=100.0).liquidity_ok                                    # 1% < 2%: fine
+    assert not evaluate("WWW", spot, fut, wide, OpenHighLowSettings(max_atm_spread_pct=5.0), atm_strike=100.0).passes
     short = evaluate("EEE", q("S", 100, 100, 99, 99.2), q("F", 100, 100, 99, 99.3, vol=1e6),
                      ladder(11, 11, side="SHORT"), s, atm_strike=100.0)
     assert short.side == "SHORT" and short.matches == 24 and short.passes

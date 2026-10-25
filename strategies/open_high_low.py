@@ -9,8 +9,8 @@ Owner's rules (25 Oct 2026):
        LONG:  calls with open = low  (call premium only went up)   + puts with open = high (put only went down)
        SHORT: calls with open = high                              + puts with open = low
      No minimum (owner): every match counts. Matches = spot + future + calls + puts that agree (out of 24).
-  4. Liquidity of the F&O stock: futures traded value since the open, ATM option bid-ask spread (LESS THAN 0.30% of
-     the premium by default, switch to 0.50%), option volume.
+  4. Liquidity of the F&O stock: futures traded value since the open, ATM option bid-ask spread (LESS THAN 2% of the
+     middle price by default; 0.30% to 5% to choose), option volume.
   5. Everything is scanned when the FIRST candle closes (default 5 minutes: 09:15-09:20, scan at 09:20); the best
      ``top_n`` (5) by matches (then liquidity) are shortlisted.
   6. Entry (owner, 25 Oct): LONG when the NEXT candle (09:20-09:25) crosses above the first candle's HIGH, SHORT when
@@ -80,7 +80,8 @@ class OpenHighLowSettings:
     min_option_matches: int = 0           # no minimum (owner): more matching options rank higher
     top_n: int = 5                        # trades per day: the best N candidates
     min_fut_value_cr: float = 5.0         # liquidity: futures traded value since the open, Rs crore
-    max_atm_spread_pct: float = 0.30      # liquidity: ATM CE / PE bid-ask spread, % of premium, must be LESS than this (owner: 0.30 or 0.50)
+    max_atm_spread_pct: float = 2.0       # liquidity: ATM CE / PE (ask - bid) / middle price, % ; must be LESS than this
+                                          # (owner: 2% default; avoids e.g. bid 15 / ask 20 = 29%)
     min_option_volume: int = 0            # liquidity: total volume of the 22 options (contracts x lot), 0 = off
     instrument: str = "STOCK"
     capital_per_trade: float = 50_000.0   # STOCK: rupees per trade
@@ -255,9 +256,9 @@ class Candidate:
 
     @property
     def liquidity_score(self) -> float:
-        """0-100: futures traded value (Rs 20 crore = full) and a tight ATM spread (0% = full, 1% = none)."""
+        """0-100: futures traded value (Rs 20 crore = full) and a tight ATM spread (0% = full, 5% = none)."""
         value = min(1.0, self.fut_value_cr / 20.0)
-        spread = 0.0 if self.atm_spread_pct is None else max(0.0, 1.0 - self.atm_spread_pct)
+        spread = 0.0 if self.atm_spread_pct is None else max(0.0, 1.0 - self.atm_spread_pct / 5.0)
         return round(100 * (0.6 * value + 0.4 * spread), 1)
 
     def row(self) -> dict:
@@ -296,7 +297,9 @@ def evaluate(stock: str, spot: Optional[Quote], fut: Optional[Quote], options: S
     for strike, ce, pe in options:
         if atm_strike is not None and strike == atm_strike:
             atm_ltp = (ce.ltp if ce else None, pe.ltp if pe else None)
-            spreads = [(q.ask - q.bid) / q.ltp * 100 for q in (ce, pe) if q and q.ltp > 0 and q.ask > 0 and q.bid > 0]
+            # BOTH the ATM call and put need a real market (a buyer and a seller); one without = no spread
+            if all(q and q.ask > 0 and q.bid > 0 and q.ask >= q.bid for q in (ce, pe)):
+                spreads = [(q.ask - q.bid) / ((q.ask + q.bid) / 2) * 100 for q in (ce, pe)]
     atm_spread = max(spreads) if spreads else None
     volume = sum((q.volume if q else 0) for _, ce, pe in options for q in (ce, pe))
     liquid = True
@@ -305,7 +308,7 @@ def evaluate(stock: str, spot: Optional[Quote], fut: Optional[Quote], options: S
         reasons.append(f"futures value {fut_value:.1f} cr < {s.min_fut_value_cr:g}")
     if atm_spread is None or atm_spread >= s.max_atm_spread_pct - 1e-9:      # owner: strictly less than
         liquid = False
-        reasons.append("ATM spread " + ("unknown" if atm_spread is None else f"{atm_spread:.2f}%") +
+        reasons.append("ATM spread " + ("unknown (no buyer or no seller)" if atm_spread is None else f"{atm_spread:.2f}%") +
                        f" not below {s.max_atm_spread_pct:g}%")
     if s.min_option_volume and volume < s.min_option_volume:
         liquid = False

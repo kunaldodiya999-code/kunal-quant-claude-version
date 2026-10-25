@@ -3,6 +3,11 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: Open High Low spread relaxed to 2%, 2026-10-25
+- Owner: relax the spread, the concern is options with no real market (e.g. bid 15 / ask 20). Default: spread LESS
+  than 2% of the middle price ((ask - bid) / mid), dropdown 0.30 / 0.50 / 1 / 2 / 3 / 5%. BOTH ATM CE and PE must
+  have a bid and an ask (one without = rejected; before, a missing side was skipped).
+
 ## claude/affectionate-bardeen-3k5sls: Open High Low owner tuning, 2026-10-25
 - Spot / futures: "one is enough" (EITHER) is the default, BOTH is the stricter switch.
 - No minimum number of agreeing options (min_option_matches 0); ranking by matches = spot + future + calls + puts

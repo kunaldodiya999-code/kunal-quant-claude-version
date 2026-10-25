@@ -96,11 +96,14 @@ with settings_tab:
         l1, l2, l3 = st.columns(3)
         fut_cr = l1.number_input("Futures traded since the open, at least (Rs crore)", 0.0, 10_000.0,
                                  float(s.min_fut_value_cr), 1.0, key="oh_futcr")
-        spread_choices = (0.30, 0.50) if s.max_atm_spread_pct in (0.30, 0.50) else (0.30, 0.50, s.max_atm_spread_pct)
+        spread_choices = (0.30, 0.50, 1.0, 2.0, 3.0, 5.0)
+        if s.max_atm_spread_pct not in spread_choices:
+            spread_choices = tuple(sorted(set(spread_choices) | {s.max_atm_spread_pct}))
         spread = l2.selectbox("ATM CE / PE bid-ask spread, less than", spread_choices,
-                              index=spread_choices.index(s.max_atm_spread_pct), format_func=lambda v: f"less than {v:.2f}%",
-                              key="oh_spread", help="% of the option premium. With a tick of 0.05, a premium below "
-                                                    "Rs 16.7 can never be below 0.30% (Rs 10 for 0.50%).")
+                              index=spread_choices.index(s.max_atm_spread_pct), format_func=lambda v: f"less than {v:g}%",
+                              key="oh_spread", help="(ask - bid) / middle price. Example: bid 15, ask 20 = 29%: "
+                                                    "rejected. Bid 99, ask 100 = 1%: fine at 2%. No bid or no "
+                                                    "ask = no market: rejected.")
         opt_vol = l3.number_input("Total volume of the options, at least (0 = off)", 0, 10**9,
                                   int(s.min_option_volume), 1000, key="oh_optvol")
         st.markdown("**Trade**")
