@@ -7,7 +7,7 @@ Newest entry first. Test counts are real runs; "needs local DB" errors/skips are
 - Spot / futures: "one is enough" (EITHER) is the default, BOTH is the stricter switch.
 - No minimum number of agreeing options (min_option_matches 0); ranking by matches = spot + future + calls + puts
   (out of 24), then liquidity. Scan table and log show "matches 19/24".
-- ATM bid-ask spread limit 0.30% (dropdown 0.30% / 0.50%). Note: tick 0.05 -> premiums below Rs 16.7 cannot pass 0.30%.
+- ATM bid-ask spread must be strictly LESS than 0.30% (dropdown: less than 0.30% / 0.50%; exactly 0.30% fails). Note: tick 0.05 -> premiums below Rs 16.7 cannot pass 0.30%.
 
 ## claude/affectionate-bardeen-3k5sls: Open High Low breakout entry, 2026-10-25
 - Owner: after the conditions, wait for the first 5-min candle to close; enter when the next candle crosses its high

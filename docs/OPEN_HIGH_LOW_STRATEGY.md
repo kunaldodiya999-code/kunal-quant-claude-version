@@ -22,9 +22,9 @@ It never places real orders.
    Example: RELIANCE spot open = low, future not, 2 calls open = low, 4 puts open = high = **7/24**. A minimum can
    still be set ("Minimum options that must agree", default 0).
 5. Liquidity: the future must have traded at least **Rs 5 crore** since the open; the ATM call and put bid-ask
-   spread must be at most **0.30%** of the premium (owner; switch to **0.50%**); optional minimum option volume.
-   Note: option prices move in steps of 5 paise, so a premium below Rs 16.7 can never be within 0.30% (below Rs 10
-   for 0.50%). Cheap ATM options are therefore left out.
+   spread must be **less than 0.30%** of the premium (owner; switch to **less than 0.50%**); optional minimum option volume.
+   Note: option prices move in steps of 5 paise, so a premium of Rs 16.7 or less can never be below 0.30% (Rs 10 or
+   less for 0.50%). Cheap ATM options are therefore left out.
 6. The candidates that pass are ranked: **most matches** first, then liquidity. The **top 5** are shortlisted.
 7. **Entry (owner, 25 Oct):** LONG when the **next 5-minute candle** (09:20-09:25) crosses **above the first candle's
    high**; SHORT when it crosses **below the first candle's low**. Settings: the first candle's length (1-30 min) and

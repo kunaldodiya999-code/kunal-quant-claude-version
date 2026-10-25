@@ -90,8 +90,8 @@
 - Open High Low (owner 2026-10-25): `docs/OPEN_HIGH_LOW_STRATEGY.md`, `strategies/open_high_low.py`. F&O stocks;
   LONG open=low, SHORT open=high on spot OR future (owner: one is enough = EITHER default, BOTH = stricter switch);
   11 strikes (ATM, 5 ITM, 5 OTM) calls + puts: LONG = calls open=low + puts open=high (SHORT opposite); NO minimum,
-  every match counts: matches = spot + fut + calls + puts (/24); liquidity: futures value, ATM spread 0.30% (owner;
-  switch 0.50%); top 5 by matches then liquidity. Scan at the close of the first 5-min candle (09:20); entry when the NEXT candle
+  every match counts: matches = spot + fut + calls + puts (/24); liquidity: futures value, ATM spread LESS THAN 0.30% (owner;
+  switch < 0.50%); top 5 by matches then liquidity. Scan at the close of the first 5-min candle (09:20); entry when the NEXT candle
   crosses its high (LONG) / low (SHORT), owner 25 Oct (`breakout`; cancelled if price passes the open first). OFF by default. Instrument STOCK / FUTURE / OPTION (buy CE / PE).
   `scripts/run_open_high_low.py` (--scan-only), page "Open High Low", registry OPEN_HIGH_LOW (deploy = its enabled).
   Backtest spot-only (no free stock F&O history). Shared post-entry engine `strategies/trade_sim.py` (Gap Reversal too).

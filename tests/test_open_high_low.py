@@ -84,7 +84,15 @@ def test_every_match_counts_and_liquidity_is_checked():
     thin = evaluate("CCC", spot, q("F", 100, 101, 100, 101, vol=1000), ladder(11, 11), s, atm_strike=100.0)
     assert not thin.passes and any("futures value" in r for r in thin.reasons)
     wide = [(k, q("ce", 2, 2.6, 2, 2.5, 1000, 2.49, 2.5), pe) for k, _, pe in ladder(11, 11)]     # 0.40% spread
-    assert any("ATM spread 0.40% > 0.3%" in r for r in evaluate("WWW", spot, fut, wide, s, atm_strike=100.0).reasons)
+    assert any("ATM spread 0.40% not below 0.3%" in r for r in evaluate("WWW", spot, fut, wide, s,
+                                                                         atm_strike=100.0).reasons)
+    # exactly 0.30% is NOT less than 0.30% (owner: strictly less); 0.25% passes
+    exact = [(k, q("ce", 2, 2.6, 2, 20.0, 1000, 19.94, 20.0), q("pe", 2, 2, 1.5, 20.0, 1000, 19.95, 20.0))
+             for k, _, _ in ladder(11, 11)]
+    assert not evaluate("XXX", spot, fut, exact, s, atm_strike=100.0).liquidity_ok
+    under = [(k, q("ce", 2, 2.6, 2, 20.0, 1000, 19.95, 20.0), q("pe", 2, 2, 1.5, 20.0, 1000, 19.95, 20.0))
+             for k, _, _ in ladder(11, 11)]
+    assert evaluate("YYY", spot, fut, under, s, atm_strike=100.0).liquidity_ok
     assert evaluate("WWW", spot, fut, wide, OpenHighLowSettings(max_atm_spread_pct=0.50), atm_strike=100.0).passes
     short = evaluate("EEE", q("S", 100, 100, 99, 99.2), q("F", 100, 100, 99, 99.3, vol=1e6),
                      ladder(11, 11, side="SHORT"), s, atm_strike=100.0)

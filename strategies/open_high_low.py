@@ -9,7 +9,7 @@ Owner's rules (25 Oct 2026):
        LONG:  calls with open = low  (call premium only went up)   + puts with open = high (put only went down)
        SHORT: calls with open = high                              + puts with open = low
      No minimum (owner): every match counts. Matches = spot + future + calls + puts that agree (out of 24).
-  4. Liquidity of the F&O stock: futures traded value since the open, ATM option bid-ask spread (at most 0.30% of
+  4. Liquidity of the F&O stock: futures traded value since the open, ATM option bid-ask spread (LESS THAN 0.30% of
      the premium by default, switch to 0.50%), option volume.
   5. Everything is scanned when the FIRST candle closes (default 5 minutes: 09:15-09:20, scan at 09:20); the best
      ``top_n`` (5) by matches (then liquidity) are shortlisted.
@@ -80,7 +80,7 @@ class OpenHighLowSettings:
     min_option_matches: int = 0           # no minimum (owner): more matching options rank higher
     top_n: int = 5                        # trades per day: the best N candidates
     min_fut_value_cr: float = 5.0         # liquidity: futures traded value since the open, Rs crore
-    max_atm_spread_pct: float = 0.30      # liquidity: ATM CE / PE bid-ask spread, % of premium (owner: 0.30 or 0.50)
+    max_atm_spread_pct: float = 0.30      # liquidity: ATM CE / PE bid-ask spread, % of premium, must be LESS than this (owner: 0.30 or 0.50)
     min_option_volume: int = 0            # liquidity: total volume of the 22 options (contracts x lot), 0 = off
     instrument: str = "STOCK"
     capital_per_trade: float = 50_000.0   # STOCK: rupees per trade
@@ -303,10 +303,10 @@ def evaluate(stock: str, spot: Optional[Quote], fut: Optional[Quote], options: S
     if fut_value < s.min_fut_value_cr:
         liquid = False
         reasons.append(f"futures value {fut_value:.1f} cr < {s.min_fut_value_cr:g}")
-    if atm_spread is None or atm_spread > s.max_atm_spread_pct:
+    if atm_spread is None or atm_spread >= s.max_atm_spread_pct - 1e-9:      # owner: strictly less than
         liquid = False
         reasons.append("ATM spread " + ("unknown" if atm_spread is None else f"{atm_spread:.2f}%") +
-                       f" > {s.max_atm_spread_pct:g}%")
+                       f" not below {s.max_atm_spread_pct:g}%")
     if s.min_option_volume and volume < s.min_option_volume:
         liquid = False
         reasons.append(f"option volume {volume:.0f} < {s.min_option_volume}")
