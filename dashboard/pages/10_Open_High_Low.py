@@ -23,10 +23,11 @@ configure_page("Open High Low")
 st.title("Open High Low")
 os_ = store()
 s = os_.settings
-st.caption(f"At {s.scan_at}: F&O stocks with OPEN = LOW (LONG) or OPEN = HIGH (SHORT) on the stock and its future, "
-           f"then {2 * s.strikes_each_side + 1} strikes of calls and puts (ATM, {s.strikes_each_side} ITM, "
-           f"{s.strikes_each_side} OTM) must show the same picture, and the stock must be liquid. The best {s.top_n} "
-           "are paper-traded. Research and paper only.")
+st.caption(f"When the first {s.first_candle_minutes}-minute candle closes ({s.scan_at}): F&O stocks with OPEN = LOW "
+           f"(LONG) or OPEN = HIGH (SHORT) on the stock and its future, then {2 * s.strikes_each_side + 1} strikes of "
+           f"calls and puts (ATM, {s.strikes_each_side} ITM, {s.strikes_each_side} OTM) must show the same picture, and "
+           f"the stock must be liquid. The best {s.top_n} are shortlisted; each is entered when the next candle crosses "
+           "the first candle's HIGH (LONG) / LOW (SHORT). Research and paper only.")
 if s.enabled:
     st.success(f"Strategy ON: the program paper-trades the top {s.top_n} ({s.instrument}).", icon="✅")
 else:
@@ -48,7 +49,9 @@ with today_tab:
         c3.metric("Paper trades", len(live["trades"]))
         c4.metric("Paper P&L", f"₹{live['day_pnl']:,.0f}")
         st.caption(f"Scanned at {live.get('scanned_at') or '-'}; updated {live['updated_at']} IST. "
-                   "calls / puts = how many of the 11 strikes show the same picture.")
+                   "calls / puts = how many of the 11 strikes show the same picture. Trades: WAITING = for the "
+                   "breakout of the first candle; NO ENTRY = the next candle did not cross; CANCELLED = price went "
+                   "past the open first.")
         if scan:
             st.markdown("**Scan (selected first)**")
             st.dataframe(pd.DataFrame(scan), hide_index=True, width="stretch", column_config={
@@ -68,11 +71,16 @@ with settings_tab:
         st.markdown("**Scan**")
         a1, a2, a3, a4, a5 = st.columns(5)
         enabled = a1.checkbox("Strategy ON (paper trades)", value=s.enabled, key="oh_enabled")
-        scan_at = a2.text_input("Scan at (HH:MM)", s.scan_at, key="oh_scan_at")
+        first = a2.selectbox("First candle (minutes)", (1, 3, 5, 10, 15, 30),
+                             index=(1, 3, 5, 10, 15, 30).index(s.first_candle_minutes), key="oh_first",
+                             help="The scan is at its close (5 minutes = 09:20).")
         confirm = a3.selectbox("Spot and futures", CONFIRM, index=CONFIRM.index(s.confirm), key="oh_confirm",
                                format_func={"BOTH": "Both must agree", "EITHER": "One is enough"}.get)
         top_n = a4.number_input("Trade the top", 1, 50, int(s.top_n), 1, key="oh_top")
         exit_time = a5.text_input("Flat by (HH:MM)", s.exit_time, key="oh_exit")
+        entry_candles = st.number_input("Entry: the next N candles may cross the first candle's high / low "
+                                        "(1 = only the next candle)", 1, 20, int(s.entry_valid_candles), 1,
+                                        key="oh_entry_candles")
         b1, b2, b3, b4, b5 = st.columns(5)
         tol = b1.number_input("Open = low/high within % (stock, future)", 0.0, 2.0, float(s.tolerance_pct), 0.01,
                               format="%.2f", key="oh_tol")
@@ -135,7 +143,8 @@ with settings_tab:
                                "tsl_trigger": trig, "method_params": tsl_params}
         if st.form_submit_button("Save Open High Low settings"):
             try:
-                os_.update(enabled=enabled, scan_at=scan_at.strip(), confirm=confirm, top_n=int(top_n),
+                os_.update(enabled=enabled, first_candle_minutes=int(first), entry_valid_candles=int(entry_candles),
+                           confirm=confirm, top_n=int(top_n),
                            exit_time=exit_time.strip(), tolerance_pct=float(tol), option_tolerance_pct=float(otol),
                            strikes_each_side=int(each), min_option_matches=int(min_opt),
                            min_days_to_expiry=int(min_days), min_fut_value_cr=float(fut_cr),
@@ -160,7 +169,7 @@ with backtest_tab:
                 "option checks are NOT in this test. Instead of the option score, candidates are ranked by "
                 "liquidity (rupees traded the day before). The live program saves the full scan every day.")
         st.caption(f"{meta.get('stocks', '?')} stocks, {meta.get('first_day', '?')} to {meta.get('last_day', '?')}, "
-                   f"scan at {(meta.get('settings') or {}).get('scan_at', '?')}, top "
+                   f"first candle to {(meta.get('settings') or {}).get('scan_at', '?')}, top "
                    f"{(meta.get('settings') or {}).get('top_n', '?')}, Rs {float(meta.get('capital_per_trade', 50000)):,.0f}"
                    " per entry, net = after estimated charges.")
         summary = backtest("summary", interval)

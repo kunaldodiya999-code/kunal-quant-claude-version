@@ -3,8 +3,9 @@
 Honest scope: free history has no stock-futures or stock-option candles (and FYERS keeps no expired
 options), so this tests the SPOT part of the rule: at ``scan_at`` the stock's open equals its low (LONG)
 or its high (SHORT), within the tolerance. Instead of the option score, the day's candidates are ranked
-by liquidity (rupees traded in the stock the previous day) and the best ``top_n`` are traded: entry at the scan price,
-stop at the day's low / high plus the buffer, every exit plan (fixed 1:1.5 .. 1:3 and TSL-only per
+by liquidity (rupees traded in the stock the previous day) and the best ``top_n`` are shortlisted; each one is
+entered when the next candle breaks the first candle's high (LONG) / low (SHORT) (the same ``breakout`` rule as
+the live desk), stop at the day's low / high plus the buffer, every exit plan (fixed 1:1.5 .. 1:3 and TSL-only per
 preset), Rs ``capital_per_trade`` per entry, estimated intraday charges. The live program records the
 futures and options checks every day, so the full rule can be judged from the paper journal.
 """
@@ -21,7 +22,7 @@ from market_data.day_quality import group_by_day
 from paper_trading.trade_management import session_bars
 from research.gap_reversal_backtest import _stats, default_exits, exit_label
 from strategies.gap_reversal import GapReversalSettings
-from strategies.open_high_low import OpenHighLowSettings, Quote, side_of
+from strategies.open_high_low import OpenHighLowSettings, Quote, breakout, side_of
 from strategies.trade_sim import manage_trade, step_of
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -78,21 +79,20 @@ def run(series: dict[str, Sequence], s: OpenHighLowSettings, *, min_value_cr: fl
                 continue
             chosen = rank <= s.top_n
             q = c["quote"]
+            mins = c["minutes"]
+            b = breakout(mins, c["side"], s) if chosen else {"state": ""}
             candidates.append({"symbol": c["symbol"], "day": day.isoformat(), "side": c["side"], "open": q.open,
                                "high": q.high, "low": q.low, "price": q.ltp, "value_cr": round(c["value_cr"], 2),
-                               "rank": rank, "traded": chosen})
-            if not chosen:
+                               "rank": rank, "shortlisted": chosen, "entry": b["state"]})
+            if b["state"] != "ENTERED":
                 continue
-            mins = c["minutes"]
             bars = session_bars(mins, s.timeframe, now=mins[-1].timestamp + step_of(mins))
-            buf = s.side(c["side"]).sl_buffer_pct / 100
-            stop = q.low * (1 - buf) if c["side"] == "LONG" else q.high * (1 + buf)
             for label, plan in exits:
-                out = manage_trade(side=c["side"], entry=q.ltp, entry_ts=c["entry_ts"], stop=stop, plan=plan,
+                out = manage_trade(side=c["side"], entry=b["entry"], entry_ts=b["entry_ts"], stop=b["stop"], plan=plan,
                                    bars=bars, minutes=mins, exit_time=s.exit_time, stop_label="day's low / high")
                 if out is None:
                     continue
-                qty = int(capital_per_trade // q.ltp)
+                qty = int(capital_per_trade // b["entry"])
                 gross = out.points * qty
                 charges = intraday_charges(out.entry, out.exit, qty, out.side)
                 trades.append({"symbol": c["symbol"], "day": day.isoformat(), "side": out.side, "rank": rank,

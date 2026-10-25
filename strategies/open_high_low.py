@@ -9,11 +9,14 @@ Owner's rules (25 Oct 2026):
        SHORT: calls with open = high                              + puts with open = low
      Score = matching options out of 22.
   4. Liquidity of the F&O stock: futures traded value since the open, ATM option bid-ask spread, option volume.
-  5. Everything is scanned at ``scan_at`` (default 09:20, after the first 5 minutes); the best ``top_n`` (5)
-     by option score (then liquidity) are traded.
+  5. Everything is scanned when the FIRST candle closes (default 5 minutes: 09:15-09:20, scan at 09:20); the best
+     ``top_n`` (5) by option score (then liquidity) are shortlisted.
+  6. Entry (owner, 25 Oct): LONG when the NEXT candle (09:20-09:25) crosses above the first candle's HIGH, SHORT when
+     it crosses below its LOW (``entry_valid_candles`` = how many candles may give the entry, default 1). Before the
+     breakout, a LONG is cancelled if price goes below the open (open = low broken); a SHORT if it goes above.
 Trade: instrument = STOCK (intraday, default), FUTURE (1 lot) or OPTION (buy 1 lot ATM CE for LONG, ATM PE for
-SHORT: owner rule, bearish = BUY PUT, never sell options). Stop = the day's low (LONG) / high (SHORT) minus /
-plus a buffer, on the spot (STOCK, OPTION) or futures chart (FUTURE). Exit = the shared exit plan
+SHORT: owner rule, bearish = BUY PUT, never sell options). Entry at the first candle's high (low), or at the
+minute's open if price jumped past it. Stop = the day's low (LONG) / high (SHORT) at the entry minus / plus a buffer, on the spot (STOCK, OPTION) or futures chart (FUTURE). Exit = the shared exit plan
 (strategies/exit_plan.py): Reward 1:[box] or empty = TSL. Flat by 15:10.
 
 "Equal" uses a tolerance (settings): open within 0.05% of the low counts as open = low (stocks); options 0.5%
@@ -62,7 +65,9 @@ class OHOLSide:
 @dataclass(frozen=True)
 class OpenHighLowSettings:
     enabled: bool = False                 # OFF by default: run it when needed
-    scan_at: str = "09:20"                # the scan (after the first 5 minutes)
+    first_candle_minutes: int = 5         # the first candle (09:15-09:20); the scan is at its close
+    entry_valid_candles: int = 1          # entry only in the next N candles of that size after it (owner: the next one)
+    scan_at: str = "09:20"                # = 09:15 + first_candle_minutes (set automatically)
     exit_time: str = "15:10"
     timeframe: int = 5                    # TSL candles
     confirm: str = "BOTH"                 # spot AND futures must agree (EITHER: one is enough)
@@ -86,8 +91,12 @@ class OpenHighLowSettings:
             object.__setattr__(self, "long", OHOLSide(**self.long))
         if isinstance(self.short, dict):
             object.__setattr__(self, "short", OHOLSide(**self.short))
-        if not time(9, 16) <= time.fromisoformat(self.scan_at) < time.fromisoformat(self.exit_time):
-            raise ValueError("scan_at must be from 09:16 and before exit_time")
+        if self.first_candle_minutes not in (1, 3, 5, 10, 15, 30) or self.entry_valid_candles < 1:
+            raise ValueError("first_candle_minutes must be 1, 3, 5, 10, 15 or 30; entry_valid_candles at least 1")
+        minutes = 15 + self.first_candle_minutes
+        object.__setattr__(self, "scan_at", f"{9 + minutes // 60:02d}:{minutes % 60:02d}")
+        if not time.fromisoformat(self.scan_at) < time.fromisoformat(self.exit_time):
+            raise ValueError("the first candle must close before exit_time")
         if self.confirm not in CONFIRM:
             raise ValueError(f"confirm must be one of {CONFIRM}")
         if self.instrument not in INSTRUMENTS:
@@ -299,6 +308,48 @@ def select_top(candidates: Sequence[Candidate], s: OpenHighLowSettings) -> list[
     return sorted(ok, key=lambda c: (-c.option_matches, -c.liquidity_score, c.stock))[:s.top_n]
 
 
+def breakout(minutes: Sequence, side: str, s: OpenHighLowSettings) -> dict:
+    """The owner's entry on one chart's 1-minute candles of the day (5-minute candles work too).
+
+    First candle = 09:15 to the scan time. Trigger = its high (LONG) / low (SHORT). Entry = the first minute of the
+    next ``entry_valid_candles`` candles that trades beyond the trigger, at the trigger (or that minute's open if it
+    opened beyond it). Cancelled when, before that, price goes below the open (LONG) / above it (SHORT).
+    Returns {"state": WAITING / ENTERED / CANCELLED / NO ENTRY, "trigger", "open", "entry", "entry_ts", "stop"}."""
+    if not minutes:
+        return {"state": "WAITING", "trigger": None, "open": None}
+    day = datetime.fromtimestamp(minutes[0].timestamp, IST).date()
+    start = int(datetime.combine(day, time(9, 15), tzinfo=IST).timestamp())
+    first_end = start + s.first_candle_minutes * 60
+    window_end = first_end + s.entry_valid_candles * s.first_candle_minutes * 60
+    first = [m for m in minutes if start <= m.timestamp < first_end]
+    if not first:
+        return {"state": "WAITING", "trigger": None, "open": None}
+    day_open = first[0].open
+    long = side == "LONG"
+    trigger = max(m.high for m in first) if long else min(m.low for m in first)
+    out = {"state": "WAITING", "trigger": trigger, "open": day_open, "first_end": first_end, "window_end": window_end}
+    limit = day_open * (1 - s.tolerance_pct / 100) if long else day_open * (1 + s.tolerance_pct / 100)
+    step = 60
+    if len(minutes) > 1:
+        step = min((b.timestamp - a.timestamp for a, b in zip(minutes, minutes[1:]) if b.timestamp > a.timestamp),
+                   default=60)
+    seen_low, seen_high = min(m.low for m in first), max(m.high for m in first)
+    for m in (x for x in minutes if first_end <= x.timestamp < window_end):
+        crossed = m.high > trigger if long else m.low < trigger
+        if crossed:
+            entry = max(trigger, m.open) if long else min(trigger, m.open)
+            seen_low, seen_high = min(seen_low, m.low), max(seen_high, m.high)
+            buf = s.side(side).sl_buffer_pct / 100
+            stop = seen_low * (1 - buf) if long else seen_high * (1 + buf)
+            return {**out, "state": "ENTERED", "entry": entry, "entry_ts": m.timestamp, "stop": stop}
+        if (m.low < limit) if long else (m.high > limit):
+            return {**out, "state": "CANCELLED", "cancelled_at": m.timestamp}
+        seen_low, seen_high = min(seen_low, m.low), max(seen_high, m.high)
+    if minutes[-1].timestamp + step >= window_end:
+        return {**out, "state": "NO ENTRY"}
+    return out
+
+
 def levels(c: Candidate, s: OpenHighLowSettings) -> tuple[float, float]:
     """(entry, stop) on the chart the trade is managed on (futures for FUTURE, spot otherwise)."""
     q = c.fut if s.instrument == "FUTURE" else c.spot
@@ -308,6 +359,6 @@ def levels(c: Candidate, s: OpenHighLowSettings) -> tuple[float, float]:
 
 
 __all__ = [
-    "CONFIRM", "Candidate", "INSTRUMENTS", "OHOLSide", "OpenHighLowSettings", "OpenHighLowStore", "Quote", "condition",
+    "CONFIRM", "Candidate", "INSTRUMENTS", "breakout", "OHOLSide", "OpenHighLowSettings", "OpenHighLowStore", "Quote", "condition",
     "evaluate", "levels", "open_is_high", "open_is_low", "option_lot", "option_strikes", "select_top", "side_of",
 ]

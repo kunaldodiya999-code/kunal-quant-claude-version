@@ -119,7 +119,8 @@ OFF by default = marking only). Paper only, never real orders.
 
 ## Open High Low scanner (stocks; OFF by default, run it when you want it)
 
-Open = low (long) / open = high (short) on the stock and its future, confirmed by 22 options, top 5 traded on paper
+Open = low (long) / open = high (short) on the stock and its future, confirmed by 22 options, top 5 shortlisted at
+09:20, each entered when the next 5-minute candle breaks the first candle's high (long) / low (short), on paper
 (full guide: `docs/OPEN_HIGH_LOW_STRATEGY.md`). Folder `C:\Users\USER\Desktop\Kunal\kunal-quant-claude-version`,
 `(.venv)` active, after the FYERS login, before 09:20:
 

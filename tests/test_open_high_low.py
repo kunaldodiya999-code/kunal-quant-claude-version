@@ -99,7 +99,9 @@ def test_settings_store_and_checks(tmp_path):
     store.update(top_n=3, instrument="OPTION", long={"target_rr": None, "tsl_method": "PSAR_0.04_0.04_0.10"})
     again = OpenHighLowStore(tmp_path).settings
     assert again.top_n == 3 and again.instrument == "OPTION" and again.long.exit_plan().uses_tsl
-    for bad in ({"confirm": "MAYBE"}, {"instrument": "CRYPTO"}, {"scan_at": "09:10"}, {"min_option_matches": 40}):
+    assert OpenHighLowSettings(first_candle_minutes=15).scan_at == "09:30"
+    for bad in ({"confirm": "MAYBE"}, {"instrument": "CRYPTO"}, {"first_candle_minutes": 7}, {"entry_valid_candles": 0},
+                {"min_option_matches": 40}):
         with pytest.raises(ValueError):
             OpenHighLowSettings(**bad)
 
@@ -183,9 +185,11 @@ def test_program_scans_at_0920_and_paper_trades_the_top_candidate(tmp_path):
     assert scan["AAA"]["selected"] and scan["AAA"]["calls"] == 9 and scan["AAA"]["puts"] == 8
     assert not scan["BBB"]["passes"] and "disagree" in scan["BBB"]["why_not"]
     (trade,) = status["trades"]
-    assert trade["action"] == "PAPER BUY" and trade["symbol"] == "NSE:AAA-EQ" and trade["entry"] == 100.8
-    assert trade["stop"] == pytest.approx(99.8) and trade["quantity"] == int(50_000 // 100.8)
-    assert trade["status"] == "TARGET" and trade["exit"] == pytest.approx(102.8) and trade["pnl"] > 0
+    # first candle 09:15-09:20: high 100.81; the 09:20 minute crosses it -> entry at 100.81, stop below the open
+    assert trade["action"] == "PAPER BUY" and trade["symbol"] == "NSE:AAA-EQ" and trade["trigger"] == 100.81
+    assert trade["entry"] == 100.81 and trade["entry_time"] == "09:20"
+    assert trade["stop"] == pytest.approx(99.8) and trade["quantity"] == int(50_000 // 100.81)
+    assert trade["status"] == "TARGET" and trade["exit"] == pytest.approx(102.83) and trade["pnl"] > 0
 
 
 def test_switched_off_or_scan_only_never_trades(tmp_path):
@@ -197,6 +201,53 @@ def test_switched_off_or_scan_only_never_trades(tmp_path):
 def test_option_instrument_buys_the_atm_call_and_counts_premium(tmp_path):
     status = run_day(tmp_path, instrument="OPTION")
     (trade,) = status["trades"]
-    assert trade["action"] == "PAPER BUY CE" and trade["symbol"] == "NSE:AAA26OCT101CE" and trade["entry"] == 2.5
+    # entered at the 09:20 breakout of the stock: premium of that minute = 2.5 + 0.03 x 5
+    assert trade["action"] == "PAPER BUY CE" and trade["symbol"] == "NSE:AAA26OCT101CE" and trade["entry"] == 2.65
     assert trade["quantity"] == 500 and trade["status"] == "TARGET"           # levels on the stock chart
-    assert trade["exit"] > 2.5 and trade["pnl"] == pytest.approx((trade["exit"] - 2.5) * 500, abs=0.01)
+    assert trade["exit"] > 2.65 and trade["pnl"] == pytest.approx((trade["exit"] - 2.65) * 500, abs=0.01)
+
+
+def minutes_from(prices, start=(9, 15)):
+    """1-minute candles from (open, high, low, close) rows starting at 09:15."""
+    return [Candle(ts(*start) + 60 * i, *row) for i, row in enumerate(prices)]
+
+
+def test_breakout_entry_rules():
+    from strategies.open_high_low import breakout
+    s = OpenHighLowSettings()
+    first = [(100, 100.5, 100, 100.4), (100.4, 100.9, 100.3, 100.8), (100.8, 101.0, 100.6, 100.7),
+             (100.7, 100.8, 100.5, 100.6), (100.6, 100.7, 100.4, 100.5)]          # 09:15-09:19, high 101.0
+    # still inside the first candle: waiting
+    assert breakout(minutes_from(first[:3]), "LONG", s)["state"] == "WAITING"
+    # the next candle crosses 101.0 at 09:22 -> entry at 101.0, stop 0.2% below the day's low (100)
+    up = first + [(100.5, 100.8, 100.4, 100.7), (100.7, 100.9, 100.6, 100.8), (100.9, 101.3, 100.9, 101.2)]
+    b = breakout(minutes_from(up), "LONG", s)
+    assert b["state"] == "ENTERED" and b["entry"] == 101.0 and b["entry_ts"] == ts(9, 22)
+    assert b["stop"] == pytest.approx(100.0 * 0.998)
+    # opened above the trigger: entry at that minute's open
+    gap = first + [(101.4, 101.6, 101.3, 101.5)]
+    assert breakout(minutes_from(gap), "LONG", s)["entry"] == 101.4
+    # price goes below the open (100) before the breakout: cancelled
+    broke = first + [(100.5, 100.6, 99.8, 99.9), (99.9, 101.5, 99.9, 101.4)]
+    assert breakout(minutes_from(broke), "LONG", s)["state"] == "CANCELLED"
+    # the next candle (09:20-09:24) never crosses: no entry, even if 09:26 crosses later
+    late = first + [(100.5, 100.8, 100.4, 100.7)] * 5 + [(100.7, 101.5, 100.7, 101.4)] * 2
+    assert breakout(minutes_from(late), "LONG", s)["state"] == "NO ENTRY"
+    from dataclasses import replace
+    two = breakout(minutes_from(late), "LONG", replace(s, entry_valid_candles=2))
+    assert two["state"] == "ENTERED" and two["entry_ts"] == ts(9, 25)
+    # SHORT: the mirror (break below the first candle's low)
+    down = [(100, 100, 99.5, 99.6), (99.6, 99.8, 99.2, 99.3), (99.3, 99.6, 99.1, 99.5), (99.5, 99.7, 99.3, 99.4),
+            (99.4, 99.6, 99.3, 99.5), (99.5, 99.6, 99.0, 99.1)]
+    sb = breakout(minutes_from(down), "SHORT", s)
+    assert sb["state"] == "ENTERED" and sb["entry"] == 99.1 and sb["stop"] == pytest.approx(100.0 * 1.002)
+
+
+def test_no_breakout_means_no_trade_in_the_program(tmp_path, monkeypatch):
+    from tests import test_open_high_low as mod
+    flat = lambda self, symbol, **kw: {"s": "ok", "candles": [[ts(9, 15) + 60 * i, 100.4, 100.6, 100.4, 100.5, 10]
+                                                               for i in range(60)]}   # noqa: E731
+    monkeypatch.setattr(mod.FakeClient, "history", flat)
+    status = run_day(tmp_path)
+    (trade,) = status["trades"]
+    assert trade["status"] == "NO ENTRY" and trade["pnl"] == 0 and trade["entry"] == ""

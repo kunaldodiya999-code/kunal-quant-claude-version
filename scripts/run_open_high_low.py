@@ -3,7 +3,8 @@
 Run from C:\\Users\\USER\\Desktop\\Kunal\\kunal-quant-claude-version (own window, after the FYERS login):
 
     python scripts\\run_open_high_low.py
-        waits for the scan time (default 09:20), scans once, paper-trades the top 5, follows them to 15:10
+        waits for the first 5-minute candle to close (09:20), scans once, shortlists the top 5, enters each one
+        when the next candle breaks the first candle's high (long) / low (short), follows them to 15:10
     python scripts\\run_open_high_low.py --scan-only
         scan now (or at the scan time), show the list, no trades, stop
 
@@ -14,7 +15,8 @@ What it does:
   3. For candidates: the other chart must agree (setting), then quotes of the 11 strikes (ATM, 5 ITM, 5 OTM)
      of the nearest expiry, calls and puts: how many options show the same picture (calls open = low and
      puts open = high for a LONG; the opposite for a SHORT). Liquidity: futures traded value, ATM spread.
-  4. The best 5 (option score, then liquidity) are paper-traded when the strategy is ON (dashboard).
+  4. The best 5 (option score, then liquidity) are shortlisted when the strategy is ON (dashboard); each one is
+     entered when the next candle crosses the first candle's high (LONG) / low (SHORT); none if it does not.
   5. Every minute: the trades' 1-minute candles, stop / target / TSL, status for the dashboard page
      "Open High Low" (data\\open_high_low\\status.json).
 """
@@ -147,8 +149,9 @@ def main(argv=None, *, client=None, clock=None, sleep=time.sleep, master=None) -
         say("No paper trades." if not args.scan_only else "Scan only: done.")
         say(f"Saved in {folder}")
         return 0
-    for t in status["trades"]:
-        say(f"PAPER {t['action']} {t['symbol']} qty {t['quantity']} at {t['entry']} (stop {t['stop']})")
+    say("Shortlist (waiting for the breakout of the first candle): " + ", ".join(
+        f"{t['stock']} {t['side']}" for t in status["trades"]))
+    entered = set()
     stop_at = dtime.fromisoformat(args.stop_at)
     seen = None
     while clock().time() < stop_at:
@@ -164,8 +167,14 @@ def main(argv=None, *, client=None, clock=None, sleep=time.sleep, master=None) -
                 except Exception as exc:              # one symbol must not stop the program
                     say(f"{stock}: not updated ({exc})")
             status = desk.write_status(int(now.timestamp()))
-            open_ = [t for t in status["trades"] if t["status"] == "OPEN"]
-            say(f"Trades open {len(open_)}/{len(status['trades'])}, paper P&L Rs {status['day_pnl']:,.0f}")
+            for t in status["trades"]:
+                if t["entry_epoch"] and t["stock"] not in entered:
+                    entered.add(t["stock"])
+                    say(f"PAPER {t['action']} {t['symbol']} qty {t['quantity']} at {t['entry']} "
+                        f"(broke {t['trigger']}, stop {t['stop']})")
+            states = [t["status"] for t in status["trades"]]
+            say(f"Waiting {states.count('WAITING')}, open {states.count('OPEN')}, done "
+                f"{len(states) - states.count('WAITING') - states.count('OPEN')}; paper P&L Rs {status['day_pnl']:,.0f}")
         sleep(args.every)
     desk.write_status(int(clock().timestamp()))
     say(f"Saved in {folder}")

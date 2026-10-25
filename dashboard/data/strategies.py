@@ -23,7 +23,7 @@ def exit_plan_text(key: str) -> str:
         return f"SHORT: {s.short.exit_plan().describe()} | LONG: {s.long.exit_plan().describe()}"
     if key == "OPEN_HIGH_LOW":
         s = ohol_store().settings
-        return (f"{s.instrument}, top {s.top_n} at {s.scan_at}. LONG: {s.long.exit_plan().describe()} | "
+        return (f"{s.instrument}, top {s.top_n} at {s.scan_at}, entry on the break of the first candle. LONG: {s.long.exit_plan().describe()} | "
                 f"SHORT: {s.short.exit_plan().describe()}")
     if key == "KTMI_UNI_LITE":
         parts = []

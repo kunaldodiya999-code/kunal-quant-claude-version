@@ -3,6 +3,12 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: Open High Low breakout entry, 2026-10-25
+- Owner: after the conditions, wait for the first 5-min candle to close; enter when the next candle crosses its high
+  (LONG) / low (SHORT). Settings first_candle_minutes (5, scan_at derived), entry_valid_candles (1). Added: CANCELLED
+  if price goes past the open before the breakout. `breakout()` shared by the desk (WAITING -> OPEN / NO ENTRY /
+  CANCELLED) and the backtest. Results: 1-min all exits positive (38 trades), 5-min all slightly negative (78).
+
 ## claude/affectionate-bardeen-3k5sls: Open High Low strategy, entry time back to 09:15, reward box fix, 2026-10-25
 - Owner: Gap Reversal `entry_from` default back to 09:15.
 - New strategy Open High Low (owner brief): spot/futures open = low (long) / open = high (short), confirmed by 22 options

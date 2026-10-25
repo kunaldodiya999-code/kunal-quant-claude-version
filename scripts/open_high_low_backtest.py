@@ -8,7 +8,7 @@ Run from C:\\Users\\USER\\Desktop\\Kunal\\kunal-quant-claude-version :
         5-minute candles (~60 days)
     python scripts\\open_high_low_backtest.py --source yahoo
         download first (free Yahoo data, no login), then test
-    python scripts\\open_high_low_backtest.py --scan-at 09:30 --top-n 3
+    python scripts\\open_high_low_backtest.py --first-candle 15 --top-n 3
 
 Uses the settings saved from the dashboard (data\\open_high_low\\settings.json). Results in data\\open_high_low\\:
 backtest_summary.csv, backtest_trades.csv, backtest_candidates.csv, backtest_top_n.csv (5m: *_5m.csv).
@@ -51,7 +51,8 @@ def main(argv=None, *, yahoo_get=None, master=None) -> int:
     p.add_argument("--source", choices=("cache", "yahoo"), default="cache")
     p.add_argument("--interval", choices=("1m", "5m"), default="1m")
     p.add_argument("--symbols", default="")
-    p.add_argument("--scan-at", default=None, help="test another scan time (setting unchanged)")
+    p.add_argument("--first-candle", type=int, default=None, help="test another first-candle length in minutes")
+    p.add_argument("--entry-candles", type=int, default=None, help="test entries in the next N candles (default 1)")
     p.add_argument("--top-n", type=int, default=None, help="test another top N (setting unchanged)")
     p.add_argument("--min-value-cr", type=float, default=50.0,
                    help="liquidity: Rs crore traded in the stock the previous day (default 50)")
@@ -61,8 +62,10 @@ def main(argv=None, *, yahoo_get=None, master=None) -> int:
     args = p.parse_args(argv)
 
     s = OpenHighLowStore(args.data_folder / "open_high_low").settings
-    if args.scan_at:
-        s = replace(s, scan_at=args.scan_at)
+    if args.first_candle:
+        s = replace(s, first_candle_minutes=args.first_candle)
+    if args.entry_candles:
+        s = replace(s, entry_valid_candles=args.entry_candles)
     if args.top_n:
         s = replace(s, top_n=args.top_n)
     if args.symbols.strip():
@@ -83,7 +86,7 @@ def main(argv=None, *, yahoo_get=None, master=None) -> int:
         except Exception as exc:                     # one bad symbol must not stop the run
             failed.append(f"{stock}: {exc}")
     series = {k: v for k, v in series.items() if v}
-    print(f"Open High Low backtest: {len(series)} stocks with {args.interval} candles, scan at {s.scan_at}, top "
+    print(f"Open High Low backtest: {len(series)} stocks with {args.interval} candles, first candle to {s.scan_at}, entry in the next {s.entry_valid_candles} candle(s), top "
           f"{s.top_n}, tolerance {s.tolerance_pct}%, liquidity >= Rs {args.min_value_cr} cr traded the day before")
     if not series:
         print("No candles. Run the Gap Reversal backtest first, or add --source yahoo.")
@@ -122,7 +125,10 @@ def main(argv=None, *, yahoo_get=None, master=None) -> int:
         cells = {r["top_n"]: r["net_pnl"] for r in study if r["exit"] == ex}
         label = next(r["exit_plan"] for r in study if r["exit"] == ex)
         print(f"  {label[:43]:<44}" + "".join(f"{cells.get(n, 0):>10,.0f}" for n in ns))
-    print(f"\nCandidates: {len(candidates)} on {len(days)} days. Saved: {out}")
+    short = [c for c in candidates if c["shortlisted"]]
+    print(f"\nCandidates: {len(candidates)} on {len(days)} days; shortlisted {len(short)}: entered "
+          f"{sum(c['entry'] == 'ENTERED' for c in short)}, no breakout {sum(c['entry'] == 'NO ENTRY' for c in short)}, "
+          f"cancelled {sum(c['entry'] == 'CANCELLED' for c in short)}. Saved: {out}")
     return 0
 
 

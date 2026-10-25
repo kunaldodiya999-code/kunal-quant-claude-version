@@ -13,7 +13,7 @@ It never places real orders.
 | Puts (11 strikes) | open = high (put premium only went down) | open = low |
 | Stop | the day's low minus a buffer (0.2%) | the day's high plus a buffer |
 
-1. At the scan time (default **09:20**, after the first 5 minutes) the program reads every F&O stock and its future.
+1. When the **first 5-minute candle closes (09:20)** the program reads every F&O stock and its future.
 2. A stock is a candidate when the spot **or** the future shows open = low / open = high.
 3. The other one must show the same thing ("Spot and futures": **Both must agree** by default, or "One is enough").
 4. Option chain: the nearest expiry, **11 strikes** (ATM, 5 ITM, 5 OTM; from the real strike list, because strike gaps
@@ -21,7 +21,12 @@ It never places real orders.
    At least **11 of 22** must agree (setting).
 5. Liquidity: the future must have traded at least **Rs 5 crore** since the open; the ATM call and put bid-ask
    spread must be at most **1%** of the premium; optional minimum option volume.
-6. The candidates that pass are ranked: most agreeing options first, then liquidity. The **top 5** are traded.
+6. The candidates that pass are ranked: most agreeing options first, then liquidity. The **top 5** are shortlisted.
+7. **Entry (owner, 25 Oct):** LONG when the **next 5-minute candle** (09:20-09:25) crosses **above the first candle's
+   high**; SHORT when it crosses **below the first candle's low**. Settings: the first candle's length (1-30 min) and
+   how many candles may give the entry (default 1 = only the next one). No cross = **NO ENTRY** for that stock.
+   Added rule: if a LONG's price goes **below the open** before the breakout (open = low broken), the setup is
+   **CANCELLED** (SHORT: above the open).
 
 "Equal" uses a tolerance: open within **0.05%** of the low counts as open = low for the stock and the future,
 **0.5%** for options (premium ticks are coarse). Every number above is a setting.
@@ -30,8 +35,9 @@ It never places real orders.
 
 - **Trade in** (setting): **Stock** (intraday, Rs 50,000 per trade, default), **Future** (1 lot), or **Option**: buy
   1 lot of the ATM call for a LONG, the ATM put for a SHORT (owner rule: bearish = BUY PUT, never sell options).
-- Entry: at the scan, at the current price.
-- Stop: the day's low (LONG) / high (SHORT) plus the buffer, on the stock chart (on the futures chart for Future).
+- Entry: at the first candle's high (LONG) / low (SHORT) when it is crossed, or at that minute's open if price
+  jumped past it. Option trades: the option's price in that minute.
+- Stop: the day's low (LONG) / high (SHORT) at the entry plus the buffer, on the stock chart (on the futures chart for Future).
 - Exit: the shared exit plan, per side: **Reward 1 : [box]** (a number = the whole trade closes at that target;
   **empty = no target, the TSL** you choose closes it when a 5-minute candle closes beyond it). Flat by 15:10.
 - For Option trades the stop, target and TSL follow the stock; the P&L is the option premium.
@@ -62,23 +68,29 @@ liquidity (rupees traded the day before, at least Rs 50 crore) instead of the op
 every exit plan, Rs 50,000 per entry, estimated charges. The futures and option checks are judged from the live
 program's daily journal (`data\open_high_low\journal\`).
 
-Result (25 Oct 2026, 213 F&O stocks, scan 09:20, top 5, net Rs after charges):
+Result with the breakout entry (25 Oct 2026, 213 F&O stocks, first candle 09:15-09:20, entry only in the next
+candle, top 5, Rs 50,000 per entry, net Rs after charges):
 
-| Exit plan | 5-min data, 38 days: 190 trades (84 LONG, 106 SHORT) | | | 1-min data, 17 days: 85 trades | |
+| Exit plan | 5-min data, 38 days: 78 trades | | | 1-min data, 17 days: 38 trades | |
 |---|---|---|---|---|---|
-| | both | LONG | SHORT | both | win % |
-| Fixed 1:1.5 | -3,448 | -3,418 | -30 | +1,514 | 50.6% |
-| Fixed 1:2 | +1,456 | -3,070 | +4,527 | +4,748 | 48.2% |
-| Fixed 1:2.5 | **+4,101** | -1,775 | **+5,876** | +5,312 | 48.2% |
-| Fixed 1:3 | +2,828 | -2,846 | +5,674 | **+5,440** | 48.2% |
-| TSL Chandelier 9 x 1.5 | -6,143 | -5,036 | -1,107 | +689 | 45.9% |
-| TSL Supertrend 5 x 1 | -7,876 | -6,074 | -1,802 | +1,267 | 50.6% |
-| TSL Supertrend 7 x 1.5 | -4,145 | -4,173 | +28 | +3,474 | 47.1% |
-| TSL PSAR 0.02/0.02/0.20 | -6,926 | -6,660 | -266 | -1,264 | 47.1% |
-| TSL PSAR 0.04/0.04/0.10 | -6,479 | -5,910 | -570 | +219 | 50.6% |
-| TSL point trail 10/15 | -294 | -4,096 | +3,802 | +4,007 | 50.6% |
+| | both | LONG (31) | SHORT (47) | both | win % |
+| Fixed 1:1.5 | -1,860 | +697 | -2,557 | +2,856 | 52.6% |
+| Fixed 1:2 | -790 | +1,413 | -2,204 | +3,167 | 52.6% |
+| Fixed 1:2.5 | -361 | +1,698 | -2,059 | **+4,006** | 52.6% |
+| Fixed 1:3 | -1,260 | +811 | -2,071 | +3,305 | 52.6% |
+| TSL Chandelier 9 x 1.5 | -4,271 | -917 | -3,354 | +1,206 | 50.0% |
+| TSL Supertrend 5 x 1 | -3,653 | -1,760 | -1,893 | +2,050 | 55.3% |
+| TSL Supertrend 7 x 1.5 | -2,869 | -145 | -2,725 | +2,879 | 55.3% |
+| TSL PSAR 0.02/0.02/0.20 | -1,116 | -272 | -844 | +2,375 | 55.3% |
+| TSL PSAR 0.04/0.04/0.10 | -2,098 | -174 | -1,923 | +2,551 | 60.5% |
+| TSL point trail 10/15 | **-224** | -182 | -42 | +1,844 | 52.6% |
 
-What it says: the stock-only rule is roughly break-even. Fixed targets 1:2.5 / 1:3 were slightly positive on both data
-sets (about Rs 20-60 per trade); the TSLs were negative on the 60-day data. Open = high (SHORT) did better than
-open = low (LONG) on the 60-day data. Taking 10 a day instead of 5 lost money on both data sets. The futures and
-option confirmation is the part meant to lift the quality; only the live journal can show if it does.
+- Of the shortlisted stocks only about 4 in 10 broke out in the next candle (5-min data: 157 of 380 entered, 186 no
+  breakout, 37 cancelled), so a day has 2 trades on average instead of 5.
+- 1-minute data (4 weeks): every exit plan positive (Rs +1,200 to +4,000). 5-minute data (8 weeks): every exit plan
+  slightly negative (Rs -200 to -4,300). Too few trades to call it either way.
+- Top 2 or 3 per day did better than top 5 on both data sets (e.g. fixed 1:2.5: top 3 +3,339 / +5,612).
+- The 5-minute data cannot see inside the breakout candle (entry and stop on the same 5 minutes), so the 1-minute
+  numbers are the more exact ones.
+- Before the breakout rule (entry at 09:20 at once) the stock-only rule was also roughly break-even.
+The futures and option confirmation is the part meant to lift the quality; only the live journal can show if it does.

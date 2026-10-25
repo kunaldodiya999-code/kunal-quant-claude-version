@@ -1,7 +1,8 @@
 """Open High Low paper desk: keeps the day's scan and paper-trades the top candidates (no orders).
 
-The program (scripts/run_open_high_low.py) scans once at ``scan_at`` and gives the desk every
-candidate; the desk keeps the best ``top_n`` (when the strategy is ON) and follows each trade with
+The program (scripts/run_open_high_low.py) scans once when the first candle closes and gives the desk every
+candidate; the desk shortlists the best ``top_n`` (when the strategy is ON) as WAITING, enters each one when the
+next candle breaks the first candle's high (LONG) / low (SHORT) and follows each trade with
 the shared exit plan (strategies/trade_sim.py) on its chart's 1-minute candles. Instrument:
 STOCK (Rs capital_per_trade / price shares), FUTURE (lots x lot size) or OPTION (bought ATM CE for a
 LONG, ATM PE for a SHORT; levels on the stock, P&L on the premium). Writes status.json + journal.
@@ -16,7 +17,7 @@ from typing import Optional, Sequence
 from zoneinfo import ZoneInfo
 
 from paper_trading.trade_management import session_bars
-from strategies.open_high_low import Candidate, OpenHighLowSettings, levels, select_top
+from strategies.open_high_low import Candidate, OpenHighLowSettings, breakout, select_top
 from strategies.trade_sim import manage_trade
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -55,18 +56,15 @@ class OpenHighLowDesk:
         for c in top:
             if c.stock in self.trades:
                 continue
-            entry, stop = levels(c, s)
             names = (symbols or {}).get(c.stock, {})
             lot = int((lot_sizes or {}).get(c.stock) or 1)
             if s.instrument == "STOCK":
-                traded, qty, price = names.get("spot", f"NSE:{c.stock}-EQ"), int(s.capital_per_trade // entry), entry
+                traded, qty = names.get("spot", f"NSE:{c.stock}-EQ"), None          # shares: set at the entry
             elif s.instrument == "FUTURE":
-                traded, qty, price = names.get("future", ""), s.lots * lot, entry
+                traded, qty = names.get("future", ""), s.lots * lot
             else:
-                traded = c.atm_call if c.side == "LONG" else c.atm_put
-                price = c.atm_call_ltp if c.side == "LONG" else c.atm_put_ltp
-                qty = s.lots * lot
-            if not traded or not price or qty < 1:
+                traded, qty = (c.atm_call if c.side == "LONG" else c.atm_put), s.lots * lot
+            if not traded:
                 continue
             self.trades[c.stock] = {
                 "stock": c.stock, "side": c.side, "instrument": s.instrument, "symbol": traded,
@@ -74,21 +72,44 @@ class OpenHighLowDesk:
                            "FUTURE": "PAPER BUY FUT" if c.side == "LONG" else "PAPER SELL FUT",
                            "OPTION": "PAPER BUY CE" if c.side == "LONG" else "PAPER BUY PE"}[s.instrument],
                 "chart": names.get("future", "") if s.instrument == "FUTURE" else names.get("spot", f"NSE:{c.stock}-EQ"),
-                "option_score": c.option_score, "entry_epoch": now, "entry_time": _clock(now),
-                "level_entry": round(entry, 2), "stop": round(stop, 2), "entry": round(price, 2), "quantity": qty,
-                "target": "", "status": "OPEN", "exit_time": "", "exit": "", "exit_detail": "", "last": round(price, 2),
-                "pnl": 0.0, "r": 0.0,
-                "exit_plan": s.side(c.side).exit_plan().describe(),
+                "option_score": c.option_score, "trigger": "", "entry_epoch": None, "entry_time": "",
+                "level_entry": "", "stop": "", "entry": "", "quantity": qty or "",
+                "target": "", "status": "WAITING", "exit_time": "", "exit": "", "exit_detail": "", "last": "",
+                "pnl": 0.0, "r": 0.0, "exit_plan": s.side(c.side).exit_plan().describe(),
             }
         return top
 
     def on_minutes(self, stock: str, chart_minutes: Sequence, now: int, *, option_minutes: Sequence = (),
                    history: Sequence = ()) -> None:
-        """Today's FINISHED 1-minute candles of the trade's chart (and of the option, for OPTION trades)."""
+        """Today's FINISHED 1-minute candles of the trade's chart (and of the option, for OPTION trades).
+        WAITING: the breakout of the first candle (strategies.open_high_low.breakout); then the exit plan."""
         t = self.trades.get(stock)
         if t is None or not chart_minutes:
             return
         s = self.settings
+        if t["entry_epoch"] is None:
+            b = breakout(chart_minutes, t["side"], s)
+            if b.get("trigger") is not None:
+                t["trigger"] = round(b["trigger"], 2)
+            if b["state"] in ("CANCELLED", "NO ENTRY"):
+                t["status"] = b["state"]
+                t["exit_detail"] = ("price went past the open before the breakout" if b["state"] == "CANCELLED"
+                                    else "the next candle did not cross the first candle")
+                return
+            if b["state"] != "ENTERED":
+                return
+            price = b["entry"]
+            if t["instrument"] == "OPTION":
+                price = _price_at(option_minutes, b["entry_ts"])
+                if not price:
+                    return                                                   # option price not known yet
+            elif t["instrument"] == "STOCK":
+                t["quantity"] = int(s.capital_per_trade // b["entry"])
+            t.update({"entry_epoch": b["entry_ts"], "entry_time": _clock(b["entry_ts"]),
+                      "level_entry": round(b["entry"], 2), "stop": round(b["stop"], 2), "entry": round(price, 2),
+                      "status": "OPEN"})
+        if not t["quantity"]:
+            return
         bars = session_bars(chart_minutes, s.timeframe, now=now)
         warm = session_bars(history, s.timeframe) if history else []
         out = manage_trade(side=t["side"], entry=t["level_entry"], entry_ts=t["entry_epoch"], stop=t["stop"],
@@ -98,7 +119,7 @@ class OpenHighLowDesk:
             return
         sign = 1 if t["side"] == "LONG" else -1
         if t["instrument"] == "OPTION":
-            last = _price_at(option_minutes, now) or t["last"]
+            last = _price_at(option_minutes, now) or t["entry"]
             exit_px = _price_at(option_minutes, out.exit_time) if out.result != "OPEN" else None
             px = last if out.result == "OPEN" else (exit_px or last)
             pnl = (px - t["entry"]) * t["quantity"]                       # bought premium, CE or PE
