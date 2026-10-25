@@ -251,6 +251,9 @@ def main(argv=None, *, client=None, raw_master=None, socket_factory=None, clock=
                 desk.futures = FuturesMinuteRecorder(paper_dir, future)
                 desk.futures.seed(fetch_minute_history(client, future, resolution_minutes=settings.timeframe_minutes,
                                                        now=clock()))
+                if session.exit_manager is not None:          # FUTURE trailing-stop source reads these candles
+                    from paper_trading.chart_feeds import read_candles
+                    session.exit_manager.future_minutes_provider = lambda f=desk.futures: read_candles(f.file.path)
             save_daily_candles(client, paper_dir, spot=prof.spot_symbol, future=future, today=today,
                                pause=0.35 if sleep is time.sleep else 0)
             say(f"{prof.label}: chart data ready (volume from {future or 'no future found'}, daily candles)")

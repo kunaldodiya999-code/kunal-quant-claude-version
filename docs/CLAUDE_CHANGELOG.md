@@ -3,6 +3,14 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: TSL chart choice (spot default) for every strategy, 2026-10-25
+- KTMI: `tsl_source` default SPOT (was OPTION), new FUTURE (index current-month future, from the runner's futures
+  candles; no candles at the trade's start -> that trade trails on spot, log TSL_SOURCE). `paper_trading/exit_manager.py`.
+- `strategies/trade_sim.manage_trade(tsl_chart=...)`: the TSL can follow another chart while stop / target stay.
+- Open High Low: `tsl_chart` (SPOT default; FUTURE for Future trades, OPTION for Option trades, else SPOT),
+  "Trailing stop on" dropdown, trade rows record `tsl_chart` / `tsl_symbol`. Gap Reversal: stock chart = spot (no choice).
+- Owner note: a trade_management.json saved earlier keeps its OPTION choice until switched to Spot on the page.
+
 ## claude/affectionate-bardeen-3k5sls: BETA trailing stops in the TSL Lab, Open High Low VWAP / Bollinger filters, 2026-10-25
 - `research/tsl_beta.py`: BETA two-key, tightening Chandelier, R-ladder (1R = the 30% premium stop as an index move);
   TSL Lab includes them (`--no-beta` to skip), Research page labels them BETA. Not in the live engine. 17-day result

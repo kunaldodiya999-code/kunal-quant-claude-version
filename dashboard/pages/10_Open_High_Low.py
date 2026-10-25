@@ -129,6 +129,15 @@ with settings_tab:
         lots = t3.number_input("Future / option: lots", 1, 100, int(s.lots), 1, key="oh_lots")
         tf = t4.selectbox("TSL candles (minutes)", (1, 3, 5, 10, 15), index=(1, 3, 5, 10, 15).index(s.timeframe),
                           key="oh_tf")
+        charts = ("SPOT", "FUTURE", "OPTION")
+        tsl_chart = st.selectbox(
+            "Trailing stop on", charts, index=charts.index(s.tsl_chart), key="oh_tslchart",
+            format_func={"SPOT": "Spot chart (stock) - default", "FUTURE": "Futures chart (only when trading the future)",
+                         "OPTION": "Option chart (only when trading the option)"}.get,
+            help="The stop and the target stay on the trade's chart. A choice that does not fit 'Trade in' "
+                 "(e.g. Futures chart while trading the stock) uses the spot chart.")
+        if s.tsl_chart != s.effective_tsl_chart:
+            st.caption(f"Now in use: spot chart ({s.tsl_chart.lower()} chart does not fit {s.instrument}).")
         with st.expander("TSL numbers (both sides)"):
             tsl_params = {}
             for key, (_kind, defaults) in PRESETS.items():
@@ -172,7 +181,8 @@ with settings_tab:
                            min_days_to_expiry=int(min_days), min_fut_value_cr=float(fut_cr),
                            max_atm_spread_pct=float(spread), min_option_volume=int(opt_vol), instrument=instrument,
                            vwap_filter=vwap_on, bb_filter=bb_on, bb_band=bb_band,
-                           capital_per_trade=float(cap), lots=int(lots), timeframe=int(tf), long=sides["long"],
+                           capital_per_trade=float(cap), lots=int(lots), timeframe=int(tf), tsl_chart=tsl_chart,
+                           long=sides["long"],
                            short=sides["short"])
                 st.success("Saved. The program uses it from its next start.")
             except ValueError as exc:

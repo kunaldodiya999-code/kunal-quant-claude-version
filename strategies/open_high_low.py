@@ -86,6 +86,9 @@ class OpenHighLowSettings:
     instrument: str = "STOCK"
     capital_per_trade: float = 50_000.0   # STOCK: rupees per trade
     lots: int = 1                         # FUTURE / OPTION: lots per trade
+    # where the TSL runs (owner 25 Oct): SPOT by default; FUTURE only when trading the future, OPTION only when
+    # trading the option. The stop and the target stay on the trade's own chart (stock, or future for FUTURE).
+    tsl_chart: str = "SPOT"
     # first-candle filters (owner 25 Oct, on / off): the first candle (09:15-09:20) must CLOSE ...
     vwap_filter: bool = False             # ... above VWAP (LONG) / below VWAP (SHORT)
     bb_filter: bool = False               # ... above the Bollinger band (LONG) / below it (SHORT)
@@ -108,6 +111,8 @@ class OpenHighLowSettings:
             raise ValueError("the first candle must close before exit_time")
         if self.confirm not in CONFIRM:
             raise ValueError(f"confirm must be one of {CONFIRM}")
+        if self.tsl_chart not in ("SPOT", "FUTURE", "OPTION"):
+            raise ValueError("tsl_chart must be SPOT, FUTURE or OPTION")
         if self.instrument not in INSTRUMENTS:
             raise ValueError(f"instrument must be one of {INSTRUMENTS}")
         if self.timeframe not in (1, 3, 5, 10, 15):
@@ -123,6 +128,14 @@ class OpenHighLowSettings:
         if min(self.tolerance_pct, self.option_tolerance_pct, self.min_fut_value_cr, self.max_atm_spread_pct,
                self.min_option_volume) < 0:
             raise ValueError("tolerances and liquidity limits must be 0 or more")
+
+    def tsl_chart_choices(self) -> tuple:
+        return {"STOCK": ("SPOT",), "FUTURE": ("SPOT", "FUTURE"), "OPTION": ("SPOT", "OPTION")}[self.instrument]
+
+    @property
+    def effective_tsl_chart(self) -> str:
+        """The TSL chart actually used: the setting when it fits the instrument, otherwise SPOT."""
+        return self.tsl_chart if self.tsl_chart in self.tsl_chart_choices() else "SPOT"
 
     @property
     def options_checked(self) -> int:

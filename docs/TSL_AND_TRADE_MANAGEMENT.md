@@ -17,7 +17,7 @@ trade keeps a copy of the settings it was opened with (also after a restart).
 | TSL | ON | on / off |
 | TSL mode | Indicator | Indicator / Manual (you move the stop) |
 | TSL method | Chandelier Exit (everget) ATR 9 x 1.5 | see the method list below |
-| Calculate TSL on | **Option chart** (the traded CE / PE) | **dropdown: Option chart / Spot chart** |
+| Calculate TSL on | **Spot chart** (the index; owner 25 Oct: "keep the TSL on spot") | **dropdown: Spot chart / Futures chart (current month) / Option chart** |
 | TSL candles | same as the strategy timeframe (3 or 5 min) | dropdown: same as strategy, 1, 3, 5, 10, 15, 30, 60 min |
 | Exit when | a candle **closes** beyond the stop | closes beyond / price touches |
 | Partial booking | ON at **2R**, **50%** of the lots | any R, any % |
@@ -49,8 +49,10 @@ KAMA was discussed separately and is not a TSL method here.
    stop is recalculated. It only ever tightens. A stop known at a candle's close protects only
    the following candles (no peeking).
    * **Option chart**: the trade is a bought option, so the stop sits below the option price.
-   * **Spot chart**: a CALL trade's stop sits below the index, a PUT trade's above it. When the
+   * **Spot chart** (default): a CALL trade's stop sits below the index, a PUT trade's above it. When the
      index crosses it, the option is sold at its latest price.
+   * **Futures chart**: the same on the index's current-month future (the runner records its candles). If no
+     futures candles are there when the trade starts, that trade trails on the spot chart (log line TSL_SOURCE).
    * **Exit when "closes beyond"**: exit at that candle's close. **"touches"**: exit at the stop
      (or at the candle's open if it jumped past the stop).
 4. **2R partial**: 2R = entry + 2 x the initial risk. Example: entry 100, stop 70 (risk 30), 2R =
@@ -59,6 +61,20 @@ KAMA was discussed separately and is not a TSL method here.
 5. **Manual mode**: the stop is the level you type for that open trade (box under the settings).
    You may move it freely (up or down). Option chart: an option price; spot chart: an index level.
 6. **Forced exit** 15:10 (switchable), no new entries from 15:00.
+
+### Which chart the TSL runs on, every strategy (owner 25 Oct 2026)
+
+Default everywhere = **spot**. The initial stop and the target stay where they always were.
+
+| Trade | TSL chart choices | Default | Where to choose |
+|---|---|---|---|
+| Index (KTMI Uni Lite) -> option | Spot / Future / Option | Spot | Live Paper Trading, "Calculate TSL on" |
+| Stock -> stock (Gap Reversal, Open High Low "Stock") | Spot | Spot | (nothing to choose) |
+| Stock -> future (Open High Low "Future") | Spot / Future | Spot | Open High Low, Settings, "Trailing stop on" |
+| Stock -> option (Open High Low "Option") | Spot / Option | Spot | Open High Low, Settings, "Trailing stop on" |
+
+When the TSL is on another chart, the trade closes at the moment that chart's candle crosses the TSL, at the
+traded instrument's price of that moment (`strategies/trade_sim.py`, `tsl_chart`).
 
 Every exit is written to `exit_events.csv` with the reason (`TSL_EXIT`, `PARTIAL_TARGET`, ...).
 

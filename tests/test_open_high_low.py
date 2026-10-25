@@ -319,3 +319,49 @@ def test_program_applies_the_filters_when_switched_on(tmp_path):
     assert row["above_vwap"] is True
     bb = run_day(tmp_path / "bb", bb_filter=True)                     # the fake has no earlier days: band unknown
     assert bb["trades"] == [] and "Bollinger unknown" in next(r for r in bb["scan"] if r["stock"] == "AAA")["why_not"]
+
+
+def test_trade_sim_trails_on_another_chart():
+    """Owner 25 Oct: the TSL can follow another chart (spot / futures / option); stop and target stay on the trade."""
+    from paper_trading.trade_management import session_bars
+    from strategies.exit_plan import ExitPlan
+    from strategies.trade_sim import manage_trade
+    stock = minutes_from([(100 + 0.05 * i, 100.06 + 0.05 * i, 99.99 + 0.05 * i, 100.05 + 0.05 * i)
+                          for i in range(120)])                         # a steady climb: its own TSL never hits
+    opt = minutes_from([(50 + 0.5 * i, 50.6 + 0.5 * i, 49.9 + 0.5 * i, 50.5 + 0.5 * i) if i < 60 else
+                        (80 - 1.5 * (i - 60), 80.1 - 1.5 * (i - 60), 78.4 - 1.5 * (i - 60), 78.5 - 1.5 * (i - 60))
+                        for i in range(120)])                           # the premium collapses after 10:15
+    plan = ExitPlan(target_rr=None)
+    common = dict(entry_ts=ts(9, 20), exit_time="15:10")
+    own = manage_trade(side="LONG", entry=100.25, stop=99.0, plan=plan, bars=session_bars(stock, 5),
+                       minutes=stock, **common)
+    assert own.result == "TIME"
+    alone = manage_trade(side="LONG", entry=52.5, stop=52.5 * 1e-6, plan=plan, bars=session_bars(opt, 5),
+                         minutes=opt, **common)
+    assert alone.result == "TSL"
+    out = manage_trade(side="LONG", entry=100.25, stop=99.0, plan=plan, bars=session_bars(stock, 5), minutes=stock,
+                       tsl_chart={"label": "option", "side": "LONG", "entry": 52.5, "bars": session_bars(opt, 5),
+                                  "minutes": opt}, **common)
+    assert out.result == "TSL" and out.exit_time == alone.exit_time and "option chart" in out.detail
+    k = next(i for i, m in enumerate(stock) if m.timestamp >= alone.exit_time)
+    assert out.exit == pytest.approx(stock[k - 1].close)                # the stock's price at that moment
+
+
+def test_tsl_chart_setting_fits_the_instrument(tmp_path):
+    s = OpenHighLowSettings()
+    assert s.tsl_chart == "SPOT" and s.effective_tsl_chart == "SPOT"
+    assert OpenHighLowSettings(instrument="FUTURE", tsl_chart="FUTURE").effective_tsl_chart == "FUTURE"
+    assert OpenHighLowSettings(instrument="OPTION", tsl_chart="OPTION").effective_tsl_chart == "OPTION"
+    assert OpenHighLowSettings(instrument="STOCK", tsl_chart="OPTION").effective_tsl_chart == "SPOT"
+    assert OpenHighLowSettings(instrument="FUTURE", tsl_chart="OPTION").effective_tsl_chart == "SPOT"
+    with pytest.raises(ValueError):
+        OpenHighLowSettings(tsl_chart="INDEX")
+    assert OpenHighLowStore(tmp_path).update(tsl_chart="OPTION").tsl_chart == "OPTION"
+
+
+def test_program_records_the_tsl_chart_of_each_trade(tmp_path):
+    (trade,) = run_day(tmp_path / "spot", instrument="OPTION")["trades"]
+    assert trade["tsl_chart"] == "SPOT" and trade["tsl_symbol"] == "NSE:AAA-EQ"
+    (trade,) = run_day(tmp_path / "opt", instrument="OPTION", tsl_chart="OPTION")["trades"]
+    assert trade["tsl_chart"] == "OPTION" and trade["tsl_symbol"] == "NSE:AAA26OCT101CE"
+    assert trade["status"] == "TARGET"                                  # the target stays on the stock chart

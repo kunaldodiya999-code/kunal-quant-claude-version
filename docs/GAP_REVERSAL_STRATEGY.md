@@ -73,7 +73,7 @@ Per side (SHORT and LONG separately), on the Settings tab:
 - TSL methods = the owner's list with the owner's numbers: Chandelier everget 9 x 1.5, Supertrend 5 x 1 and 7 x 1.5,
   Parabolic SAR 0.02/0.02/0.20 and 0.04/0.04/0.10, point trail 10/15 (all numbers editable).
 - Box filled AND a TSL chosen: whichever comes first. The day's high (short) / low (long) is always the hard stop.
-- The TSL is calculated on the stock's own chart (5-minute candles, the earlier days included for warm-up, like
+- The TSL is calculated on the stock's own chart (= the spot chart; the trade is the stock, so there is no other chart to choose) (5-minute candles, the earlier days included for warm-up, like
   TradingView). A TSL value is known at its candle's close and protects the next candles; it only tightens; it starts
   once it is on the protective side of price (above price for a SHORT), so the up-trend values from before the reversal
   do not close the trade at once.

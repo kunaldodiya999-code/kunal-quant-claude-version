@@ -187,7 +187,9 @@ def main(argv=None, *, client=None, clock=None, sleep=time.sleep, master=None) -
                 try:
                     chart = today_minutes(client, t["chart"], now)
                     opt = today_minutes(client, t["symbol"], now) if t["instrument"] == "OPTION" else ()
-                    desk.on_minutes(stock, chart, int(now.timestamp()), option_minutes=opt)
+                    other = t.get("tsl_symbol")
+                    tsl = today_minutes(client, other, now) if other and other not in (t["chart"], t["symbol"]) else ()
+                    desk.on_minutes(stock, chart, int(now.timestamp()), option_minutes=opt, tsl_minutes=tsl)
                 except Exception as exc:              # one symbol must not stop the program
                     say(f"{stock}: not updated ({exc})")
             status = desk.write_status(int(now.timestamp()))

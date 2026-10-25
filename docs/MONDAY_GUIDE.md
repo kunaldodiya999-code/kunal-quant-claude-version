@@ -87,12 +87,14 @@ Same from PowerShell: `python scripts\paper_settings.py --index BANKNIFTY --trad
 ## Stop-loss, trailing stop (TSL) and 2R booking
 
 Dashboard page **Live Paper Trading**, box **Trade management and trailing stop (TSL)** (per index).
-Defaults: stop 30% of premium, Chandelier Exit 9 x 1.5 on the option chart, exit when a candle closes
+Defaults: stop 30% of premium, Chandelier Exit 9 x 1.5 on the SPOT chart (choose Spot / Futures / Option), exit when a candle closes
 beyond it, 50% booked at 2R then stop to entry, 20% of available cash per trade.
 **Reward 1 : [box]** (every strategy has it): a number = the whole trade closes at 1:number; EMPTY (default) =
 no fixed target, the partial booking (if on) and the TSL take the trade out. Changes apply to new
 trades. Tab **TSL comparison** shows how every TSL method would have done on each trade.
 Full guide: `docs/TSL_AND_TRADE_MANAGEMENT.md`.
+If you saved this box before 25 Oct 2026, your saved choice may still say "Option chart": pick "Spot chart"
+once in "Calculate TSL on" and press save.
 
 ## Chart with drawing tools
 

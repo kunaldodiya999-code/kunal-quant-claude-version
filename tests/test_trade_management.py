@@ -36,7 +36,7 @@ def minute(h, m, o, hi, lo, c):
 def test_defaults_are_the_owner_brief():
     s = TradeManagementSettings()
     assert (s.initial_sl_pct, s.tsl_enabled, s.tsl_mode, s.tsl_method) == (30.0, True, "INDICATOR", "CHANDELIER_9_1.5")
-    assert (s.tsl_source, s.tsl_timeframe, s.tsl_trigger) == ("OPTION", "STRATEGY", "CLOSE")
+    assert (s.tsl_source, s.tsl_timeframe, s.tsl_trigger) == ("SPOT", "STRATEGY", "CLOSE")      # owner 25 Oct: spot
     assert (s.partial_enabled, s.partial_r, s.partial_pct, s.one_lot_at_target, s.after_partial) == (
         True, 2.0, 50.0, "CLOSE_ALL", "BREAKEVEN")
     assert (s.forced_exit_enabled, s.allocation_basis, s.daily_loss_cutoff_enabled) == (True, "AVAILABLE_CASH", False)
@@ -167,8 +167,7 @@ def make(tmp_path, **settings):
     engine = PaperTradingEngine(recorder=PaperTradeRecorder(tmp_path),
                                 lifecycle=BuyerOptionTradeLifecycle(BuyerLifecycleConfig(allocation=40_000, lot_size=50)))
     store = TradeManagementStore(tmp_path)
-    if settings:
-        store.update(**settings)
+    store.update(**{"tsl_source": "OPTION", **settings})      # these tests follow the option chart unless told
     manager = ExitManager(engine, TslShadowLab(tmp_path / "tsl_shadow"), store=store, journal_dir=tmp_path,
                           strategy_timeframe=lambda: 1)
     return engine, manager
@@ -202,6 +201,32 @@ def test_spot_chart_tsl_sells_the_put_at_its_latest_price(tmp_path):
     assert decisions and decisions[0].price == 104                          # the put's latest close
     view_side = json.loads((tmp_path / "trade_management_state.json").read_text())
     assert list(view_side.values())[0]["side"] == "SHORT"                     # PUT on the spot chart
+
+
+def test_future_chart_tsl_trails_on_the_futures_candles(tmp_path):
+    engine, manager = make(tmp_path, tsl_method="POINTS_10_15", tsl_timeframe="1", tsl_source="FUTURE")
+    futures = [minute(9, 29, 24110, 24112, 24099, 24100)]                      # the future trades ~100 above spot
+    manager.future_minutes_provider = lambda: list(futures)
+    engine.open_position(strategy_id=A, direction="LONG", symbol=CE, entry_price=100.0, timestamp=at(9, 30))
+    manager.on_option_candle(symbol=CE, candle=minute(9, 30, 100, 112, 99, 110))
+    futures.append(minute(9, 30, 24100, 24130, 24099, 24125))                 # +25: point trail locks +15
+    manager.on_spot_minutes("NSE:NIFTY50-INDEX", [minute(9, 30, 24000, 24030, 23999, 24025)])
+    manager.on_option_candle(symbol=CE, candle=minute(9, 31, 110, 111, 103, 106))
+    futures.append(minute(9, 31, 24125, 24126, 24105, 24108))                 # closes below 24115
+    decisions = manager.on_spot_minutes("NSE:NIFTY50-INDEX", [minute(9, 31, 24025, 24026, 24020, 24024)])
+    assert decisions and decisions[0].price == 106                          # sold at the call's latest close
+    state = list(json.loads((tmp_path / "trade_management_state.json").read_text()).values())[0]
+    assert state["settings"]["tsl_source"] == "FUTURE" and state["source_entry_price"] == 24100
+
+
+def test_future_source_without_futures_candles_trails_on_spot(tmp_path):
+    engine, manager = make(tmp_path, tsl_method="POINTS_10_15", tsl_timeframe="1", tsl_source="FUTURE")
+    manager.on_spot_minutes("NSE:NIFTY50-INDEX", [minute(9, 29, 24010, 24012, 23999, 24000)])
+    engine.open_position(strategy_id=A, direction="LONG", symbol=CE, entry_price=100.0, timestamp=at(9, 30))
+    manager.enroll_open_trades()
+    state = list(json.loads((tmp_path / "trade_management_state.json").read_text()).values())[0]
+    assert state["settings"]["tsl_source"] == "SPOT"
+    assert any(e["event_type"] == "TSL_SOURCE" for e in events(tmp_path))
 
 
 def test_tsl_off_leaves_only_initial_stop_and_partial(tmp_path):

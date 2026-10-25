@@ -225,7 +225,7 @@ def _session_completeness(candles: list, resolution_minutes: int = 5) -> dict[st
     sessions = []
     for session_date, timestamps in sorted(by_date.items()):
         unique = sorted(set(timestamps))
-        local_times = [datetime.fromtimestamp(ts, timezone.utc).astimezone() for ts in unique]
+        local_times = [datetime.fromtimestamp(ts, timezone.utc).astimezone(ist) for ts in unique]
         in_session = [x for x in local_times if session_open_minute <= x.hour * 60 + x.minute <= session_close_start and x.second == 0]
         expected = int(((session_close_start - session_open_minute) * 60) / step) + 1
         expected_set = {

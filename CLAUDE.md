@@ -67,7 +67,7 @@
 - TSL / trade management (2026-10-25): `docs/TSL_AND_TRADE_MANAGEMENT.md`. Settings per index in
   `trade_management.json` (dashboard form), nothing hard-coded, snapshot per trade (new trades only).
   Owner answers: after 2R -> breakeven then TSL; exit on candle CLOSE; TSL candles = strategy TF; TSL chart
-  OPTION (default) or SPOT dropdown. Methods: Chandelier everget 9x1.5 (default), Supertrend 5x1 / 7x1.5,
+  SPOT (default, owner 25 Oct "keep TSL on spot") / FUTURE / OPTION dropdown. Methods: Chandelier everget 9x1.5 (default), Supertrend 5x1 / 7x1.5,
   PSAR 0.02/0.02/0.2 and 0.04/0.04/0.1, point trail 10/15. No Donchian / rolling-swing; KAMA not a TSL.
   Compare: live "TSL comparison" tab, `scripts/tsl_lab.py`, `scripts/tsl_check.py`.
 - HFT Gap-Open: research only, OFF. PUT mirrored (Open=High, break low, stop setup high, PE ladder ATM..-250).
@@ -90,7 +90,7 @@
 - Open High Low (owner 2026-10-25): `docs/OPEN_HIGH_LOW_STRATEGY.md`, `strategies/open_high_low.py`. F&O stocks;
   LONG open=low, SHORT open=high on spot OR future (owner: one is enough = EITHER default, BOTH = stricter switch);
   11 strikes (ATM, 5 ITM, 5 OTM) calls + puts: LONG = calls open=low + puts open=high (SHORT opposite); NO minimum,
-  every match counts: matches = spot + fut + calls + puts (/24); liquidity: futures value, ATM bid-ask spread LESS THAN 2% of
+  TSL chart `tsl_chart`: SPOT default, FUTURE only for Future trades, OPTION only for Option trades; every match counts: matches = spot + fut + calls + puts (/24); liquidity: futures value, ATM bid-ask spread LESS THAN 2% of
   the mid price (owner; dropdown 0.3-5%; avoid e.g. bid 15 / ask 20); top 5 by matches then liquidity. Scan at the close of the first 5-min candle (09:20); entry when the NEXT candle
   crosses its high (LONG) / low (SHORT), owner 25 Oct (`breakout`; cancelled if price passes the open first). OFF by default. Instrument STOCK / FUTURE / OPTION (buy CE / PE).
   `scripts/run_open_high_low.py` (--scan-only), page "Open High Low", registry OPEN_HIGH_LOW (deploy = its enabled).

@@ -52,7 +52,7 @@ class OverlayTests(unittest.TestCase):
         self.assertGreater(o["target"], o["entry_price"])
 
     def test_effective_stop_is_the_tighter_of_initial_and_the_option_chart_tsl(self):
-        self.manager.store.update(tsl_timeframe="1", partial_enabled=False)
+        self.manager.store.update(tsl_timeframe="1", partial_enabled=False, tsl_source="OPTION")
         self.open(A, "LONG", CE)
         for i, (op, hi, lo, cl) in enumerate(CLIMB, 1):
             self.manager.on_option_candle(symbol=CE, candle=OptionCandle(T0 + 60 * i, op, hi, lo, cl))

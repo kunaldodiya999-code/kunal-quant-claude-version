@@ -70,6 +70,7 @@ class ExitManager:
                  strategy_timeframe: Callable[[], int] = lambda: 3,
                  option_history: Callable[[str], Iterable] | None = None,
                  spot_minutes: Callable[[], list] | None = None,
+                 future_minutes: Callable[[], list] | None = None,
                  option_price: Callable[[str], Optional[float]] | None = None,
                  kama_exit: bool = False) -> None:
         self.engine = engine
@@ -81,6 +82,7 @@ class ExitManager:
         self.strategy_timeframe = strategy_timeframe
         self.option_history = option_history
         self.spot_minutes_provider = spot_minutes
+        self.future_minutes_provider = future_minutes   # current-month futures 1-minute candles (FUTURE source)
         self.option_price = option_price
         self.kama_exit = kama_exit
         self.option_minutes: dict[str, dict[int, Candle]] = {}
@@ -194,6 +196,23 @@ class ExitManager:
                 pass
         return [self.spot_minutes[t] for t in sorted(self.spot_minutes)]
 
+    def _future_series(self) -> list:
+        if self.future_minutes_provider is None:
+            return []
+        try:
+            return sorted(self.future_minutes_provider() or [], key=lambda c: c.timestamp)
+        except Exception:
+            return []
+
+    def _future_at(self, ts: int) -> Optional[float]:
+        before = [c for c in self._future_series() if c.timestamp < ts]
+        return before[-1].close if before else None
+
+    def _series(self, source: str, symbol: str) -> list:
+        if source == "OPTION":
+            return self._option_series(symbol)
+        return self._future_series() if source == "FUTURE" else self._spot_series()
+
     def _option_series(self, symbol: str) -> list:
         data = self.option_minutes.get(symbol, {})
         return [data[t] for t in sorted(data)]
@@ -233,7 +252,15 @@ class ExitManager:
                 lifecycle.remember(position, lifecycle_config(lifecycle.config, settings))
             timeframe = int(saved.get("timeframe") or settings.timeframe_minutes(self.strategy_timeframe()))
             direction = getattr(position.direction, "value", position.direction)
-            if settings.tsl_source == "SPOT":
+            if settings.tsl_source == "FUTURE" and not saved.get("source_entry_price") \
+                    and self._future_at(record.entry_timestamp + 60) is None:
+                settings = replace(settings, tsl_source="SPOT")
+                self._log("TSL_SOURCE", tid, "no futures candles at the entry: this trade trails on the SPOT chart",
+                          record.entry_timestamp)
+            if settings.tsl_source == "FUTURE":
+                side = "LONG" if direction == "LONG" else "SHORT"
+                entry_price = saved.get("source_entry_price") or self._future_at(record.entry_timestamp + 60)
+            elif settings.tsl_source == "SPOT":
                 side = "LONG" if direction == "LONG" else "SHORT"
                 entry_price = saved.get("source_entry_price") or self._spot_at(record.entry_timestamp)
             else:
@@ -289,7 +316,7 @@ class ExitManager:
                 continue
             if source == "OPTION" and trade["symbol"] != symbol:
                 continue
-            minutes = self._option_series(trade["symbol"]) if source == "OPTION" else self._spot_series()
+            minutes = self._series(source, trade["symbol"])
             self.lab.on_bars(tid, session_bars(minutes, trade["timeframe"]),
                              lambda t, sym=trade["symbol"]: self.option_price_at(sym, t + 1))
 
@@ -312,7 +339,7 @@ class ExitManager:
                 if price is not None and price > 0:
                     decisions.append(self._close_by_tsl(record, tracker, pending, float(price)))
                 continue
-            minutes = self._option_series(record.position.symbol) if source == "OPTION" else self._spot_series()
+            minutes = self._series(source, record.position.symbol)
             bars = session_bars(minutes, tracker.timeframe)
             if not tracker.settings.tsl_enabled:
                 tracker.last_bar_ts = bars[-1].timestamp if bars else tracker.last_bar_ts
@@ -358,11 +385,11 @@ class ExitManager:
         return decisions
 
     def on_spot_minutes(self, symbol: str, candles) -> list[ExitDecision]:
-        """Finished 1-minute index candles (pipeline minute sink): runs the spot-chart trails."""
+        """Finished 1-minute index candles (pipeline minute sink): runs the spot-chart and futures-chart trails."""
         for c in candles:
             self.spot_minutes[int(c.timestamp)] = c
         self.enroll_open_trades()
-        return self._run_trails(source="SPOT")
+        return self._run_trails(source="SPOT") + self._run_trails(source="FUTURE")
 
     def finish_comparison(self, timestamp: int) -> None:
         """Session end: close every TSL comparison at the option's latest price."""

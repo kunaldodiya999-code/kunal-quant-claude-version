@@ -4,7 +4,8 @@ Every number is a setting (``trade_management.json`` per index, changed from the
 or ``scripts/trade_settings.py``). Defaults = the owner's requirements brief (24 Oct 2026):
 
   initial stop 30% of option premium      TSL on, indicator mode, Chandelier Exit (everget) 9 x 1.5
-  TSL calculated on the OPTION chart        TSL candles = the strategy timeframe
+  TSL calculated on the SPOT chart (owner 25 Oct; FUTURE or OPTION chart to choose)
+  TSL candles = the strategy timeframe
   TSL exit when a candle CLOSES beyond it   partial booking at 2R, 50% of the lots
   one-lot trade: closed in full at 2R       after the partial: stop to breakeven, then the TSL trails
   forced exit on (15:10, from strategy settings), no new entries from 15:00
@@ -20,6 +21,8 @@ TSL rules (no look-ahead):
 * Source OPTION: the traded option's own candles; the series is LONG (bought premium).
   Source SPOT: the index candles; CALL trades use a LONG series (stop below the index),
   PUT trades a SHORT series (stop above the index). The option is sold at its current price.
+  Source FUTURE: the same on the current-month futures candles (if they are missing when a trade
+  starts, that trade trails on SPOT and the event log says so).
 * Trigger CLOSE: exit when a candle closes beyond the stop (at that close).
   Trigger TOUCH: exit when a candle touches the stop (at the stop, or at the open if it gapped).
 * Parabolic SAR also exits when it switches to the other side of price.
@@ -40,7 +43,7 @@ from paper_trading.tsl_methods import PRESETS, PRESET_LABELS, method_stops
 IST = ZoneInfo("Asia/Kolkata")
 SETTINGS_FILE = "trade_management.json"
 TSL_MODES = ("INDICATOR", "MANUAL")
-TSL_SOURCES = ("OPTION", "SPOT")
+TSL_SOURCES = ("SPOT", "FUTURE", "OPTION")
 TSL_TIMEFRAMES = ("STRATEGY", "1", "3", "5", "10", "15", "30", "60")
 TSL_TRIGGERS = ("CLOSE", "TOUCH")
 AFTER_PARTIAL = ("BREAKEVEN", "LOCK_1R", "KEEP")
@@ -49,6 +52,7 @@ ALLOCATION_BASES = ("AVAILABLE_CASH", "BALANCE")
 LABELS = {
     "INDICATOR": "Indicator (automatic)", "MANUAL": "Manual (I move the stop)",
     "OPTION": "Option chart (the traded CE / PE)", "SPOT": "Spot chart (the index)",
+    "FUTURE": "Futures chart (current month)",
     "STRATEGY": "Same as strategy timeframe",
     "CLOSE": "Candle CLOSES beyond the stop", "TOUCH": "Price TOUCHES the stop",
     "BREAKEVEN": "Move stop to entry (breakeven), then TSL", "LOCK_1R": "Move stop to entry + 1R, then TSL",
@@ -70,7 +74,7 @@ class TradeManagementSettings:
     tsl_mode: str = "INDICATOR"
     tsl_method: str = "CHANDELIER_9_1.5"         # one of tsl_methods.PRESETS
     method_params: dict = field(default_factory=default_method_params)   # every preset's numbers, editable
-    tsl_source: str = "OPTION"
+    tsl_source: str = "SPOT"                     # owner 25 Oct: spot by default; FUTURE or OPTION to choose
     tsl_timeframe: str = "STRATEGY"
     tsl_trigger: str = "CLOSE"
     partial_enabled: bool = True

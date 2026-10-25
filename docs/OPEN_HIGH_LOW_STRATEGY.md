@@ -44,7 +44,10 @@ It never places real orders.
 - Stop: the day's low (LONG) / high (SHORT) at the entry plus the buffer, on the stock chart (on the futures chart for Future).
 - Exit: the shared exit plan, per side: **Reward 1 : [box]** (a number = the whole trade closes at that target;
   **empty = no target, the TSL** you choose closes it when a 5-minute candle closes beyond it). Flat by 15:10.
-- For Option trades the stop, target and TSL follow the stock; the P&L is the option premium.
+- For Option trades the stop and target follow the stock; the P&L is the option premium.
+- **Trailing stop on** (owner 25 Oct, setting `tsl_chart`): Spot chart (default, every instrument); Futures chart
+  only when trading the future; Option chart only when trading the option (the TSL then trails the bought CE / PE
+  premium). A choice that does not fit "Trade in" uses the spot chart. Each trade row shows `tsl_chart` / `tsl_symbol`.
 
 ## Run it (folder `C:\Users\USER\Desktop\Kunal\kunal-quant-claude-version`, `(.venv)` active, after the FYERS login)
 

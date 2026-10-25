@@ -79,6 +79,9 @@ class OpenHighLowDesk:
                            "FUTURE": "PAPER BUY FUT" if c.side == "LONG" else "PAPER SELL FUT",
                            "OPTION": "PAPER BUY CE" if c.side == "LONG" else "PAPER BUY PE"}[s.instrument],
                 "chart": names.get("future", "") if s.instrument == "FUTURE" else names.get("spot", f"NSE:{c.stock}-EQ"),
+                "tsl_chart": s.effective_tsl_chart,
+                "tsl_symbol": {"SPOT": names.get("spot", f"NSE:{c.stock}-EQ"), "FUTURE": names.get("future", ""),
+                               "OPTION": traded}[s.effective_tsl_chart],
                 "matches": f"{c.matches}/{c.matches_possible}", "option_score": c.option_score, "trigger": "", "entry_epoch": None, "entry_time": "",
                 "level_entry": "", "stop": "", "entry": "", "quantity": qty or "",
                 "target": "", "status": "WAITING", "exit_time": "", "exit": "", "exit_detail": "", "last": "",
@@ -109,7 +112,7 @@ class OpenHighLowDesk:
             self.odds[c.stock] = {}
 
     def on_minutes(self, stock: str, chart_minutes: Sequence, now: int, *, option_minutes: Sequence = (),
-                   history: Sequence = ()) -> None:
+                   history: Sequence = (), tsl_minutes: Sequence = ()) -> None:
         """Today's FINISHED 1-minute candles of the trade's chart (and of the option, for OPTION trades).
         WAITING: the breakout of the first candle (strategies.open_high_low.breakout); then the exit plan."""
         t = self.trades.get(stock)
@@ -141,9 +144,20 @@ class OpenHighLowDesk:
             return
         bars = session_bars(chart_minutes, s.timeframe, now=now)
         warm = session_bars(history, s.timeframe) if history else []
+        tsl_chart = None
+        if t.get("tsl_symbol") and t["tsl_symbol"] != t["chart"]:      # the TSL follows another chart
+            other = list(option_minutes if t["tsl_chart"] == "OPTION" else tsl_minutes)
+            if t["tsl_chart"] == "OPTION":
+                side, entry = "LONG", t["entry"]                     # a bought CE or PE: its premium must rise
+            else:                                                    # no candles yet: stop / target still run
+                side, entry = t["side"], _price_at(other, t["entry_epoch"]) or (other[0].open if other else 1.0)
+            tsl_chart = {"label": {"SPOT": "spot", "FUTURE": "futures", "OPTION": "option"}[t["tsl_chart"]],
+                         "side": side, "entry": entry, "bars": session_bars(other, s.timeframe, now=now),
+                         "minutes": other}
         out = manage_trade(side=t["side"], entry=t["level_entry"], entry_ts=t["entry_epoch"], stop=t["stop"],
                            plan=s.side(t["side"]).exit_plan(), bars=bars, minutes=chart_minutes,
-                           exit_time=s.exit_time, history=warm, live=True, stop_label="day's low / high")
+                           exit_time=s.exit_time, history=warm, live=True, stop_label="day's low / high",
+                           tsl_chart=tsl_chart)
         if out is None:
             return
         sign = 1 if t["side"] == "LONG" else -1

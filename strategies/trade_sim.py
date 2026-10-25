@@ -63,10 +63,28 @@ class Outcome:
 
 def manage_trade(*, side: str, entry: float, entry_ts: int, stop: float, plan: ExitPlan, bars: Sequence,
                  minutes: Sequence, exit_time: str = "15:10", history: Sequence = (), live: bool = False,
-                 entry_at_bar_close: bool = False, stop_label: str = "stop") -> Optional[Outcome]:
+                 entry_at_bar_close: bool = False, stop_label: str = "stop",
+                 tsl_chart: Optional[dict] = None) -> Optional[Outcome]:
     """``bars`` = the day's finished strategy candles (TSL), ``minutes`` = the day's 1-minute candles (or
     5-minute when nothing finer exists), ``history`` = earlier days' strategy candles (TSL warm-up).
-    ``entry_at_bar_close``: the entry is the close of a strategy candle (CLOSE entry). None if risk <= 0."""
+    ``entry_at_bar_close``: the entry is the close of a strategy candle (CLOSE entry). None if risk <= 0.
+    ``tsl_chart``: run the TSL on ANOTHER chart (owner 25 Oct: spot / futures / option chart to choose), as
+    {"label", "side", "entry", "bars", "minutes", "history"}: e.g. a stock trade whose stop and target stay on the
+    stock while the TSL follows the bought option (side LONG on the premium). The TSL exit happens at that chart's
+    candle close; the trade is closed at this chart's price of that moment."""
+    forced_ts = forced_detail = None
+    if tsl_chart is not None and plan.uses_tsl:
+        t_side = tsl_chart["side"].upper()
+        t_entry = float(tsl_chart["entry"])
+        probe = manage_trade(side=t_side, entry=t_entry, entry_ts=entry_ts,
+                             stop=t_entry * (1e-6 if t_side == "LONG" else 1e6),
+                             plan=ExitPlan(target_rr=None, tsl_method=plan.tsl_method, tsl_trigger=plan.tsl_trigger,
+                                           method_params=plan.method_params),
+                             bars=tsl_chart["bars"], minutes=tsl_chart["minutes"], exit_time=exit_time,
+                             history=tsl_chart.get("history", ()), live=live, entry_at_bar_close=entry_at_bar_close)
+        if probe is not None and probe.result == "TSL":
+            forced_ts, forced_detail = probe.exit_time, f"{probe.detail} ({tsl_chart.get('label', 'other')} chart)"
+    use_tsl = plan.uses_tsl and tsl_chart is None
     short = side.upper() == "SHORT"
     sign = 1 if short else -1
     o_bars, o_min = _view(bars, sign), _view(minutes, sign)
@@ -81,7 +99,7 @@ def manage_trade(*, side: str, entry: float, entry_ts: int, stop: float, plan: E
     cutoff = int(datetime.combine(day, time.fromisoformat(exit_time), tzinfo=IST).timestamp())
 
     tsl_at: dict[int, tuple] = {}                           # candle end -> (index, value or None, flip)
-    if plan.uses_tsl and bars:
+    if use_tsl and bars:
         kind, params = plan.method()
         warm = len(history)
         points = method_stops(kind, params, list(history) + list(bars), side.upper(), entry_price=entry)[warm:]
@@ -101,7 +119,12 @@ def manage_trade(*, side: str, entry: float, entry_ts: int, stop: float, plan: E
         k, value, _ = tsl_at[entry_end]
         if value is not None and value > o_bars[k].close:
             tsl = value if tsl is None else min(tsl, value)
+    last_close = o_entry
     for m in after:
+        if forced_ts is not None and m.timestamp >= forced_ts:            # the TSL on the other chart said out
+            exit_price, exit_ts, result, detail = last_close, forced_ts, "TSL", forced_detail
+            break
+        last_close = m.close
         if m.high >= o_stop:
             exit_price, exit_ts, result, detail = max(o_stop, m.open), m.timestamp, "STOP", stop_label
             break
@@ -109,7 +132,7 @@ def manage_trade(*, side: str, entry: float, entry_ts: int, stop: float, plan: E
             exit_price, exit_ts, result, detail = target, m.timestamp, "TARGET", f"1:{plan.target_rr:g}"
             break
         best = min(best, m.low)
-        if plan.uses_tsl and plan.tsl_trigger == "TOUCH" and tsl is not None and m.high >= tsl:
+        if use_tsl and plan.tsl_trigger == "TOUCH" and tsl is not None and m.high >= tsl:
             exit_price, exit_ts, result, detail = max(tsl, m.open), m.timestamp, "TSL", f"touched {abs(tsl):g}"
             break
         hit = tsl_at.get(m.timestamp + step)
@@ -126,6 +149,8 @@ def manage_trade(*, side: str, entry: float, entry_ts: int, stop: float, plan: E
             break
         if value is not None and (tsl is not None or value > close):
             tsl = value if tsl is None else min(tsl, value)
+    if exit_price is None and forced_ts is not None and forced_ts < cutoff:   # no later candle here yet
+        exit_price, exit_ts, result, detail = last_close, forced_ts, "TSL", forced_detail
     if exit_price is None:
         before = [m for m in o_min if m.timestamp <= entry_ts]
         last = after[-1] if after else (before[-1] if before else _C(entry_ts, o_entry, o_entry, o_entry, o_entry))
