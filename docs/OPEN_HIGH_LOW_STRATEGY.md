@@ -15,13 +15,17 @@ It never places real orders.
 
 1. When the **first 5-minute candle closes (09:20)** the program reads every F&O stock and its future.
 2. A stock is a candidate when the spot **or** the future shows open = low / open = high.
-3. The other one must show the same thing ("Spot and futures": **Both must agree** by default, or "One is enough").
+3. "Spot and futures": **One is enough** (default, owner 25 Oct). Switch to **Both must agree** to tighten it.
 4. Option chain: the nearest expiry, **11 strikes** (ATM, 5 ITM, 5 OTM; from the real strike list, because strike gaps
    differ per stock) for calls **and** puts = 22 options. It counts how many show the same picture (table above).
-   At least **11 of 22** must agree (setting).
+   **No minimum** (owner): every match counts. Matches = stock + future + calls + puts that agree, out of 24.
+   Example: RELIANCE spot open = low, future not, 2 calls open = low, 4 puts open = high = **7/24**. A minimum can
+   still be set ("Minimum options that must agree", default 0).
 5. Liquidity: the future must have traded at least **Rs 5 crore** since the open; the ATM call and put bid-ask
-   spread must be at most **1%** of the premium; optional minimum option volume.
-6. The candidates that pass are ranked: most agreeing options first, then liquidity. The **top 5** are shortlisted.
+   spread must be at most **0.30%** of the premium (owner; switch to **0.50%**); optional minimum option volume.
+   Note: option prices move in steps of 5 paise, so a premium below Rs 16.7 can never be within 0.30% (below Rs 10
+   for 0.50%). Cheap ATM options are therefore left out.
+6. The candidates that pass are ranked: **most matches** first, then liquidity. The **top 5** are shortlisted.
 7. **Entry (owner, 25 Oct):** LONG when the **next 5-minute candle** (09:20-09:25) crosses **above the first candle's
    high**; SHORT when it crosses **below the first candle's low**. Settings: the first candle's length (1-30 min) and
    how many candles may give the entry (default 1 = only the next one). No cross = **NO ENTRY** for that stock.

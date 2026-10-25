@@ -3,14 +3,16 @@
 Owner's rules (25 Oct 2026):
   LONG  = OPEN = LOW  (price never traded below the open)    SHORT = OPEN = HIGH (never traded above it)
   1. Spot chart OR futures chart shows the condition -> the stock is a candidate (no trade yet).
-  2. The other one must show the SAME condition (setting: BOTH by default, or EITHER).
+  2. Setting "Spot and futures": EITHER (default, owner 25 Oct: one is enough) or BOTH (stricter: the other one must
+     show the same condition too).
   3. Option chain: 11 strikes (ATM, 5 ITM, 5 OTM) of the nearest expiry, calls AND puts.
        LONG:  calls with open = low  (call premium only went up)   + puts with open = high (put only went down)
        SHORT: calls with open = high                              + puts with open = low
-     Score = matching options out of 22.
-  4. Liquidity of the F&O stock: futures traded value since the open, ATM option bid-ask spread, option volume.
+     No minimum (owner): every match counts. Matches = spot + future + calls + puts that agree (out of 24).
+  4. Liquidity of the F&O stock: futures traded value since the open, ATM option bid-ask spread (at most 0.30% of
+     the premium by default, switch to 0.50%), option volume.
   5. Everything is scanned when the FIRST candle closes (default 5 minutes: 09:15-09:20, scan at 09:20); the best
-     ``top_n`` (5) by option score (then liquidity) are shortlisted.
+     ``top_n`` (5) by matches (then liquidity) are shortlisted.
   6. Entry (owner, 25 Oct): LONG when the NEXT candle (09:20-09:25) crosses above the first candle's HIGH, SHORT when
      it crosses below its LOW (``entry_valid_candles`` = how many candles may give the entry, default 1). Before the
      breakout, a LONG is cancelled if price goes below the open (open = low broken); a SHORT if it goes above.
@@ -70,15 +72,15 @@ class OpenHighLowSettings:
     scan_at: str = "09:20"                # = 09:15 + first_candle_minutes (set automatically)
     exit_time: str = "15:10"
     timeframe: int = 5                    # TSL candles
-    confirm: str = "BOTH"                 # spot AND futures must agree (EITHER: one is enough)
+    confirm: str = "EITHER"               # one of spot / futures is enough (BOTH: both must agree, stricter)
     tolerance_pct: float = 0.05           # spot / futures: open within this % of the low (high) = equal
     option_tolerance_pct: float = 0.5     # options: the same, on premium
     strikes_each_side: int = 5            # 5 ITM + ATM + 5 OTM = 11 strikes, calls and puts
     min_days_to_expiry: int = 0           # skip an expiry closer than this (0 = nearest expiry, even today)
-    min_option_matches: int = 11          # of the 22 options at least this many must agree (50%)
+    min_option_matches: int = 0           # no minimum (owner): more matching options rank higher
     top_n: int = 5                        # trades per day: the best N candidates
     min_fut_value_cr: float = 5.0         # liquidity: futures traded value since the open, Rs crore
-    max_atm_spread_pct: float = 1.0       # liquidity: ATM CE / PE bid-ask spread, % of premium
+    max_atm_spread_pct: float = 0.30      # liquidity: ATM CE / PE bid-ask spread, % of premium (owner: 0.30 or 0.50)
     min_option_volume: int = 0            # liquidity: total volume of the 22 options (contracts x lot), 0 = off
     instrument: str = "STOCK"
     capital_per_trade: float = 50_000.0   # STOCK: rupees per trade
@@ -243,15 +245,25 @@ class Candidate:
         return round(100 * self.option_matches / self.options_checked, 1) if self.options_checked else 0.0
 
     @property
+    def matches(self) -> int:
+        """Everything that agrees: spot + future + calls + puts (owner: the more, the stronger)."""
+        return int(self.spot_ok) + int(self.fut_ok) + self.option_matches
+
+    @property
+    def matches_possible(self) -> int:
+        return self.options_checked + 2
+
+    @property
     def liquidity_score(self) -> float:
-        """0-100: futures value (2x the minimum = full), tight ATM spread, option volume."""
+        """0-100: futures traded value (Rs 20 crore = full) and a tight ATM spread (0% = full, 1% = none)."""
         value = min(1.0, self.fut_value_cr / 20.0)
-        spread = 0.0 if self.atm_spread_pct is None else max(0.0, 1.0 - self.atm_spread_pct / 2.0)
+        spread = 0.0 if self.atm_spread_pct is None else max(0.0, 1.0 - self.atm_spread_pct)
         return round(100 * (0.6 * value + 0.4 * spread), 1)
 
     def row(self) -> dict:
         return {"stock": self.stock, "side": self.side or "", "spot": self.spot_ok, "future": self.fut_ok,
                 "calls": self.call_matches, "puts": self.put_matches,
+                "matches": f"{self.matches}/{self.matches_possible}", "match_count": self.matches,
                 "option_score": self.option_score, "fut_value_cr": round(self.fut_value_cr, 2),
                 "atm_spread_pct": None if self.atm_spread_pct is None else round(self.atm_spread_pct, 2),
                 "option_volume": int(self.option_volume), "liquidity": self.liquidity_score,
@@ -303,9 +315,9 @@ def evaluate(stock: str, spot: Optional[Quote], fut: Optional[Quote], options: S
 
 
 def select_top(candidates: Sequence[Candidate], s: OpenHighLowSettings) -> list[Candidate]:
-    """The best ``top_n`` passing candidates: most matching options first, then liquidity, then name."""
+    """The best ``top_n`` passing candidates: most matches (spot + future + calls + puts) first, then liquidity."""
     ok = [c for c in candidates if c.passes]
-    return sorted(ok, key=lambda c: (-c.option_matches, -c.liquidity_score, c.stock))[:s.top_n]
+    return sorted(ok, key=lambda c: (-c.matches, -c.liquidity_score, c.stock))[:s.top_n]
 
 
 def breakout(minutes: Sequence, side: str, s: OpenHighLowSettings) -> dict:

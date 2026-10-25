@@ -24,10 +24,11 @@ st.title("Open High Low")
 os_ = store()
 s = os_.settings
 st.caption(f"When the first {s.first_candle_minutes}-minute candle closes ({s.scan_at}): F&O stocks with OPEN = LOW "
-           f"(LONG) or OPEN = HIGH (SHORT) on the stock and its future, then {2 * s.strikes_each_side + 1} strikes of "
-           f"calls and puts (ATM, {s.strikes_each_side} ITM, {s.strikes_each_side} OTM) must show the same picture, and "
-           f"the stock must be liquid. The best {s.top_n} are shortlisted; each is entered when the next candle crosses "
-           "the first candle's HIGH (LONG) / LOW (SHORT). Research and paper only.")
+           f"(LONG) or OPEN = HIGH (SHORT) on the stock or its future. Every match counts: stock, future and "
+           f"{2 * s.strikes_each_side + 1} strikes of calls and puts (ATM, {s.strikes_each_side} ITM, "
+           f"{s.strikes_each_side} OTM); the stock must be liquid. The {s.top_n} with the most matches are shortlisted; "
+           "each is entered when the next candle crosses the first candle's HIGH (LONG) / LOW (SHORT). "
+           "Research and paper only.")
 if s.enabled:
     st.success(f"Strategy ON: the program paper-trades the top {s.top_n} ({s.instrument}).", icon="✅")
 else:
@@ -49,13 +50,14 @@ with today_tab:
         c3.metric("Paper trades", len(live["trades"]))
         c4.metric("Paper P&L", f"₹{live['day_pnl']:,.0f}")
         st.caption(f"Scanned at {live.get('scanned_at') or '-'}; updated {live['updated_at']} IST. "
-                   "calls / puts = how many of the 11 strikes show the same picture. Trades: WAITING = for the "
+                   "matches = spot + future + calls + puts that agree (the more, the stronger; the top 5 have the most). calls / puts = how many of the 11 strikes show the same picture. Trades: WAITING = for the "
                    "breakout of the first candle; NO ENTRY = the next candle did not cross; CANCELLED = price went "
                    "past the open first.")
         if scan:
             st.markdown("**Scan (selected first)**")
             st.dataframe(pd.DataFrame(scan), hide_index=True, width="stretch", column_config={
-                "option_score": st.column_config.ProgressColumn("option score %", min_value=0, max_value=100,
+                "match_count": None,
+                "option_score": st.column_config.ProgressColumn("options agree %", min_value=0, max_value=100,
                                                                 format="%.0f%%"),
                 "fut_value_cr": st.column_config.NumberColumn("futures Rs cr", format="%.1f"),
                 "liquidity": st.column_config.NumberColumn("liquidity", format="%.0f")})
@@ -86,7 +88,7 @@ with settings_tab:
                               format="%.2f", key="oh_tol")
         otol = b2.number_input("Within % (options)", 0.0, 10.0, float(s.option_tolerance_pct), 0.1, key="oh_otol")
         each = b3.number_input("Strikes each side of ATM", 1, 10, int(s.strikes_each_side), 1, key="oh_each")
-        min_opt = b4.number_input("Options that must agree (of calls + puts)", 0, 42, int(s.min_option_matches), 1,
+        min_opt = b4.number_input("Minimum options that must agree (0 = none)", 0, 42, int(s.min_option_matches), 1,
                                   key="oh_minopt")
         min_days = b5.number_input("Skip expiry closer than (days)", 0, 30, int(s.min_days_to_expiry), 1,
                                    key="oh_mindays")
@@ -94,8 +96,11 @@ with settings_tab:
         l1, l2, l3 = st.columns(3)
         fut_cr = l1.number_input("Futures traded since the open, at least (Rs crore)", 0.0, 10_000.0,
                                  float(s.min_fut_value_cr), 1.0, key="oh_futcr")
-        spread = l2.number_input("ATM CE / PE bid-ask spread, at most (%)", 0.0, 20.0, float(s.max_atm_spread_pct),
-                                 0.1, key="oh_spread")
+        spread_choices = (0.30, 0.50) if s.max_atm_spread_pct in (0.30, 0.50) else (0.30, 0.50, s.max_atm_spread_pct)
+        spread = l2.selectbox("ATM CE / PE bid-ask spread, at most", spread_choices,
+                              index=spread_choices.index(s.max_atm_spread_pct), format_func=lambda v: f"{v:.2f}%",
+                              key="oh_spread", help="% of the option premium. With a tick of 0.05, a premium below "
+                                                    "Rs 16.7 can never be within 0.30% (below Rs 10 for 0.50%).")
         opt_vol = l3.number_input("Total volume of the options, at least (0 = off)", 0, 10**9,
                                   int(s.min_option_volume), 1000, key="oh_optvol")
         st.markdown("**Trade**")

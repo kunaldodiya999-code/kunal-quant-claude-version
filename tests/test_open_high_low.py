@@ -55,8 +55,8 @@ def ladder(long_calls, long_puts, side="LONG", n=11, base=95):
     rows = []
     for i in range(n):
         k = float(base + i)
-        up, down = q("ce", 2, 2.6, 2, 2.5, 1000, 2.48, 2.5), q("pe", 2, 2, 1.5, 1.6, 1000, 1.59, 1.6)
-        flat = q("x", 2, 2.2, 1.8, 2, 1000, 1.99, 2.0)
+        up, down = q("ce", 2, 2.6, 2, 2.5, 1000, 2.495, 2.5), q("pe", 2, 2, 1.5, 1.6, 1000, 1.597, 1.6)
+        flat = q("x", 2, 2.2, 1.8, 2, 1000, 1.995, 2.0)
         if side == "LONG":
             ce, pe = (up if i < long_calls else flat), (down if i < long_puts else flat)
         else:
@@ -65,32 +65,42 @@ def ladder(long_calls, long_puts, side="LONG", n=11, base=95):
     return rows
 
 
-def test_score_counts_calls_and_puts_and_checks_liquidity():
-    s = OpenHighLowSettings()
+def test_every_match_counts_and_liquidity_is_checked():
+    s = OpenHighLowSettings()                     # owner defaults: one of spot / future enough, no minimum, 0.30%
+    assert (s.confirm, s.min_option_matches, s.max_atm_spread_pct) == ("EITHER", 0, 0.30)
     spot, fut = q("S", 100, 101, 100, 100.8), q("F", 100.2, 101.2, 100.2, 101, vol=1_000_000)
     c = evaluate("AAA", spot, fut, ladder(9, 8), s, atm_strike=100.0)
     assert (c.side, c.spot_ok, c.fut_ok, c.call_matches, c.put_matches) == ("LONG", True, True, 9, 8)
-    assert c.option_score == pytest.approx(77.3, abs=0.1) and c.fut_value_cr == pytest.approx(10.1) and c.passes
-    weak = evaluate("BBB", spot, fut, ladder(3, 2), s, atm_strike=100.0)
-    assert not weak.passes and any("options 5/22 < 11" in r for r in weak.reasons)
+    assert c.matches == 19 and c.matches_possible == 24 and c.row()["matches"] == "19/24"
+    assert c.fut_value_cr == pytest.approx(10.1) and c.passes
+    # owner's example: spot open = low, 2 calls and 4 puts agree -> a candidate (no minimum), 7/24
+    few = evaluate("REL", spot, q("F", 100, 101, 99, 100.5, vol=1e6), ladder(2, 4), s, atm_strike=100.0)
+    assert few.passes and (few.spot_ok, few.fut_ok, few.matches) == (True, False, 7)
+    strict = OpenHighLowSettings(confirm="BOTH", min_option_matches=11)
+    assert any("disagree" in r for r in evaluate("REL", spot, q("F", 100, 101, 99, 100.5, vol=1e6), ladder(2, 4),
+                                                 strict, atm_strike=100.0).reasons)
+    assert any("options 6/22 < 11" in r for r in evaluate("REL", spot, fut, ladder(2, 4), strict,
+                                                         atm_strike=100.0).reasons)
     thin = evaluate("CCC", spot, q("F", 100, 101, 100, 101, vol=1000), ladder(11, 11), s, atm_strike=100.0)
     assert not thin.passes and any("futures value" in r for r in thin.reasons)
-    disagree = evaluate("DDD", spot, q("F", 100, 101, 99, 100.5, vol=1e6), ladder(11, 11), s, atm_strike=100.0)
-    assert any("disagree" in r for r in disagree.reasons)
-    either = OpenHighLowSettings(confirm="EITHER")
-    assert evaluate("DDD", spot, q("F", 100, 101, 99, 100.5, vol=1e6), ladder(11, 11), either, atm_strike=100.0).passes
+    wide = [(k, q("ce", 2, 2.6, 2, 2.5, 1000, 2.49, 2.5), pe) for k, _, pe in ladder(11, 11)]     # 0.40% spread
+    assert any("ATM spread 0.40% > 0.3%" in r for r in evaluate("WWW", spot, fut, wide, s, atm_strike=100.0).reasons)
+    assert evaluate("WWW", spot, fut, wide, OpenHighLowSettings(max_atm_spread_pct=0.50), atm_strike=100.0).passes
     short = evaluate("EEE", q("S", 100, 100, 99, 99.2), q("F", 100, 100, 99, 99.3, vol=1e6),
                      ladder(11, 11, side="SHORT"), s, atm_strike=100.0)
-    assert short.side == "SHORT" and short.call_matches == 11 and short.put_matches == 11 and short.passes
+    assert short.side == "SHORT" and short.matches == 24 and short.passes
 
 
-def test_top_n_by_option_score_then_liquidity():
+def test_top_n_by_matches_then_liquidity():
     s = OpenHighLowSettings(top_n=2)
     spot = q("S", 100, 101, 100, 100.8)
     c1 = evaluate("A1", spot, q("F", 100, 101, 100, 101, vol=600_000), ladder(9, 9), s, atm_strike=100.0)
     c2 = evaluate("A2", spot, q("F", 100, 101, 100, 101, vol=6_000_000), ladder(9, 9), s, atm_strike=100.0)
     c3 = evaluate("A3", spot, q("F", 100, 101, 100, 101, vol=600_000), ladder(11, 10), s, atm_strike=100.0)
-    assert [c.stock for c in select_top([c1, c2, c3], s)] == ["A3", "A2"]
+    # A4: same options as A3 but the future does not agree -> one match less than A3
+    c4 = evaluate("A4", spot, q("F", 100, 101, 99, 100.5, vol=6_000_000), ladder(11, 10), s, atm_strike=100.0)
+    assert (c3.matches, c4.matches) == (23, 22)
+    assert [c.stock for c in select_top([c1, c2, c3, c4], s)] == ["A3", "A4"]
 
 
 def test_settings_store_and_checks(tmp_path):
@@ -141,7 +151,7 @@ class FakeClient:
                 k = int(s.split("26OCT")[1][:-2])
                 agree = (k - 96) < (9 if s.endswith("CE") else 8)
                 v = ((2, 2.6, 2, 2.5) if s.endswith("CE") else (2, 2, 1.5, 1.6)) if agree else (2, 2.2, 1.8, 2.0)
-                v = (*v, 1000, v[3] - 0.01, v[3])
+                v = (*v, 1000, round(v[3] * 0.998, 4), v[3])
             else:
                 v = (5, 5.5, 4.5, 5, 10, 4.9, 5)
             out.append({"n": s, "v": dict(zip(("open_price", "high_price", "low_price", "lp", "volume", "bid", "ask"), v))})
@@ -183,7 +193,10 @@ def test_program_scans_at_0920_and_paper_trades_the_top_candidate(tmp_path):
     scan = {r["stock"]: r for r in status["scan"]}
     assert set(scan) == {"AAA", "BBB"}                                 # CCC: no open = high / low
     assert scan["AAA"]["selected"] and scan["AAA"]["calls"] == 9 and scan["AAA"]["puts"] == 8
-    assert not scan["BBB"]["passes"] and "disagree" in scan["BBB"]["why_not"]
+    assert scan["AAA"]["matches"] == "19/24"
+    # BBB: spot open = low (enough on its own) but its options are illiquid (2% spread) -> not traded
+    assert scan["BBB"]["spot"] and not scan["BBB"]["future"] and not scan["BBB"]["passes"]
+    assert "ATM spread" in scan["BBB"]["why_not"]
     (trade,) = status["trades"]
     # first candle 09:15-09:20: high 100.81; the 09:20 minute crosses it -> entry at 100.81, stop below the open
     assert trade["action"] == "PAPER BUY" and trade["symbol"] == "NSE:AAA-EQ" and trade["trigger"] == 100.81

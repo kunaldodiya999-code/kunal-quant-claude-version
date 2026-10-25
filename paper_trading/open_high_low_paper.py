@@ -50,7 +50,7 @@ class OpenHighLowDesk:
         picked = {c.stock for c in top}
         self.scanned_at = now
         self.scan_rows = sorted((dict(c.row(), selected=c.stock in picked) for c in candidates if c.side),
-                                key=lambda r: (not r["selected"], not r["passes"], -r["option_score"]))
+                                key=lambda r: (not r["selected"], not r["passes"], -r["match_count"], -r["liquidity"]))
         if not s.enabled:
             return top
         for c in top:
@@ -72,7 +72,7 @@ class OpenHighLowDesk:
                            "FUTURE": "PAPER BUY FUT" if c.side == "LONG" else "PAPER SELL FUT",
                            "OPTION": "PAPER BUY CE" if c.side == "LONG" else "PAPER BUY PE"}[s.instrument],
                 "chart": names.get("future", "") if s.instrument == "FUTURE" else names.get("spot", f"NSE:{c.stock}-EQ"),
-                "option_score": c.option_score, "trigger": "", "entry_epoch": None, "entry_time": "",
+                "matches": f"{c.matches}/{c.matches_possible}", "option_score": c.option_score, "trigger": "", "entry_epoch": None, "entry_time": "",
                 "level_entry": "", "stop": "", "entry": "", "quantity": qty or "",
                 "target": "", "status": "WAITING", "exit_time": "", "exit": "", "exit_detail": "", "last": "",
                 "pnl": 0.0, "r": 0.0, "exit_plan": s.side(c.side).exit_plan().describe(),

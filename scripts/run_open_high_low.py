@@ -12,10 +12,10 @@ What it does:
   1. Loads every F&O stock from FYERS' contract list.
   2. Quotes of every stock (spot) and its current-month future: open, high, low, price, volume.
      A stock where spot OR futures shows OPEN = LOW (long) or OPEN = HIGH (short) is a candidate.
-  3. For candidates: the other chart must agree (setting), then quotes of the 11 strikes (ATM, 5 ITM, 5 OTM)
+  3. For candidates: (setting "Both must agree": the other chart must agree too), then quotes of the 11 strikes (ATM, 5 ITM, 5 OTM)
      of the nearest expiry, calls and puts: how many options show the same picture (calls open = low and
      puts open = high for a LONG; the opposite for a SHORT). Liquidity: futures traded value, ATM spread.
-  4. The best 5 (option score, then liquidity) are shortlisted when the strategy is ON (dashboard); each one is
+  4. The best 5 (most matches: spot + future + calls + puts, then liquidity) are shortlisted when the strategy is ON (dashboard); each one is
      entered when the next candle crosses the first candle's high (LONG) / low (SHORT); none if it does not.
   5. Every minute: the trades' 1-minute candles, stop / target / TSL, status for the dashboard page
      "Open High Low" (data\\open_high_low\\status.json).
@@ -143,7 +143,8 @@ def main(argv=None, *, client=None, clock=None, sleep=time.sleep, master=None) -
     sides = [c for c in candidates if c.side]
     say(f"Open = high / low in {len(sides)} stocks; {sum(c.passes for c in sides)} pass every check.")
     for c in top:
-        say(f"TOP {c.stock} {c.side} options {c.option_matches}/{c.options_checked} futures Rs {c.fut_value_cr:.1f} cr "
+        say(f"TOP {c.stock} {c.side} matches {c.matches}/{c.matches_possible} (spot {'yes' if c.spot_ok else 'no'}, "
+            f"future {'yes' if c.fut_ok else 'no'}, calls {c.call_matches}, puts {c.put_matches}) futures Rs {c.fut_value_cr:.1f} cr "
             f"ATM spread {c.atm_spread_pct if c.atm_spread_pct is None else round(c.atm_spread_pct, 2)}%")
     if args.scan_only or not desk.trades:
         say("No paper trades." if not args.scan_only else "Scan only: done.")
