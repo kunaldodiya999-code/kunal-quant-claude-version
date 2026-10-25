@@ -12,7 +12,7 @@ git pull origin claude/affectionate-bardeen-3k5sls
 pip install -r requirements.txt
 python -m pytest tests -q --ignore=tests/expiry_isolation_test.py
 ```
-Expected last line: about **559 passed, 5 skipped**.
+Expected last line: about **707 passed** plus 5 errors / skips (the 5 tests that need the price database).
 
 ## Every trading day, at about 9:00
 
