@@ -96,5 +96,10 @@
   `scripts/run_open_high_low.py` (--scan-only), page "Open High Low", registry OPEN_HIGH_LOW (deploy = its enabled).
   Backtest spot-only (no free stock F&O history). Shared post-entry engine `strategies/trade_sim.py` (Gap Reversal too).
 - Reward box is a TEXT input (`dashboard/exit_inputs.py`): a Streamlit number box cannot be emptied once filled.
+- Time Machine (owner 2026-10-25): `docs/TIME_MACHINE.md`, `strategies/time_machine.py` (bootstrap of the stock's own
+  5-min candles by time of day, run through trade_sim with the real exit plan). OFF the chart: a "time machine" column +
+  a closed box on Gap Reversal / Open High Low (owner: no lines on the chart, just %). Information only, NEVER a filter:
+  check (`scripts/time_machine_check.py`) showed target chances rank right but cautious; win chance did not pick winners.
+  On demand: `scripts/time_machine.py`. Live programs fetch 90 d of 5-min per symbol (`--no-odds` off).
 - OWNER RULE: when the owner says "we are done for the day", give ALL commands to run on their PC in order,
   step by step (folder for each), with what each one should show, plus everything still pending from their side.

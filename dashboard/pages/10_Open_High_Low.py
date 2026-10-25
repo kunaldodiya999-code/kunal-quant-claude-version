@@ -13,6 +13,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from data.open_high_low import COMMANDS, backtest, backtest_intervals, backtest_meta, status, store  # noqa: E402
 from exit_inputs import reward_box, tsl_select  # noqa: E402
+import time_machine_box  # noqa: E402
 from paper_trading.tsl_methods import PRESETS  # noqa: E402
 from strategies.exit_plan import TSL_LABELS, TSL_TRIGGERS  # noqa: E402
 from strategies.open_high_low import CONFIRM, INSTRUMENTS  # noqa: E402
@@ -60,13 +61,17 @@ with today_tab:
                 "option_score": st.column_config.ProgressColumn("options agree %", min_value=0, max_value=100,
                                                                 format="%.0f%%"),
                 "fut_value_cr": st.column_config.NumberColumn("futures Rs cr", format="%.1f"),
-                "liquidity": st.column_config.NumberColumn("liquidity", format="%.0f")})
+                "liquidity": st.column_config.NumberColumn("liquidity", format="%.0f"),
+                "time_machine": "time machine"})
         st.markdown("**Paper trades**")
         if live["trades"]:
             st.dataframe(pd.DataFrame(live["trades"]).drop(columns=["entry_epoch"], errors="ignore"),
-                         hide_index=True, width="stretch")
+                         hide_index=True, width="stretch", column_config={"time_machine": "time machine"})
         else:
             st.caption("None." if s.enabled else "None: the strategy is OFF (scan only).")
+        time_machine_box.show(live.get("time_machine"), label="Time Machine for the shortlist: chance of reaching "
+                                                                "each target before 15:10 (entry at the first candle's "
+                                                                "high / low)")
 
 with settings_tab:
     with st.form("ohol_settings"):

@@ -131,6 +131,13 @@ python scripts\run_open_high_low.py --scan-only   # just the list
 
 Dashboard page **Open High Low**.
 
+## Time Machine (odds, off the chart)
+
+Gap Reversal and Open High Low show a **time machine** column (`win 45% · target 28%`) and a closed box with the
+chance of reaching 1:1.5 / 1:2 / 1:2.5 / 1:3 before 15:10. Information only (guide: `docs/TIME_MACHINE.md`). Any idea:
+`python scripts\time_machine.py --symbol RELIANCE --side LONG --entry 1190 --stop 1180`
+(folder `C:\Users\USER\Desktop\Kunal\kunal-quant-claude-version`, after the FYERS login).
+
 ## Checking signals against TradingView
 
 ```powershell

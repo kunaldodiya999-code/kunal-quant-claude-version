@@ -3,6 +3,15 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: Time Machine (odds off the chart), 2026-10-25
+- Checked github.com/Jakeschincariol/day-trader-skill (+ v1 trader-skill): genuine, MIT, 315/175 tests pass, works
+  live on US stocks only (NY hours hard-coded, US symbols, Alpaca/IBKR). Not installed. Its Time Machine idea rebuilt.
+- `strategies/time_machine.py` (run_odds, summary with 1:1.5-1:3 ladder), `paper_trading/time_machine_feed.py`
+  (FYERS 90 d 5-min, once per symbol), Gap Reversal + Open High Low desks/programs (column + closed box, `--no-odds`),
+  `dashboard/time_machine_box.py`, `scripts/time_machine.py` (on demand), `scripts/time_machine_check.py` +
+  `research/time_machine_check.py` (accuracy). Check: target chances rank right but cautious (real +6-15 points); the
+  win chance did not pick winners ("GOOD" 37% real) -> information only. Guide docs/TIME_MACHINE.md.
+
 ## claude/affectionate-bardeen-3k5sls: Open High Low spread relaxed to 2%, 2026-10-25
 - Owner: relax the spread, the concern is options with no real market (e.g. bid 15 / ask 20). Default: spread LESS
   than 2% of the middle price ((ask - bid) / mid), dropdown 0.30 / 0.50 / 1 / 2 / 3 / 5%. BOTH ATM CE and PE must

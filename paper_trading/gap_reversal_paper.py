@@ -33,10 +33,13 @@ def _clock(ts) -> str:
 
 
 class GapReversalDesk:
-    def __init__(self, folder: str | Path, settings: GapReversalSettings) -> None:
+    def __init__(self, folder: str | Path, settings: GapReversalSettings, *, odds_history=None) -> None:
+        """``odds_history``: symbol -> earlier sessions' 5-minute candles, for the Time Machine (None = off)."""
         self.folder = Path(folder)
         self.folder.mkdir(parents=True, exist_ok=True)
         self.settings = settings
+        self.odds_history = odds_history
+        self.odds: dict[str, dict] = {}           # symbol -> Time Machine summary at the entry (once)
         self.gaps: dict[str, dict] = {}          # symbol -> {"prev_close", "open", "gap_pct", "side"}
         self.candidates: dict[str, list] = {}
         self.trades: dict[str, dict] = {}         # symbol -> trade row
@@ -93,11 +96,28 @@ class GapReversalDesk:
             "last": round(last, 2),
             "pnl": round(pnl_points * qty, 2), "r": round(pnl_points / t.risk, 2) if t.risk else 0.0,
             "entry_epoch": t.entry_time, "candidate_time": first.bar_time,
+            "time_machine": self._odds(symbol, t, snap, minutes),
         }
         if symbol in self.trades:
             self.trades[symbol] = row                 # already taken: keep following it
         elif symbol not in self.skipped:
             self.proposals[symbol] = row              # new: waits for settle() and the daily cap
+
+    def _odds(self, symbol: str, t, snap: GapReversalSettings, minutes: Sequence) -> str:
+        """Time Machine at the entry, worked out once per symbol and day (information only, never a filter)."""
+        if self.odds_history is None:
+            return ""
+        if symbol not in self.odds:
+            try:
+                from strategies.time_machine import summary
+                today = [m for m in minutes if m.timestamp <= t.entry_time]
+                self.odds[symbol] = summary(symbol=symbol, side=t.side, entry=t.entry, stop=t.stop,
+                                            plan=snap.side(t.side).exit_plan(), entry_ts=t.entry_time,
+                                            history=self.odds_history(symbol), today=today,
+                                            exit_time=snap.exit_time) or {}
+            except Exception:                              # odds are extra: never stop the desk
+                self.odds[symbol] = {}
+        return self.odds[symbol].get("text", "")
 
     def settle(self) -> None:
         """Admit this scan's new trades under the daily cap (call after every symbol was updated)."""
@@ -127,6 +147,7 @@ class GapReversalDesk:
                 "candidates": sorted(cands, key=lambda c: -c["strength"]),
                 "trades": list(self.trades.values()),
                 "skipped": list(self.skipped.values()),
+                "time_machine": {k: v for k, v in self.odds.items() if v},
                 "daily_cap": {"max_trades": self.settings.max_trades_per_day,
                               "max_short": self.settings.max_short_per_day, "max_long": self.settings.max_long_per_day,
                               "taken": len(self.trades)},

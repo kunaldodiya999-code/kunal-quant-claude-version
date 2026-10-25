@@ -110,6 +110,7 @@ def main(argv=None, *, client=None, clock=None, sleep=time.sleep, master=None) -
     p.add_argument("--stop-at", default="15:35")
     p.add_argument("--every", type=float, default=30.0, help="seconds between trade updates")
     p.add_argument("--scan-only", action="store_true", help="scan, show the list, no trades, stop")
+    p.add_argument("--no-odds", action="store_true", help="do not work out the Time Machine odds of the shortlist")
     args = p.parse_args(argv)
     clock = clock or (lambda: datetime.now(IST))
 
@@ -132,7 +133,8 @@ def main(argv=None, *, client=None, clock=None, sleep=time.sleep, master=None) -
     say(f"OPEN HIGH LOW: scan at {settings.scan_at}, confirm {settings.confirm}, {2 * settings.strikes_each_side + 1} "
         f"strikes, top {settings.top_n}, instrument {settings.instrument}. Paper trades: "
         f"{'ON' if settings.enabled else 'OFF (scan only; switch ON in the dashboard)'}")
-    desk = OpenHighLowDesk(folder, settings)
+    from paper_trading.time_machine_feed import fyers_odds_history
+    desk = OpenHighLowDesk(folder, settings, odds_history=None if args.no_odds else fyers_odds_history(client, today))
     scan_time = dtime.fromisoformat(settings.scan_at)
     while clock().time() < scan_time:
         say(f"Waiting for {settings.scan_at} ...")
@@ -145,7 +147,8 @@ def main(argv=None, *, client=None, clock=None, sleep=time.sleep, master=None) -
     for c in top:
         say(f"TOP {c.stock} {c.side} matches {c.matches}/{c.matches_possible} (spot {'yes' if c.spot_ok else 'no'}, "
             f"future {'yes' if c.fut_ok else 'no'}, calls {c.call_matches}, puts {c.put_matches}) futures Rs {c.fut_value_cr:.1f} cr "
-            f"ATM spread {c.atm_spread_pct if c.atm_spread_pct is None else round(c.atm_spread_pct, 2)}%")
+            f"ATM spread {c.atm_spread_pct if c.atm_spread_pct is None else round(c.atm_spread_pct, 2)}%"
+            + (f"; time machine {desk.odds[c.stock]['text']}" if desk.odds.get(c.stock) else ""))
     if args.scan_only or not desk.trades:
         say("No paper trades." if not args.scan_only else "Scan only: done.")
         say(f"Saved in {folder}")

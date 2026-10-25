@@ -18,6 +18,7 @@ from data.gap_reversal import (  # noqa: E402
     COMMANDS, backtest, backtest_intervals, backtest_meta, live_minutes, research_minutes, status, store,
 )
 from exit_inputs import reward_box, tsl_select  # noqa: E402
+import time_machine_box  # noqa: E402
 from paper_trading.tsl_methods import PRESETS  # noqa: E402
 from strategies.exit_plan import TSL_LABELS, TSL_TRIGGERS  # noqa: E402
 from strategies.gap_reversal import ENTRY_MODES, LONG_NAMES, PATTERNS, SHORT_NAMES  # noqa: E402
@@ -67,12 +68,14 @@ with today_tab:
             st.caption("No setup yet.")
         st.markdown("**Paper trades**")
         if live["trades"]:
-            st.dataframe(pd.DataFrame(live["trades"]), hide_index=True, width="stretch")
+            st.dataframe(pd.DataFrame(live["trades"]).drop(columns=["entry_epoch", "candidate_time"], errors="ignore"),
+                         hide_index=True, width="stretch", column_config={"time_machine": "time machine"})
         else:
             st.caption("None yet." if s.enabled else "None: the strategy is OFF.")
         if live.get("skipped"):
             st.markdown("**Skipped because the daily cap was full**")
             st.dataframe(pd.DataFrame(live["skipped"]), hide_index=True, width="stretch")
+        time_machine_box.show(live.get("time_machine"))
 
 # --------------------------------------------------------------------------- settings
 with settings_tab:

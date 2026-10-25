@@ -75,6 +75,7 @@ def main(argv=None, *, client=None, clock=None, sleep=time.sleep, master=None) -
     p.add_argument("--credentials-folder", type=Path, default=None)
     p.add_argument("--stop-at", default="15:35")
     p.add_argument("--every", type=float, default=30.0, help="seconds between scans")
+    p.add_argument("--no-odds", action="store_true", help="do not work out the Time Machine odds of each trade")
     args = p.parse_args(argv)
     clock = clock or (lambda: datetime.now(IST))
 
@@ -96,7 +97,9 @@ def main(argv=None, *, client=None, clock=None, sleep=time.sleep, master=None) -
     say(f"GAP REVERSAL: {len(symbols)} symbols, gap >= {settings.gap_pct}%, {settings.timeframe}-min candles, "
         f"setups in the first {settings.window_bars()} candles. Paper trades: "
         f"{'ON' if settings.enabled else 'OFF (marking setups only; switch ON in the dashboard)'}")
-    desk = GapReversalDesk(folder, settings)
+    from paper_trading.time_machine_feed import fyers_odds_history
+    desk = GapReversalDesk(folder, settings,
+                           odds_history=None if args.no_odds else fyers_odds_history(client, clock().date()))
 
     while clock().time() < dtime(9, 16):
         say("Waiting for 09:16 (the first candle must be known)...")
@@ -134,7 +137,8 @@ def main(argv=None, *, client=None, clock=None, sleep=time.sleep, master=None) -
                                            for c in new[:5]))
             for t in status["trades"]:
                 say(f"PAPER {t['symbol']} {t['side']} {t['status']} entry {t['entry']} stop {t['stop']} "
-                    f"target {t['target'] or 'TSL'} P&L {t['pnl']}")
+                    f"target {t['target'] or 'TSL'} P&L {t['pnl']}"
+                    + (f" (time machine {t['time_machine']})" if t.get("time_machine") else ""))
             if status.get("skipped"):
                 cap = status["daily_cap"]
                 say(f"Daily cap full ({cap['taken']} of {cap['max_trades'] or 'no limit'}): skipped "

@@ -34,10 +34,13 @@ def _price_at(minutes: Sequence, ts: int) -> Optional[float]:
 
 
 class OpenHighLowDesk:
-    def __init__(self, folder: str | Path, settings: OpenHighLowSettings) -> None:
+    def __init__(self, folder: str | Path, settings: OpenHighLowSettings, *, odds_history=None) -> None:
+        """``odds_history``: chart symbol -> earlier sessions' 5-minute candles, for the Time Machine (None = off)."""
         self.folder = Path(folder)
         self.folder.mkdir(parents=True, exist_ok=True)
         self.settings = settings
+        self.odds_history = odds_history
+        self.odds: dict[str, dict] = {}           # stock -> Time Machine summary at the scan (shortlist only)
         self.scan_rows: list[dict] = []
         self.scanned_at: Optional[int] = None
         self.trades: dict[str, dict] = {}
@@ -49,7 +52,11 @@ class OpenHighLowDesk:
         top = select_top(candidates, s)
         picked = {c.stock for c in top}
         self.scanned_at = now
-        self.scan_rows = sorted((dict(c.row(), selected=c.stock in picked) for c in candidates if c.side),
+        for c in top:
+            self._odds(c, now, symbols or {})
+        self.scan_rows = sorted((dict(c.row(), selected=c.stock in picked,
+                                      time_machine=self.odds.get(c.stock, {}).get("text", ""))
+                                 for c in candidates if c.side),
                                 key=lambda r: (not r["selected"], not r["passes"], -r["match_count"], -r["liquidity"]))
         if not s.enabled:
             return top
@@ -76,8 +83,30 @@ class OpenHighLowDesk:
                 "level_entry": "", "stop": "", "entry": "", "quantity": qty or "",
                 "target": "", "status": "WAITING", "exit_time": "", "exit": "", "exit_detail": "", "last": "",
                 "pnl": 0.0, "r": 0.0, "exit_plan": s.side(c.side).exit_plan().describe(),
+                "time_machine": self.odds.get(c.stock, {}).get("text", ""),
             }
         return top
+
+    def _odds(self, c: Candidate, now: int, symbols: dict) -> None:
+        """Time Machine at the scan for a shortlisted stock: entry at the first candle's high (LONG) / low (SHORT),
+        stop at the day's low / high plus the buffer. Information only, never a filter."""
+        if self.odds_history is None or c.stock in self.odds:
+            return
+        s = self.settings
+        q = c.fut if s.instrument == "FUTURE" else c.spot
+        names = symbols.get(c.stock, {})
+        chart = names.get("future") if s.instrument == "FUTURE" else names.get("spot", f"NSE:{c.stock}-EQ")
+        if q is None or not chart:
+            return
+        buf = s.side(c.side).sl_buffer_pct / 100
+        entry, stop = (q.high, q.low * (1 - buf)) if c.side == "LONG" else (q.low, q.high * (1 + buf))
+        try:
+            from strategies.time_machine import summary
+            self.odds[c.stock] = summary(symbol=chart, side=c.side, entry=entry, stop=stop,
+                                         plan=s.side(c.side).exit_plan(), entry_ts=now,
+                                         history=self.odds_history(chart), exit_time=s.exit_time) or {}
+        except Exception:                                  # odds are extra: never stop the desk
+            self.odds[c.stock] = {}
 
     def on_minutes(self, stock: str, chart_minutes: Sequence, now: int, *, option_minutes: Sequence = (),
                    history: Sequence = ()) -> None:
@@ -140,6 +169,7 @@ class OpenHighLowDesk:
                 "strategy_enabled": s.enabled, "scan_at": s.scan_at, "instrument": s.instrument, "top_n": s.top_n,
                 "scanned_at": _clock(self.scanned_at), "scan": self.scan_rows,
                 "trades": list(self.trades.values()),
+                "time_machine": {k: v for k, v in self.odds.items() if v},
                 "day_pnl": round(sum(t["pnl"] for t in self.trades.values()), 2)}
 
     def write_status(self, now: int) -> dict:
