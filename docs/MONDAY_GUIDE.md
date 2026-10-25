@@ -117,6 +117,19 @@ It waits until 09:16, lists today's gap stocks, then checks every minute until 1
 shows the gaps, setups with their strength %, and paper trades (only when "Strategy ON" is ticked in its Settings tab;
 OFF by default = marking only). Paper only, never real orders.
 
+## Open High Low scanner (stocks; OFF by default, run it when you want it)
+
+Open = low (long) / open = high (short) on the stock and its future, confirmed by 22 options, top 5 traded on paper
+(full guide: `docs/OPEN_HIGH_LOW_STRATEGY.md`). Folder `C:\Users\USER\Desktop\Kunal\kunal-quant-claude-version`,
+`(.venv)` active, after the FYERS login, before 09:20:
+
+```powershell
+python scripts\run_open_high_low.py               # trades only when "Strategy ON" is ticked
+python scripts\run_open_high_low.py --scan-only   # just the list
+```
+
+Dashboard page **Open High Low**.
+
 ## Checking signals against TradingView
 
 ```powershell

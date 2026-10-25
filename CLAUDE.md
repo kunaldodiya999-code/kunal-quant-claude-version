@@ -78,7 +78,7 @@
   (owner: both switchable). Universe ALL F&O stocks (+ indexes). Owner plan: scanner + paper first, later cash MIS,
   then maybe CE/PE. OFF by default. `scripts/run_gap_reversal.py`, `scripts/gap_reversal_backtest.py`, page "Gap Reversal".
   Daily trade cap (owner 2026-10-25): max_trades_per_day 5 (+ per side), order = entry time then strength (`daily_cap`).
-  Earliest entry `entry_from` 09:40 (owner); a stock trades the qualifying setup that ENTERS first (`first_entry`).
+  Earliest entry `entry_from` default 09:15 (owner tried 09:40, set back); a stock trades the qualifying setup that ENTERS first (`first_entry`).
 - Exit plan, EVERY strategy (owner 2026-10-25): `strategies/exit_plan.py`. "Reward 1:[box]": number = whole trade
   out at 1:number; EMPTY = no target, TSL (owner's presets) exits on candle CLOSE beyond it. KTMI: `exit_target_rr` in
   trade_management.json (empty default keeps partial 2R + TSL). Gap Reversal: per side target_rr/tsl_method.
@@ -87,5 +87,12 @@
   = PAPER; OPENING_SCALP, HFT_GAP_OPEN = RESEARCH, not deployable). Saved in data/strategies.json (Gap Reversal =
   its "Strategy ON"). One command `python scripts\run_strategies.py`; page "Strategies". run_paper_session exits if
   KTMI not deployed. A new live strategy = add it to the registry + launcher.
+- Open High Low (owner 2026-10-25): `docs/OPEN_HIGH_LOW_STRATEGY.md`, `strategies/open_high_low.py`. F&O stocks;
+  LONG open=low, SHORT open=high on spot OR future, the other must agree (BOTH default); 11 strikes (ATM, 5 ITM, 5 OTM)
+  calls + puts: LONG = calls open=low + puts open=high (SHORT opposite); liquidity (futures value, ATM spread); top 5 by
+  matching options then liquidity. Scan 09:20. OFF by default. Instrument STOCK / FUTURE / OPTION (buy CE / PE).
+  `scripts/run_open_high_low.py` (--scan-only), page "Open High Low", registry OPEN_HIGH_LOW (deploy = its enabled).
+  Backtest spot-only (no free stock F&O history). Shared post-entry engine `strategies/trade_sim.py` (Gap Reversal too).
+- Reward box is a TEXT input (`dashboard/exit_inputs.py`): a Streamlit number box cannot be emptied once filled.
 - OWNER RULE: when the owner says "we are done for the day", give ALL commands to run on their PC in order,
   step by step (folder for each), with what each one should show, plus everything still pending from their side.

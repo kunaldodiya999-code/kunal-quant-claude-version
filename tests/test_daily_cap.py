@@ -79,6 +79,6 @@ def test_no_entry_before_entry_from_and_a_later_setup_can_still_trade():
     c, t2 = first_entry(found, bars, minutes, late, rr=2.0)
     assert c is not None and clock(t2.entry_time) == "09:50"
     assert first_entry(found, bars, minutes, replace(s, entry_from="10:30"), rr=2.0) == (None, None)
-    assert GapReversalSettings().entry_from == "09:40"
+    assert GapReversalSettings().entry_from == "09:15"
     with pytest.raises(ValueError):
         GapReversalSettings(entry_from="15:20")                                # after the exit time

@@ -38,6 +38,8 @@ def test_page_with_scanner_and_backtest(tmp_path, monkeypatch):
     at.number_input(key="gr_gap").set_value(2.0)
     at.selectbox(key="gr_long_entry").set_value("CLOSE")
     at.checkbox(key="gr_short_HARAMI").set_value(False)
+    at.text_input(key="gr_long_rr").set_value("")                   # empty box = TSL exit
+    at.selectbox(key="gr_long_tsl").set_value("PSAR_0.04_0.04_0.10")
     at.number_input(key="gr_cap_all").set_value(3)
     at.text_input(key="gr_entry_from").set_value("09:45")
     at.number_input(key="gr_cap_long").set_value(2)
@@ -47,6 +49,10 @@ def test_page_with_scanner_and_backtest(tmp_path, monkeypatch):
     saved = GapReversalStore(gap).settings
     assert saved.gap_pct == 2.0 and saved.long.entry_mode == "CLOSE" and saved.short.entry_mode == "BREAK"
     assert saved.entry_from == "09:45" and saved.max_trades_per_day == 3 and saved.max_long_per_day == 2 and saved.max_short_per_day == 0
+    assert saved.long.target_rr is None and saved.long.tsl_method == "PSAR_0.04_0.04_0.10" and saved.short.target_rr == 2
+    at.text_input(key="gr_short_rr").set_value("two")
+    at.button[0].click().run()
+    assert not at.exception and any("Not saved" in e.value for e in at.error)
     assert saved.short.patterns["HARAMI"] is False and saved.long.patterns["HARAMI"] is True
 
 

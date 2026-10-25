@@ -34,8 +34,8 @@ from pathlib import Path
 from typing import Optional, Sequence
 from zoneinfo import ZoneInfo
 
-from paper_trading.tsl_methods import method_stops
 from strategies.exit_plan import NO_TSL, ExitPlan, parse_rr
+from strategies.trade_sim import manage_trade, step_of
 
 IST = ZoneInfo("Asia/Kolkata")
 PATTERNS = ("SHOOTING_STAR", "DOJI", "ENGULFING", "EVENING_STAR", "DARK_CLOUD", "TWEEZER", "HARAMI",
@@ -102,7 +102,7 @@ class GapReversalSettings:
     window_5m: int = 10                  # setups only in the first 10 candles of 5 minutes ...
     window_3m: int = 16                  # ... or the first 16 candles of 3 minutes
     exit_time: str = "15:10"
-    entry_from: str = "09:40"            # no new entry before this time (owner, 25 Oct); setups are still marked
+    entry_from: str = "09:15"            # no new entry before this time (owner setting; 09:15 = no limit)
     include_indexes: bool = True         # scan NIFTY, BANK NIFTY, SENSEX too (spot has no volume)
     rr_choices: tuple = RR_CHOICES
     # pattern rules
@@ -470,10 +470,7 @@ class TradeResult:
     max_favourable_r: float = 0.0   # best move in the trade's favour before the exit, in R
 
 
-def _step(minutes: Sequence[Bar]) -> int:
-    """Seconds per 'minute' candle (60 for 1-minute data, 300 when only 5-minute data exists)."""
-    gaps = [b.timestamp - a.timestamp for a, b in zip(minutes, minutes[1:]) if b.timestamp > a.timestamp]
-    return min(gaps) if gaps else 60
+_step = step_of
 
 
 def simulate(candidate: Candidate, bars: Sequence[Bar], minutes: Sequence[Bar], s: GapReversalSettings,
@@ -527,68 +524,14 @@ def simulate(candidate: Candidate, bars: Sequence[Bar], minutes: Sequence[Bar], 
         return None
     if side_cfg.max_risk_pct and risk / abs(entry) * 100 > side_cfg.max_risk_pct:
         return None
-    target = None if plan.target_rr is None else entry - plan.target_rr * risk
-    day = datetime.fromtimestamp(entry_ts, IST).date()
-    cutoff = int(datetime.combine(day, time.fromisoformat(s.exit_time), tzinfo=IST).timestamp())
-
-    # TSL values per strategy candle, on real prices and the real side, then turned to the short view
-    tsl_at: dict[int, tuple] = {}                           # candle end -> (index, value or None, flip)
-    if plan.uses_tsl:
-        kind, params = plan.method()
-        real_entry = sign * entry
-        warm = len(history)
-        points = method_stops(kind, params, list(history) + list(bars), candidate.side, entry_price=real_entry)[warm:]
-        for k, (bar, point) in enumerate(zip(bars, points)):
-            value = None if point.stop is None else sign * point.stop
-            tsl_at[bar.timestamp + tf] = (k, value, point.against)
-    tsl = None
-    for end in sorted(e for e in tsl_at if e <= entry_ts):   # the method's value when the trade starts
-        k, value, _ = tsl_at[end]
-        tsl = value if value is not None and value > o_bars[k].close else None
-
-    exit_price, exit_ts, result, detail = None, None, "TIME", ""
-    best = entry
-    after = [m for m in o_min if m.timestamp > entry_ts and m.timestamp < cutoff]
-    entry_end = entry_ts if side_cfg.entry_mode == "CLOSE" else entry_ts + step
-    if entry_end in tsl_at:                                 # the entry candle closes in the entry minute
-        k, value, _ = tsl_at[entry_end]
-        if value is not None and value > o_bars[k].close:
-            tsl = value if tsl is None else min(tsl, value)
-    for m in after:
-        if m.high >= stop:
-            exit_price, exit_ts, result, detail = max(stop, m.open), m.timestamp, "STOP", "day's extreme"
-            break
-        if target is not None and m.low <= target:
-            exit_price, exit_ts, result, detail = target, m.timestamp, "TARGET", f"1:{plan.target_rr:g}"
-            break
-        best = min(best, m.low)
-        if plan.uses_tsl and plan.tsl_trigger == "TOUCH" and tsl is not None and m.high >= tsl:
-            exit_price, exit_ts, result, detail = max(tsl, m.open), m.timestamp, "TSL", f"touched {abs(tsl):g}"
-            break
-        hit = tsl_at.get(m.timestamp + step)
-        if hit is None:
-            continue
-        k, value, against = hit
-        close = o_bars[k].close
-        if tsl is not None and plan.tsl_trigger == "CLOSE" and close > tsl:
-            exit_price, exit_ts, result = close, m.timestamp + step, "TSL"
-            detail = f"candle closed beyond the TSL {abs(tsl):g}"
-            break
-        if against and tsl is not None:
-            exit_price, exit_ts, result, detail = close, m.timestamp + step, "TSL", "SAR switched sides"
-            break
-        if value is not None and (tsl is not None or value > close):
-            tsl = value if tsl is None else min(tsl, value)
-    if exit_price is None:
-        last = after[-1] if after else [m for m in o_min if m.timestamp <= entry_ts][-1]
-        exit_price, exit_ts = last.close, last.timestamp
-        if live and (not after or after[-1].timestamp + step < cutoff):
-            result = "OPEN"
-    points_won = entry - exit_price
-    return TradeResult(candidate.symbol, candidate.side, candidate.bar_time, entry_ts, sign * entry, sign * stop,
-                       round(risk, 4), plan.target_rr, None if target is None else sign * target, exit_ts,
-                       sign * exit_price, result, round(points_won, 4), round(points_won / risk, 3), detail,
-                       round((entry - best) / risk, 3))
+    out = manage_trade(side=candidate.side, entry=sign * entry, entry_ts=entry_ts, stop=sign * stop, plan=plan,
+                       bars=bars, minutes=minutes, exit_time=s.exit_time, history=history, live=live,
+                       entry_at_bar_close=side_cfg.entry_mode == "CLOSE", stop_label="day's extreme")
+    if out is None:
+        return None
+    return TradeResult(candidate.symbol, candidate.side, candidate.bar_time, out.entry_time, out.entry, out.stop,
+                       out.risk, out.rr, out.target, out.exit_time, out.exit, out.result, out.points, out.r_multiple,
+                       out.detail, out.max_favourable_r)
 
 
 __all__ = [

@@ -13,9 +13,11 @@ REWARD_HELP = ("Type the reward for 1 of risk: 1.5, 2, 2.5, 3 or any other numbe
 
 
 def reward_box(container, value, *, key: str, label: str = "Reward  1 :"):
-    """Number box that may stay empty (None)."""
-    return container.number_input(label, min_value=0.1, max_value=50.0, value=None if value is None else float(value),
-                                  step=0.5, format="%.2f", placeholder="empty = TSL exit", key=key, help=REWARD_HELP)
+    """Text box: a number (1.5, 2, 3 ...) or EMPTY. Returns the text; the settings turn it into a number or None
+    (strategies.exit_plan.parse_rr) and refuse anything else. A text box because a Streamlit number box cannot be
+    emptied again once it holds a number (checked in a browser, 25 Oct 2026)."""
+    return container.text_input(label, value="" if value is None else f"{float(value):g}",
+                                placeholder="empty = TSL exit", key=key, help=REWARD_HELP)
 
 
 def tsl_select(container, value: str, *, key: str, label: str = "TSL method", choices=TSL_CHOICES):

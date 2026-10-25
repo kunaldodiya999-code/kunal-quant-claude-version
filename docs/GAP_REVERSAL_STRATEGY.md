@@ -225,7 +225,8 @@ What it shows (honestly):
 
 ## Earliest entry time (owner, 25 Oct 2026)
 
-Settings tab: **No entry before (HH:MM)**, default **09:40** (`entry_from`). Setups before 09:40 are still marked; the
+Settings tab: **No entry before (HH:MM)** (`entry_from`), default **09:15** = no limit (owner set it back from
+09:40 on 25 Oct after the results below). Setups before 09:40 are still marked; the
 entry waits until 09:40 while the setup is still valid (`entry_valid_bars` candles). BREAK: the first minute from 09:40
 with price beyond the trigger (if price is already beyond it at 09:40, the entry is at that minute's open). CLOSE: the
 first candle closing beyond the trigger that ends at 09:40 or later. Backtest another time:

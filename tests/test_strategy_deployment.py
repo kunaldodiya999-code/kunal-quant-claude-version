@@ -16,10 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_defaults_ktmi_deployed_gap_reversal_not(tmp_path):
     store = DeploymentStore(tmp_path)
     assert store.deployed() == ["KTMI_UNI_LITE"]
-    assert set(STRATEGIES) == {"KTMI_UNI_LITE", "GAP_REVERSAL", "OPENING_SCALP", "HFT_GAP_OPEN"}
+    assert set(STRATEGIES) == {"KTMI_UNI_LITE", "GAP_REVERSAL", "OPEN_HIGH_LOW", "OPENING_SCALP", "HFT_GAP_OPEN"}
 
 
-@pytest.mark.parametrize("text, keys", [("all", ["KTMI_UNI_LITE", "GAP_REVERSAL"]), ("none", []),
+@pytest.mark.parametrize("text, keys", [("all", ["KTMI_UNI_LITE", "GAP_REVERSAL", "OPEN_HIGH_LOW"]), ("none", []),
                                         ("gap_reversal", ["GAP_REVERSAL"]),
                                         ("KTMI_UNI_LITE, GAP_REVERSAL", ["KTMI_UNI_LITE", "GAP_REVERSAL"])])
 def test_single_several_or_all(tmp_path, text, keys):
@@ -28,6 +28,8 @@ def test_single_several_or_all(tmp_path, text, keys):
     assert DeploymentStore(tmp_path).deployed() == keys
     # Gap Reversal's own "Strategy ON" switch is the same flag
     assert GapReversalStore(tmp_path / "gap_reversal").settings.enabled == ("GAP_REVERSAL" in keys)
+    from strategies.open_high_low import OpenHighLowStore
+    assert OpenHighLowStore(tmp_path / "open_high_low").settings.enabled == ("OPEN_HIGH_LOW" in keys)
 
 
 def test_research_strategies_cannot_be_deployed():
@@ -60,7 +62,7 @@ def test_launcher_starts_every_deployed_strategy(tmp_path, capsys):
     assert main(["--data-folder", str(tmp_path), "--deploy", "all", "--index", "NIFTY", "--stop-at", "15:00"],
                 popen=popen) == 0
     scripts = [Path(c[1]).name for c in started]
-    assert scripts == ["run_paper_session.py", "run_gap_reversal.py"]
+    assert scripts == ["run_paper_session.py", "run_gap_reversal.py", "run_open_high_low.py"]
     assert "--index" in started[0] and "--index" not in started[1] and "--live-orders" not in started[0]
     assert all(["--stop-at", "15:00"] == c[c.index("--stop-at"):c.index("--stop-at") + 2] for c in started)
     out = capsys.readouterr().out
@@ -80,6 +82,7 @@ def test_ktmi_runner_does_nothing_when_not_deployed(tmp_path, capsys):
 def test_strategies_page_saves_the_choice(tmp_path, monkeypatch):
     monkeypatch.setenv("KQ_PAPER_DIR", str(tmp_path / "paper_trading"))
     monkeypatch.setenv("KQ_GAP_DIR", str(tmp_path / "gap_reversal"))
+    monkeypatch.setenv("KQ_OHOL_DIR", str(tmp_path / "open_high_low"))
     at = AppTest.from_file(str(ROOT / "dashboard" / "pages" / "9_Strategies.py"), default_timeout=60).run()
     assert not at.exception
     at.checkbox(key="deploy_GAP_REVERSAL").check()

@@ -3,6 +3,18 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: Open High Low strategy, entry time back to 09:15, reward box fix, 2026-10-25
+- Owner: Gap Reversal `entry_from` default back to 09:15.
+- New strategy Open High Low (owner brief): spot/futures open = low (long) / open = high (short), confirmed by 22 options
+  (11 strikes, calls + puts), liquidity checks, top 5. `strategies/open_high_low.py`, paper desk
+  `paper_trading/open_high_low_paper.py`, program `scripts/run_open_high_low.py` (--scan-only), page "Open High Low",
+  registry + launcher (OFF by default). Spot-only backtest `scripts/open_high_low_backtest.py` (no free stock F&O
+  history): roughly break-even; fixed 1:2.5 / 1:3 slightly positive on both data sets.
+- `strategies/trade_sim.py`: the post-entry engine (stop, target, TSL, time) shared by Gap Reversal and Open High Low
+  (Gap Reversal results unchanged, tests pass).
+- Fix: the "Reward 1:[box]" was a number box; in a real browser it cannot be emptied once it holds a number, so
+  "empty = TSL" could not be chosen. Now a text box (checked in a browser: empty -> None); bad text is refused.
+
 ## claude/affectionate-bardeen-3k5sls: Gap Reversal earliest entry time, 2026-10-25
 - `entry_from` (default 09:40, dashboard "No entry before", backtest `--entry-from`). Stocks now trade the qualifying
   setup that ENTERS first (`first_entry`), live and backtest. Result: 09:40 worse than 09:15 at cap 5 (both data
