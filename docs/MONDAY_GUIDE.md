@@ -57,6 +57,8 @@ python scripts\data_audit.py          # 1. what is in the shared database, which
 python scripts\fetch_data.py          # 2. add what is missing from FYERS (needs today's FYERS login)
 python scripts\data_audit.py          # 3. check again: every line should say OK
 python scripts\prove_strategies.py    # 4. all strategy tests on the clean days -> data\research\proof_report.txt
+python scripts\report_card.py         # 5. THE REPORT CARD: every strategy x every TSL / target, VIX, time of day,
+                                       #    Rs 10 lakh plan -> data\research\report_card\report_card.html (double click)
 ```
 * `fetch_data.py`: last 90 days of 1-minute candles (NIFTY, BANK NIFTY, SENSEX, India VIX, every F&O stock) up to
   the last FINISHED day; each day checked; broken days asked for once more. First run 10-20 minutes, then only the

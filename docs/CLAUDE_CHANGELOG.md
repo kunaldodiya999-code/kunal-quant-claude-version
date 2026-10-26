@@ -3,6 +3,14 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: strategy report card (HTML), 2026-10-26
+- Owner's data check after fetch_data: NIFTY / BANKNIFTY / SENSEX 62 of 62 days clean, stocks 13,166 of 13,168
+  stock-days clean, India VIX 51 of 62 (fast VIX moves flagged as spikes; VIX is used only as a daily level).
+- `scripts/report_card.py` / `research/report_card.py`: every strategy x exit plan, Rs 10 lakh / Rs 30,000 per trade,
+  ranking with stars, TSL and fixed-target scores, timeframes, hour of day, India VIX regimes + trend / range days,
+  portfolio (33 open max, combined plan), walk-forward honesty check, 1-year NIFTY page; 13-page offline HTML.
+- Claude cannot read the owner's database from the cloud: the owner runs the report and sends summary.txt.
+
 ## claude/affectionate-bardeen-3k5sls: FYERS only, one shared database for both repos, 2026-10-26
 - Owner: "fetch all data from FYERS only, no Yahoo; link our local data so both repos use the same data";
   answer to Claude's question: ONE database in KunalQuant (kunal_quant.db), add-only, backup first.

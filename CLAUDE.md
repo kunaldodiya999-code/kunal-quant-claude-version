@@ -114,5 +114,11 @@
   Quality: `market_data/day_quality.py` INDEX_RULES strict, STOCK_RULES (to 15:14, <=3 quiet min, none in first 15,
   split/bonus days out). Stock backtests trade only `market_data/clean_days.tradable_days` (`--all-days` off);
   5m stock candles are built from 1m (`kq_store.five_minute`). No price data is in git (only on the owner's PC).
+- REPORT CARD (owner 2026-10-26): `scripts/report_card.py` + engine `research/report_card.py`: Rs 10 lakh, Rs 30,000 per
+  trade, max 33 open; KTMI (3/5/10/15m, 3 indexes, option money ESTIMATED: premium 0.6% spot, delta 0.5, 30% premium stop,
+  no theta), Gap Reversal (gap 3%/1%, 5m/3m, BREAK/CLOSE), OHOL (plain/VWAP/BB/15-min first candle), Opening Scalp; exits
+  1:1.5-1:3 + each TSL preset alone; tags hour / VIX at open (terciles) / VIX up-down / NIFTY TREND-RANGE; stars by PF
+  (-1 if not both halves + or <30 trades), ranked stars then net; walk-forward "honesty check"; 1-year NIFTY page.
+  Output data/research/report_card/report_card.html (13 tabs, offline) + summary.txt (owner pastes it to Claude).
 - OWNER RULE: when the owner says "we are done for the day", give ALL commands to run on their PC in order,
   step by step (folder for each), with what each one should show, plus everything still pending from their side.
