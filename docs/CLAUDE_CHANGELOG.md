@@ -3,6 +3,13 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: clearer trading window, faster TSL Lab, 2026-10-26
+- Owner's first run looked stuck: `run_paper_session.py` printed "no live price" in the first second (before any
+  price could arrive) and then stayed silent. Now: no warning in the first minute of connecting; "live prices are
+  coming in" once per index; "Running OK | ..." every 5 minutes (`--heartbeat-minutes`, 0 = off).
+- TSL Lab: TSL candles built once per day (not per method), progress lines; same results, ~2.5x faster.
+- MONDAY_GUIDE: what the quiet window looks like; git "Unlink of file ... failed" = answer n, harmless.
+
 ## claude/affectionate-bardeen-3k5sls: TSL chart choice (spot default) for every strategy, 2026-10-25
 - KTMI: `tsl_source` default SPOT (was OPTION), new FUTURE (index current-month future, from the runner's futures
   candles; no candles at the trade's start -> that trade trails on spot, log TSL_SOURCE). `paper_trading/exit_manager.py`.

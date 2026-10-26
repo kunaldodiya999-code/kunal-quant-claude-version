@@ -55,7 +55,11 @@ BANK NIFTY: lot 30, expiry Tue 27 Oct, ...
 SENSEX: lot 20, expiry Thu 29 Oct, ...
 NIFTY 50: warm-up ... bars of history
 Connecting to FYERS live data... leave this window open.
+NIFTY 50: live prices are coming in (now 25,812.35). All good.     <- one per index, within a minute
+Running OK | NIFTY 50 25,820.10, open trades 0, day P&L +0 | ...   <- every 5 minutes
 ```
+After "Connecting" the window is QUIET apart from these lines and trades (ENTRY / EXIT lines). Quiet = normal.
+The dashboard page **Live Paper Trading** shows the live prices and trades.
 
 ## If something goes wrong
 
@@ -64,6 +68,7 @@ Connecting to FYERS live data... leave this window open.
 | `FYERS login failed` | Run step 1 again, then step 2. |
 | `FYERS login files not found` | Run step 1 in the folder that has `.env`. |
 | `WARNING ... no live price for ...` | Check the internet. The program reconnects by itself (up to 50 tries). |
+| `Unlink of file '.git/objects/pack/...' failed. Should I try again? (y/n)` during `git pull` | Type `n` and Enter (each time it asks). The pull already worked; another program (often VS Code) was holding an old git file. Harmless. |
 | Dashboard: "trading program is not running" | Window 1 was closed or stopped: run step 2 again. Open trades are restored. |
 | Anything else | Copy the red text and send it to Claude. |
 

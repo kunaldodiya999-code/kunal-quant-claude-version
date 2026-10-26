@@ -215,3 +215,13 @@ def test_silence_warning_only_in_market_hours():
     snap["value"] = SimpleNamespace(received_at=at(10, 0).timestamp())
     assert desk.silence_seconds(at(10, 2)) == 120
     assert desk.silence_seconds(datetime(2026, 10, 25, 10, 0, tzinfo=IST)) is None   # Sunday
+
+
+def test_window_says_prices_are_flowing_and_prints_running_ok(tmp_path, monkeypatch, capsys):
+    """Owner 26 Oct: the window looked stuck after 'Connecting'. No false 'no live price' warning while
+    connecting; a line once prices arrive; a short 'Running OK' line every 5 minutes."""
+    run_day(tmp_path, monkeypatch)
+    out = capsys.readouterr().out
+    assert "no live price for over a minute" not in out        # not while still connecting
+    assert "NIFTY 50: live prices are coming in" in out
+    assert out.count("Running OK | NIFTY 50 22,010.00, open trades") == 2      # 10:05 and 10:10

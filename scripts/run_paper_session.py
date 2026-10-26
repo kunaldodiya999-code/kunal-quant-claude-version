@@ -70,6 +70,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="send REAL orders to FYERS (also needs: python scripts\\live_switch.py arm)")
     p.add_argument("--stop-at", default="15:35", help="stop the program at this IST time (HH:MM)")
     p.add_argument("--status-every", type=float, default=2.0, help="seconds between dashboard updates")
+    p.add_argument("--heartbeat-minutes", type=float, default=5.0,
+                   help="print a short 'running OK' line every N minutes (0 = off)")
     return p
 
 
@@ -81,6 +83,7 @@ class IndexDesk:
         self.paper_dir, self.gateway, self.mirror = paper_dir, gateway, mirror
         self.reported_error = None
         self.last_silence_warning = 0.0
+        self.prices_seen = False
         self.futures = None          # FuturesMinuteRecorder (chart volume), when the future is known
         self.last_oi = 0.0           # monotonic time of the last option-chain refresh
         self.oi_error = None
@@ -292,6 +295,8 @@ def main(argv=None, *, client=None, raw_master=None, socket_factory=None, clock=
     say("Connecting to FYERS live data... leave this window open. (Ctrl+C to stop)")
     stop_at = dtime.fromisoformat(args.stop_at)
     last_status = 0.0
+    connect_started = clock().timestamp()          # no 'no live price' warning in the first minute of connecting
+    last_heartbeat = connect_started
     try:
         while True:
             now = clock()
@@ -312,7 +317,8 @@ def main(argv=None, *, client=None, raw_master=None, socket_factory=None, clock=
                 refresh_oi(desk, now)
             for desk in desks:
                 silent = desk.silence_seconds(now)
-                if silent is not None and silent > 60 and now.timestamp() - desk.last_silence_warning > 60:
+                if (silent is not None and silent > 60 and now.timestamp() - desk.last_silence_warning > 60
+                        and now.timestamp() - connect_started > 60):
                     say(f"WARNING {desk.profile.label}: no live price for "
                         f"{'over a minute' if silent == float('inf') else f'{int(silent)} s'}. "
                         "Check internet / FYERS. No new trades without fresh prices.")
@@ -325,7 +331,22 @@ def main(argv=None, *, client=None, raw_master=None, socket_factory=None, clock=
                     if error and error != desk.reported_error:
                         say(f"{desk.profile.label}: FEED MESSAGE: {error}")
                         desk.reported_error = error
+                    if status.get("spot") and not desk.prices_seen:
+                        desk.prices_seen = True
+                        say(f"{desk.profile.label}: live prices are coming in (now {status['spot']:,.2f}). All good.")
                 last_status = time.monotonic()
+            if args.heartbeat_minutes > 0 and now.timestamp() - last_heartbeat >= args.heartbeat_minutes * 60:
+                parts = []
+                for desk in desks:
+                    status = desk.status(now.timestamp())
+                    spot = status.get("spot")
+                    account = status.get("account") or {}
+                    parts.append(f"{desk.profile.label} {spot:,.2f}" if spot else f"{desk.profile.label} no price")
+                    parts[-1] += f", open trades {len(status.get('positions') or [])}"
+                    if account.get("day_pnl") is not None:
+                        parts[-1] += f", day P&L {account['day_pnl']:+,.0f}"
+                say("Running OK | " + " | ".join(parts))
+                last_heartbeat = now.timestamp()
             sleep(1)
     except KeyboardInterrupt:
         say("Stopped by you (Ctrl+C).")

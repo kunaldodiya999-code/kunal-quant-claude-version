@@ -30,6 +30,17 @@ from research.tsl_beta import BETA_METHODS, run_signal_beta
 
 IST = ZoneInfo("Asia/Kolkata")
 WARMUP_DAYS = 3
+_BARS: dict = {}            # (day, timeframe, cutoff) -> TSL candles; the same for every method of that day
+
+
+def _bars_for(minutes_by_day: dict, days: list, day, timeframe: int, cutoff: int) -> list:
+    key = (id(minutes_by_day), day, timeframe, cutoff)
+    if key not in _BARS:
+        k = days.index(day)
+        window = [c for d in days[max(0, k - WARMUP_DAYS):k + 1] for c in minutes_by_day[d]]
+        _BARS[key] = [b for b in session_bars([c for c in window if c.timestamp < cutoff], timeframe)
+                      if bar_end(b.timestamp, timeframe) <= cutoff]
+    return _BARS[key]
 
 
 def run_signal(signal, minutes_by_day: dict, days: list, *, preset: str, trigger: str, timeframe: int,
@@ -37,8 +48,6 @@ def run_signal(signal, minutes_by_day: dict, days: list, *, preset: str, trigger
     day = datetime.fromtimestamp(signal.decision_ts, IST).date()
     if day not in minutes_by_day:
         return None
-    k = days.index(day)
-    window = [c for d in days[max(0, k - WARMUP_DAYS):k + 1] for c in minutes_by_day[d]]
     cutoff = int(datetime.combine(day, exit_at, tzinfo=IST).timestamp())
     today = [c for c in minutes_by_day[day] if c.timestamp < cutoff]
     times = [c.timestamp for c in today]
@@ -53,8 +62,7 @@ def run_signal(signal, minutes_by_day: dict, days: list, *, preset: str, trigger
                                    "tsl_trigger": trigger, "tsl_mode": "INDICATOR"})
     tracker = TslTracker(trade_id="lab", settings=s, side=side, entry_timestamp=entry_bar.timestamp,
                          entry_price=entry, timeframe=timeframe)
-    bars = [b for b in session_bars([c for c in window if c.timestamp < cutoff], timeframe)
-            if bar_end(b.timestamp, timeframe) <= cutoff]
+    bars = _bars_for(minutes_by_day, days, day, timeframe, cutoff)
     hit = tracker.on_bars(bars)
     if hit is not None and hit.timestamp <= cutoff:
         exit_ts, exit_price, reason = hit.timestamp, hit.source_price, hit.reason
@@ -77,12 +85,17 @@ def run_signal(signal, minutes_by_day: dict, days: list, *, preset: str, trigger
 def run(signals: Sequence, minutes: Sequence, *, presets: Iterable[str] = tuple(PRESETS),
         triggers: Iterable[str] = ("CLOSE", "TOUCH"), tsl_timeframes: Iterable[int] | None = None,
         settings: TradeManagementSettings = TradeManagementSettings(), beta: bool = False,
-        beta_params: dict | None = None) -> tuple[list[dict], list[dict]]:
+        beta_params: dict | None = None, progress=None) -> tuple[list[dict], list[dict]]:
+    """``progress(done, total)`` is called now and then (the PowerShell window shows it is working)."""
     by_day = group_by_day(minutes)
     days = sorted(by_day)
     trades, summary = [], []
     groups: dict[tuple, list[dict]] = {}
-    for sig in signals:
+    _BARS.clear()
+    step = max(1, len(signals) // 10)
+    for n, sig in enumerate(signals, 1):
+        if progress is not None and (n % step == 0 or n == len(signals)):
+            progress(n, len(signals))
         for tf in (tsl_timeframes or [sig.timeframe]):
             for preset in presets:
                 for trigger in triggers:
@@ -110,6 +123,7 @@ def run(signals: Sequence, minutes: Sequence, *, presets: Iterable[str] = tuple(
             "time_exits": sum(r["reason"].startswith("TIME") for r in rows),
             "approx_option_points": round(sum(option_points_estimate(r["points"]) for r in rows) / len(rows), 2),
         })
+    _BARS.clear()
     return trades, summary
 
 

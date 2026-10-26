@@ -76,9 +76,15 @@ def main(argv=None) -> int:
         settings = TradeManagementStore(args.data_folder / "paper_trading" / index).settings
         days = sorted(group_by_day(clean))
         for tf in frames:
+            print(f"{index} {tf}m: finding KTMI signals in {len(days)} clean days (can take a few minutes)...",
+                  flush=True)
             signals = find_signals(everything, index=index, timeframe=tf, clean_days=days)
+            print(f"{index} {tf}m: {len(signals)} signals, testing every trailing stop on them...", flush=True)
             trades, summary = run(signals, clean, triggers=triggers, tsl_timeframes=tsl_frames, settings=settings,
-                                  beta=not args.no_beta)
+                                  beta=not args.no_beta,
+                                  progress=lambda done, total, i=index, f=tf: print(
+                                      f"   {i} {f}m: {done} of {total} signals done ({100 * done // total}%)",
+                                      flush=True))
             all_trades += trades
             all_summary += summary
             print(f"{index} {tf}m: {len(days)} clean days, {len(signals)} signals")
