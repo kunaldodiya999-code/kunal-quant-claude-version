@@ -46,6 +46,19 @@ streamlit run app.py
 ```
 Open **Live Paper Trading** in the browser.
 
+## Every evening after 15:35: download the day's data and prove the strategies
+
+Same folder (`C:\Users\USER\Desktop\Kunal\kunal-quant-claude-version`, `(.venv)` on, today's FYERS login):
+```powershell
+python scripts\fetch_data.py
+python scripts\prove_strategies.py
+```
+`fetch_data.py`: FYERS history for the 3 indexes + VIX (1-minute, 1 year) and every F&O stock (1-minute 60 days,
+5-minute 1 year). FIRST run 20-40 minutes (progress every 10 stocks); later evenings only the new day (a few
+minutes), so the test data grows with every live market day. Data: `data\research\market_data.db` (~0.5-1 GB).
+`prove_strategies.py`: KTMI signal accuracy, TSL Lab, Gap Reversal and Open High Low on that data, one report
+`data\research\proof_report.txt` (send it to Claude). Takes 10-40 minutes; prints progress.
+
 ## What you should see in window 1
 
 ```

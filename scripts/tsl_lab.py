@@ -52,7 +52,7 @@ def write_csv(path: Path, rows: list[dict]) -> None:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Compare trailing stops on historical KTMI Uni Lite signals.")
-    p.add_argument("--source", choices=("research", "kq-db"), default="research")
+    p.add_argument("--source", choices=("research", "fyers", "kq-db"), default="research")
     p.add_argument("--index", default="NIFTY,BANKNIFTY,SENSEX")
     p.add_argument("--timeframes", default="3,5", help="KTMI signal timeframes")
     p.add_argument("--tsl-timeframes", default="", help="TSL candle sizes (default: same as the signal)")
@@ -93,7 +93,8 @@ def main(argv=None) -> int:
                       f"total {row['total_points']:>8} pts  PF {row['profit_factor']}  win {row['win_rate_pct']}%  "
                       f"capture {row['capture_pct']}%")
     if not all_summary:
-        raise SystemExit("No clean data found. Run  python scripts\\sweep_market_data.py  first.")
+        raise SystemExit("Nothing to test: no clean data or no KTMI signals. Download data first:  "
+                         "python scripts\\fetch_data.py  (or  python scripts\\sweep_market_data.py)")
     out = args.data_folder / "research" / "results"
     write_csv(out / "tsl_lab_summary.csv", all_summary)
     write_csv(out / "tsl_lab_trades.csv", all_trades)

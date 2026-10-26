@@ -41,7 +41,7 @@ def _line(name: str, s: dict) -> str:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Opening Scalp backtest on clean days.")
-    p.add_argument("--source", choices=("research", "kq-db"), default="research")
+    p.add_argument("--source", choices=("research", "fyers", "kq-db"), default="research")
     p.add_argument("--index", default="NIFTY,BANKNIFTY,SENSEX")
     p.add_argument("--resolution", choices=("1m", "5m"), default="1m")
     p.add_argument("--kq-db", type=Path, default=None)

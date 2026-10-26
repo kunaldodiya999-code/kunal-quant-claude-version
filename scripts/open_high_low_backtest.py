@@ -9,6 +9,8 @@ Run from C:\\Users\\USER\\Desktop\\Kunal\\kunal-quant-claude-version :
     python scripts\\open_high_low_backtest.py --source yahoo
         download first (free Yahoo data, no login), then test
     python scripts\\open_high_low_backtest.py --first-candle 15 --top-n 3
+    python scripts\\open_high_low_backtest.py --cache-source fyers --interval 5m
+        the FYERS data from scripts\\fetch_data.py (5-minute: a whole year)
 
 Uses the settings saved from the dashboard (data\\open_high_low\\settings.json). Results in data\\open_high_low\\:
 backtest_summary.csv, backtest_trades.csv, backtest_candidates.csv, backtest_top_n.csv (5m: *_5m.csv).
@@ -62,6 +64,8 @@ def main(argv=None, *, yahoo_get=None, master=None) -> int:
     p.add_argument("--capital-per-trade", type=float, default=CAPITAL_PER_TRADE)
     p.add_argument("--data-folder", type=Path, default=PROJECT_ROOT / "data")
     p.add_argument("--pause", type=float, default=0.3)
+    p.add_argument("--cache-source", default="yahoo",
+                   help="which saved download to test: yahoo, or fyers (scripts\\fetch_data.py)")
     args = p.parse_args(argv)
 
     s = OpenHighLowStore(args.data_folder / "open_high_low").settings
@@ -91,7 +95,7 @@ def main(argv=None, *, yahoo_get=None, master=None) -> int:
                 series[stock] = download(stock, "yahoo", store, days=29 if args.interval == "1m" else 59,
                                          yahoo_get=yahoo_get, pause=args.pause, interval=args.interval)
             else:
-                series[stock] = store.load(f"STK_{stock}", "yahoo", args.interval, clean_only=False)
+                series[stock] = store.load(f"STK_{stock}", args.cache_source, args.interval, clean_only=False)
         except Exception as exc:                     # one bad symbol must not stop the run
             failed.append(f"{stock}: {exc}")
     series = {k: v for k, v in series.items() if v}

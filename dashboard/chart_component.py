@@ -130,8 +130,13 @@ def write_live_data(name: str, payload: dict) -> str:
 
 
 def show_chart(payload: dict, *, data_url: str | None = None, height: int = 720) -> None:
-    import streamlit.components.v1 as components
-    components.html(chart_html(payload, data_url=data_url), height=height, scrolling=False)
+    import streamlit as st
+    html = chart_html(payload, data_url=data_url)          # our own page (trusted), never user text
+    if hasattr(st, "iframe"):                              # Streamlit 1.6x: st.components.v1.html is going away
+        st.iframe(html, height=height)
+    else:
+        import streamlit.components.v1 as components
+        components.html(html, height=height, scrolling=False)
 
 
 __all__ = ["TOOLS", "chart_html", "show_chart", "write_live_data"]

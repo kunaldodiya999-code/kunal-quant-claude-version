@@ -1,7 +1,8 @@
 """Load index candles for research from any source, keeping CLEAN days only.
 
 Sources:
-  research  data/research/market_data.db (filled by scripts/sweep_market_data.py)
+  research  data/research/market_data.db, Yahoo part (filled by scripts/sweep_market_data.py)
+  fyers     data/research/market_data.db, FYERS part (filled by scripts/fetch_data.py)
   kq-db     the original KunalQuant database (5 years of NIFTY 1-minute from FYERS);
             every day is quality-checked here on the fly (market_data/day_quality.py).
 """
@@ -38,6 +39,8 @@ def load(source: str, index: str, *, resolution: str = "1m", kq_db: str | Path |
         minutes = {"1m": 1, "5m": 5}[resolution]
         _, clean = assess_series(everything, minutes=minutes)
         return everything, clean
+    if source == "fyers":                       # scripts/fetch_data.py (FYERS history, grows every day)
+        research_source = "fyers"
     store = ResearchStore(research_db or Path("data/research/market_data.db"))
     return (store.load(index, research_source, resolution, clean_only=False),
             store.load(index, research_source, resolution))

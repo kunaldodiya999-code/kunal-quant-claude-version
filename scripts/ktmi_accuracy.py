@@ -35,7 +35,7 @@ STOPS = (15.0, 20.0, 25.0)
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="KTMI Uni Lite signal accuracy on clean historical days.")
-    p.add_argument("--source", choices=("research", "kq-db"), default="research")
+    p.add_argument("--source", choices=("research", "fyers", "kq-db"), default="research")
     p.add_argument("--index", default="NIFTY,BANKNIFTY,SENSEX")
     p.add_argument("--timeframes", default="3,5")
     p.add_argument("--kq-db", type=Path, default=None)

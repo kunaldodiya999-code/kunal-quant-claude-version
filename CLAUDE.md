@@ -105,5 +105,9 @@
   tightening Chandelier, R-ladder; ONLY in the TSL Lab (rows "BETA"), never in PRESETS / live / dropdowns.
 - Open High Low first-candle filters (owner 2026-10-25, on/off, OFF default): VWAP (close above / below) and Bollinger
   (outer band default, or middle line; 20, 2 on 5-min with earlier days). `candle_filters`.
+- Data + proof (owner 2026-10-26 "fetch live and historic data to prove the strategies"): `scripts/fetch_data.py`
+  (FYERS, incremental: indexes+VIX 1m 365 d, F&O stocks 1m 60 d + 5m 365 d, source "fyers" in data/research/market_data.db)
+  then `scripts/prove_strategies.py` (KTMI accuracy, TSL Lab, Gap Reversal, OHOL; report data/research/proof_report.txt).
+  Index research scripts take `--source fyers`; stock backtests `--source cache --cache-source fyers` / `--cache-source fyers`.
 - OWNER RULE: when the owner says "we are done for the day", give ALL commands to run on their PC in order,
   step by step (folder for each), with what each one should show, plus everything still pending from their side.

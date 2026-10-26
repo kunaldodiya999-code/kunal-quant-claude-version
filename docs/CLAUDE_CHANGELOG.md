@@ -3,6 +3,14 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: FYERS data download + one-command strategy proof, 2026-10-26
+- `scripts/fetch_data.py`: FYERS history, only new days on a re-run (run every evening = data grows with live days).
+- `scripts/prove_strategies.py`: all strategy tests on that data, report `data/research/proof_report.txt`.
+- `--source fyers` for ktmi_accuracy / tsl_lab / opening_scalp_backtest (research/data_loader.py);
+  open_high_low_backtest `--cache-source`. TSL Lab "nothing to test" message no longer blames the data only.
+- Chart: `st.iframe` instead of the deprecated `st.components.v1.html` (fallback kept); checked in a browser that the
+  chart draws and its live-data fetch works the same.
+
 ## claude/affectionate-bardeen-3k5sls: clearer trading window, faster TSL Lab, 2026-10-26
 - Owner's first run looked stuck: `run_paper_session.py` printed "no live price" in the first second (before any
   price could arrive) and then stayed silent. Now: no warning in the first minute of connecting; "live prices are
