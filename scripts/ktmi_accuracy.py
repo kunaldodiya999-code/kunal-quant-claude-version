@@ -35,7 +35,9 @@ STOPS = (15.0, 20.0, 25.0)
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="KTMI Uni Lite signal accuracy on clean historical days.")
-    p.add_argument("--source", choices=("research", "fyers", "kq-db"), default="research")
+    p.add_argument("--source", choices=("fyers", "kq-db"), default="fyers",
+                   help="the shared FYERS database (KunalQuant); kq-db = the same")
+    p.add_argument("--days", type=int, default=None, help="test only the last N days (default: all)")
     p.add_argument("--index", default="NIFTY,BANKNIFTY,SENSEX")
     p.add_argument("--timeframes", default="3,5")
     p.add_argument("--kq-db", type=Path, default=None)
@@ -44,7 +46,7 @@ def main(argv=None) -> int:
     indexes = [x.strip().upper() for x in args.index.split(",") if x.strip()]
     frames = [int(x) for x in args.timeframes.split(",")]
 
-    data = {k: load(args.source, k, kq_db=args.kq_db, research_db=args.data_folder / "research" / "market_data.db")
+    data = {k: load(args.source, k, kq_db=args.kq_db, days=args.days)
             for k in indexes}
     data = {k: v for k, v in data.items() if v[1]}
     if not data:

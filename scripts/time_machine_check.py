@@ -21,7 +21,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from market_data.research_store import ResearchStore  # noqa: E402
 from research.time_machine_check import calibration, check  # noqa: E402
 
 
@@ -45,8 +44,10 @@ def main(argv=None) -> int:
     if not rows:
         print("No backtest trades found. Run scripts\\gap_reversal_backtest.py / scripts\\open_high_low_backtest.py first.")
         return 1
-    store = ResearchStore(args.data_folder / "research" / "market_data.db")
-    done = check(rows, lambda s: store.load(f"STK_{s}", "yahoo", args.interval, clean_only=False),
+    from market_data.clean_days import stock_candles
+    from market_data.kq_store import KQStore
+    store = KQStore()                                                      # the shared FYERS database
+    done = check(rows, lambda s: stock_candles(store, s, args.interval),
                  replays=args.replays,
                  progress=lambda n, total: print(f"  {n}/{total}", flush=True) if n % 100 == 0 else None)
     table = calibration(done)

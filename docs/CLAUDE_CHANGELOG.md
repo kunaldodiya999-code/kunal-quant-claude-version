@@ -3,6 +3,15 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: FYERS only, one shared database for both repos, 2026-10-26
+- Owner: "fetch all data from FYERS only, no Yahoo; link our local data so both repos use the same data";
+  answer to Claude's question: ONE database in KunalQuant (kunal_quant.db), add-only, backup first.
+- `market_data/kq_store.py` (read / add-only write in KunalQuant's format, backup once, KQ_DATABASE / --kq-db).
+- fetch_data, data_audit, ktmi_accuracy, tsl_lab, opening_scalp, gap / OHOL backtests, time machine tools and the
+  Gap Reversal page's candles all use it; Yahoo removed from every data path (old research DB FYERS rows moved in).
+- 5-minute stock candles built for every day (the day check decides cleanliness); index day check identical in the
+  audit, the download and the tests. tests/conftest.py keeps every test on its own temp database.
+
 ## claude/affectionate-bardeen-3k5sls: clean data chain (3 months, clean days only), 2026-10-26
 - Owner: "3 months of clean data is better than 1 year of broken data; check what we have, complete it till date".
   Both repos checked: NO price data in git (KunalQuant .gitignore: data/, *.db); it is only on the owner's PC.

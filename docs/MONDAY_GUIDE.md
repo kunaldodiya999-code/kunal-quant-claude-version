@@ -48,21 +48,23 @@ Open **Live Paper Trading** in the browser.
 
 ## Every evening after 15:35: complete the data and prove the strategies
 
-Same folder (`C:\Users\USER\Desktop\Kunal\kunal-quant-claude-version`, `(.venv)` on). Owner rule (26 Oct 2026):
-3 months of CLEAN data, never broken data.
+Owner rules (26 Oct 2026): FYERS data only (no Yahoo); 3 months of CLEAN data, never broken data; ONE database for
+both repos: `C:\Users\USER\Desktop\Kunal\KunalQuant\data\database\kunal_quant.db`. New FYERS candles are only
+ADDED to it, in KunalQuant's own format; a backup copy is made once before the first write
+(`...\data\database\backups\`). Folder: `C:\Users\USER\Desktop\Kunal\kunal-quant-claude-version`, `(.venv)` on.
 ```powershell
-python scripts\data_audit.py          # 1. what data is on this PC, which days are clean, what is missing (no login)
-python scripts\fetch_data.py          # 2. download what is missing from FYERS (needs today's FYERS login)
+python scripts\data_audit.py          # 1. what is in the shared database, which days are clean, what is missing
+python scripts\fetch_data.py          # 2. add what is missing from FYERS (needs today's FYERS login)
 python scripts\data_audit.py          # 3. check again: every line should say OK
 python scripts\prove_strategies.py    # 4. all strategy tests on the clean days -> data\research\proof_report.txt
 ```
-* `data_audit.py` reads the KunalQuant database, `data\research\market_data.db` and the live recordings, checks
-  every day and ends with `NEXT: ...` (the command to run). Details: `data\research\data_audit_days.csv`.
-* `fetch_data.py`: last 90 days of 1-minute candles (3 indexes, India VIX, every F&O stock) up to the last FINISHED
-  day; 5-minute stock candles are built from them; each day checked; broken days asked for once more. First run
-  10-20 minutes; then only the new day. Stopped half-way (PC restart)? Just run it again: it continues.
+* `fetch_data.py`: last 90 days of 1-minute candles (NIFTY, BANK NIFTY, SENSEX, India VIX, every F&O stock) up to
+  the last FINISHED day; each day checked; broken days asked for once more. First run 10-20 minutes, then only the
+  new day. Stopped half-way? Run it again: it continues. FYERS candles an older version saved elsewhere are moved in.
 * Clean = every minute 09:15-15:29 with sane prices (indexes); stocks: up to 15:14, at most 3 quiet minutes, none
   in the first 15, no split / bonus jump. Tests trade ONLY clean days (`--all-days` to switch that off).
+* Database somewhere else? Add `--kq-db <path>` to every command, or set it once:
+  `setx KQ_DATABASE "D:\path\kunal_quant.db"` (then open a new terminal).
 
 ## What you should see in window 1
 

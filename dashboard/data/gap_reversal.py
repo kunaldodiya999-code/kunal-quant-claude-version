@@ -75,19 +75,14 @@ def live_minutes(symbol: str) -> list:
 
 
 def research_minutes(stock: str, day: str, warmup_days: int = 6) -> list:
-    """The day's 1-minute candles (plus a few earlier days for indicator warm-up) from the research DB."""
-    from market_data.research_store import ResearchStore
-    path = research_db()
-    if not path.exists():
-        return []
-    db = ResearchStore(path)
-    candles = []
-    for source in ("fyers", "yahoo"):
-        candles = db.load(f"STK_{stock}", source, "1m", clean_only=False)
-        if candles:
-            break
+    """The day's 1-minute candles (plus a few earlier days for indicator warm-up) from the shared FYERS database."""
+    from market_data.kq_store import KQStore
     end = datetime.fromisoformat(day).replace(tzinfo=IST) + timedelta(days=1)
     start = end - timedelta(days=warmup_days + 1)
+    try:
+        candles = KQStore().load(f"STK_{stock}", since=start.date())
+    except Exception:                       # no shared database on this machine: no chart, never an error page
+        return []
     return [c for c in candles if start.timestamp() <= c.timestamp < end.timestamp()]
 
 

@@ -52,7 +52,9 @@ def write_csv(path: Path, rows: list[dict]) -> None:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Compare trailing stops on historical KTMI Uni Lite signals.")
-    p.add_argument("--source", choices=("research", "fyers", "kq-db"), default="research")
+    p.add_argument("--source", choices=("fyers", "kq-db"), default="fyers",
+                   help="the shared FYERS database (KunalQuant); kq-db = the same")
+    p.add_argument("--days", type=int, default=None, help="test only the last N days (default: all)")
     p.add_argument("--index", default="NIFTY,BANKNIFTY,SENSEX")
     p.add_argument("--timeframes", default="3,5", help="KTMI signal timeframes")
     p.add_argument("--tsl-timeframes", default="", help="TSL candle sizes (default: same as the signal)")
@@ -69,7 +71,7 @@ def main(argv=None) -> int:
     all_trades, all_summary = [], []
     for index in indexes:
         everything, clean = load(args.source, index, kq_db=args.kq_db,
-                                 research_db=args.data_folder / "research" / "market_data.db")
+                                 days=args.days)
         if not clean:
             print(f"{index}: no clean data, skipped.")
             continue

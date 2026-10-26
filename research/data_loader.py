@@ -1,49 +1,47 @@
-"""Load index candles for research from any source, keeping CLEAN days only.
+"""Load index candles for research, keeping CLEAN days only.
 
-Sources:
-  research  data/research/market_data.db, Yahoo part (filled by scripts/sweep_market_data.py)
-  fyers     data/research/market_data.db, FYERS part (filled by scripts/fetch_data.py)
-  kq-db     the original KunalQuant database (5 years of NIFTY 1-minute from FYERS);
-            every day is quality-checked here on the fly (market_data/day_quality.py).
+ONE source (owner 26 Oct 2026: FYERS data only, one database for both repos): the KunalQuant database
+(market_data/kq_store.py; 5 years of NIFTY + what scripts/fetch_data.py adds). Every day is quality-checked here
+on the fly (market_data/day_quality.py). "fyers" and "kq-db" are the same thing (old commands keep working).
 """
 
 from __future__ import annotations
 
-import sqlite3
+from datetime import date, timedelta
 from pathlib import Path
 from statistics import median
 
 from market_data.day_quality import assess_series, group_by_day
-from market_data.research_store import ResearchStore
+from market_data.kq_store import KQStore, default_path
 from market_data.resampling import Candle
-from strategies.index_profiles import INDEX_PROFILES
 
-DEFAULT_KQ_DB = Path(r"C:\Users\USER\Desktop\Kunal\KunalQuant\data\database\kunal_quant.db")
+DEFAULT_KQ_DB = default_path()
+SOURCES = ("fyers", "kq-db")
 
 
-def from_kq_db(path: str | Path, index: str) -> list[Candle]:
-    symbol = INDEX_PROFILES[index].spot_symbol
-    with sqlite3.connect(path) as db:
-        rows = db.execute(
-            "SELECT c.timestamp, c.open, c.high, c.low, c.close FROM candles c JOIN instruments i "
-            "ON i.id = c.instrument_id WHERE i.symbol = ? AND c.resolution = '1' "
-            "GROUP BY c.timestamp ORDER BY c.timestamp", (symbol,)).fetchall()
-    return [Candle(int(t), float(o), float(h), float(l), float(c), 0) for t, o, h, l, c in rows]
+def from_kq_db(path: str | Path, index: str, *, since: date | None = None) -> list[Candle]:
+    return KQStore(path).load(index, since=since)
 
 
 def load(source: str, index: str, *, resolution: str = "1m", kq_db: str | Path | None = None,
-         research_db: str | Path | None = None, research_source: str = "yahoo") -> tuple[list[Candle], list[Candle]]:
-    """(all candles, clean candles). ``all`` keeps indicator history continuous."""
-    if source == "kq-db":
-        everything = from_kq_db(kq_db or DEFAULT_KQ_DB, index)
-        minutes = {"1m": 1, "5m": 5}[resolution]
-        _, clean = assess_series(everything, minutes=minutes)
-        return everything, clean
-    if source == "fyers":                       # scripts/fetch_data.py (FYERS history, grows every day)
-        research_source = "fyers"
-    store = ResearchStore(research_db or Path("data/research/market_data.db"))
-    return (store.load(index, research_source, resolution, clean_only=False),
-            store.load(index, research_source, resolution))
+         days: int | None = None, **_old) -> tuple[list[Candle], list[Candle]]:
+    """(all candles, clean candles). ``all`` keeps indicator history continuous. ``days``: only the last N days
+    are tested (a few earlier days are kept in ``all`` to warm the indicators up)."""
+    if source not in SOURCES:
+        raise SystemExit(f"Data source {source!r} is not used any more: FYERS data only (--source fyers).")
+    since = None
+    if days:
+        newest = KQStore(kq_db or default_path()).saved_range(index)[1]
+        since = (newest or date.today()) - timedelta(days=days)
+    everything = from_kq_db(kq_db or default_path(), index, since=None if since is None else since - timedelta(days=10))
+    minutes = {"1m": 1, "5m": 5}[resolution]
+    _, clean = assess_series(everything, minutes=minutes)
+    if since is not None:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        ist = ZoneInfo("Asia/Kolkata")
+        clean = [c for c in clean if datetime.fromtimestamp(c.timestamp, ist).date() >= since]
+    return everything, clean
 
 
 def nifty_scales(clean: dict[str, list[Candle]]) -> dict[str, float]:
@@ -56,4 +54,4 @@ def nifty_scales(clean: dict[str, list[Candle]]) -> dict[str, float]:
     return {k: m / base for k, m in medians.items()}
 
 
-__all__ = ["DEFAULT_KQ_DB", "from_kq_db", "group_by_day", "load", "nifty_scales"]
+__all__ = ["DEFAULT_KQ_DB", "SOURCES", "from_kq_db", "group_by_day", "load", "nifty_scales"]

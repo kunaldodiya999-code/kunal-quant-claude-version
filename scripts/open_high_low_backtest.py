@@ -1,17 +1,12 @@
 """Open High Low backtest on F&O stocks (spot candles; see research/open_high_low_backtest.py for the scope).
 
-Run from C:\\Users\\USER\\Desktop\\Kunal\\kunal-quant-claude-version :
+Run from C:\\Users\\USER\\Desktop\\Kunal\\kunal-quant-claude-version, after  python scripts\\fetch_data.py :
 
-    python scripts\\open_high_low_backtest.py
-        every F&O stock, the candles already downloaded by the Gap Reversal backtest (1-minute, ~29 days)
-    python scripts\\open_high_low_backtest.py --interval 5m
-        5-minute candles (~60 days)
-    python scripts\\open_high_low_backtest.py --source yahoo
-        download first (free Yahoo data, no login), then test
+    python scripts\\open_high_low_backtest.py                every stock in the shared FYERS database, last 90 days
+    python scripts\\open_high_low_backtest.py --interval 5m  (5-minute candles built from the 1-minute ones)
     python scripts\\open_high_low_backtest.py --first-candle 15 --top-n 3
-    python scripts\\open_high_low_backtest.py --cache-source fyers --interval 5m
-        the FYERS data from scripts\\fetch_data.py (5-minute: a whole year)
 
+FYERS data only (market_data/kq_store.py); CLEAN days only (--all-days to switch that off).
 Uses the settings saved from the dashboard (data\\open_high_low\\settings.json). Results in data\\open_high_low\\:
 backtest_summary.csv, backtest_trades.csv, backtest_candidates.csv, backtest_top_n.csv (5m: *_5m.csv).
 """
@@ -23,7 +18,7 @@ import csv
 import json
 import sys
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -31,8 +26,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from market_data.research_store import ResearchStore  # noqa: E402
-from market_data.stock_universe import load_fno_stocks  # noqa: E402
 from research.open_high_low_backtest import CAPITAL_PER_TRADE, run, summarize, top_n_study  # noqa: E402
 from strategies.open_high_low import OpenHighLowStore  # noqa: E402
 
@@ -48,9 +41,10 @@ def write_csv(path: Path, rows: list[dict]) -> None:
             writer.writerows(rows)
 
 
-def main(argv=None, *, yahoo_get=None, master=None) -> int:
-    p = argparse.ArgumentParser(description="Open High Low backtest (spot candles).")
-    p.add_argument("--source", choices=("cache", "yahoo"), default="cache")
+def main(argv=None) -> int:
+    p = argparse.ArgumentParser(description="Open High Low backtest (spot candles, shared FYERS database).")
+    p.add_argument("--days", type=int, default=90, help="test the last N days (default 90)")
+    p.add_argument("--kq-db", type=Path, default=None, help="the shared database (default: KunalQuant's)")
     p.add_argument("--interval", choices=("1m", "5m"), default="1m")
     p.add_argument("--symbols", default="")
     p.add_argument("--first-candle", type=int, default=None, help="test another first-candle length in minutes")
@@ -63,11 +57,8 @@ def main(argv=None, *, yahoo_get=None, master=None) -> int:
                    help="liquidity: Rs crore traded in the stock the previous day (default 50)")
     p.add_argument("--capital-per-trade", type=float, default=CAPITAL_PER_TRADE)
     p.add_argument("--data-folder", type=Path, default=PROJECT_ROOT / "data")
-    p.add_argument("--pause", type=float, default=0.3)
     p.add_argument("--all-days", action="store_true",
                    help="also trade days that are not clean (default: clean days only, market_data/clean_days.py)")
-    p.add_argument("--cache-source", default="yahoo",
-                   help="which saved download to test: yahoo, or fyers (scripts\\fetch_data.py)")
     args = p.parse_args(argv)
 
     s = OpenHighLowStore(args.data_folder / "open_high_low").settings
@@ -83,21 +74,15 @@ def main(argv=None, *, yahoo_get=None, master=None) -> int:
         s = replace(s, entry_valid_candles=args.entry_candles)
     if args.top_n:
         s = replace(s, top_n=args.top_n)
-    if args.symbols.strip():
-        stocks = [x.strip().upper() for x in args.symbols.split(",") if x.strip()]
-    else:
-        stocks = [x["stock"] for x in load_fno_stocks(args.data_folder, today=datetime.now(IST).date(),
-                                                      fetch=(lambda url: master) if master else None)]
-    store = ResearchStore(args.data_folder / "research" / "market_data.db")
+    from market_data.clean_days import stock_candles
+    from market_data.kq_store import KQStore, default_path
+    store = KQStore(args.kq_db or default_path())
+    stocks = [x.strip().upper() for x in args.symbols.split(",") if x.strip()] or store.stocks()
+    since = datetime.now(IST).date() - timedelta(days=args.days + 5)
     series, failed = {}, []
     for stock in stocks:
         try:
-            if args.source == "yahoo":
-                from scripts.gap_reversal_backtest import download
-                series[stock] = download(stock, "yahoo", store, days=29 if args.interval == "1m" else 59,
-                                         yahoo_get=yahoo_get, pause=args.pause, interval=args.interval)
-            else:
-                series[stock] = store.load(f"STK_{stock}", args.cache_source, args.interval, clean_only=False)
+            series[stock] = stock_candles(store, stock, args.interval, since=since)
         except Exception as exc:                     # one bad symbol must not stop the run
             failed.append(f"{stock}: {exc}")
     series = {k: v for k, v in series.items() if v}
@@ -105,13 +90,12 @@ def main(argv=None, *, yahoo_get=None, master=None) -> int:
           f"{'ON' if s.vwap_filter else 'off'}, Bollinger filter {'ON (' + s.bb_band + ')' if s.bb_filter else 'off'}, top "
           f"{s.top_n}, tolerance {s.tolerance_pct}%, liquidity >= Rs {args.min_value_cr} cr traded the day before")
     if not series:
-        print("No candles. Run the Gap Reversal backtest first, or add --source yahoo.")
+        print("No stock candles in the shared database yet. Run  python scripts\\fetch_data.py  first.")
         return 1
     allowed = None
     if not args.all_days:
-        from market_data.clean_days import calendar_from_store, tradable_days
-        calendar = calendar_from_store(store.path, "yahoo" if args.source == "yahoo" else args.cache_source,
-                                       args.interval)
+        from market_data.clean_days import tradable_days
+        calendar = store.trading_days(since)
         allowed, counts = {}, {"days": 0, "clean": 0, "tradable": 0}
         for stock, mins in series.items():
             allowed[stock], c = tradable_days(mins, calendar, minutes=int(args.interval.rstrip("m")))

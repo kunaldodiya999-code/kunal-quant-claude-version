@@ -6,7 +6,6 @@ from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from market_data.day_quality import INDEX_RULES, STOCK_RULES, assess_series
-from market_data.research_store import ResearchStore
 from market_data.resampling import Candle
 from tests.test_open_high_low import master_for
 
@@ -84,47 +83,92 @@ def test_last_finished_day():
     assert last_finished_day(datetime(2026, 10, 25, 10, 0, tzinfo=IST)) == date(2026, 10, 23)     # Sunday
 
 
-def test_fetch_three_months_checks_days_and_asks_broken_days_again(tmp_path):
+def shared(tmp_path):
+    from market_data.kq_store import KQStore
+    return KQStore(tmp_path / "kunal_quant.db")
+
+
+def test_fetch_three_months_into_the_shared_database_and_asks_broken_days_again(tmp_path):
     from scripts.fetch_data import main
     broken_day = date(2026, 10, 14)
     fake = FakeFyers(holes={("NSE:AAA-EQ", broken_day): range(100, 120), ("NSE:NIFTY50-INDEX", broken_day): (50,)})
     master = master_for([("AAA", 1, 500), ("BBB", 2, 250)])
-    args = ["--data-folder", str(tmp_path), "--days", "20", "--pause", "0"]
+    db = tmp_path / "kunal_quant.db"
+    args = ["--data-folder", str(tmp_path), "--kq-db", str(db), "--days", "20", "--pause", "0"]
     main(args, client=fake, master=master, today=TODAY)
-    store = ResearchStore(tmp_path / "research" / "market_data.db")
+    store = shared(tmp_path)
     n = weekdays(20)
-    assert len(store.load("NIFTY", "fyers", "1m", clean_only=False)) == 375 * n
-    assert len(store.clean_days("NIFTY", "fyers")) == n                 # the hole was filled by asking again
-    assert len(store.clean_days("STK_AAA", "fyers")) == n
+    assert len(store.load("NIFTY")) == 375 * n                          # the hole was filled by asking again
+    assert len(store.load("STK_AAA")) == 375 * n
     assert ("NSE:AAA-EQ", "1", broken_day.isoformat(), broken_day.isoformat()) in fake.requests
-    assert len(store.load("STK_BBB", "fyers", "5m", clean_only=False)) == 75 * n     # built from the 1-minute candles
+    assert store.stocks() == ["AAA", "BBB"]
+    import sqlite3
+    with sqlite3.connect(db) as con:                                      # KunalQuant's own format
+        assert con.execute("SELECT DISTINCT resolution, source FROM candles").fetchall() == [("1", "FYERS_HISTORY")]
+        assert ("FYERS", "NSE:AAA-EQ", "EQUITY") in con.execute(
+            "SELECT broker, symbol, instrument_type FROM instruments").fetchall()
     # the next evening: only the last saved day and the new one
     fake.requests.clear()
     main(args, client=fake, master=master, today=TODAY + timedelta(days=1))
     assert {(r[2], r[3]) for r in fake.requests} == {(TODAY.isoformat(), (TODAY + timedelta(days=1)).isoformat())}
 
 
+def test_shared_database_is_backed_up_once_and_rows_are_never_changed(tmp_path):
+    from database.schema import initialize_database
+    from market_data.kq_store import KQStore
+    db = tmp_path / "kunal_quant.db"
+    initialize_database(db)
+    old = session(date(2026, 10, 23), base=25000.0)
+    KQStore(db, backup=False).add_candles("NSE:NIFTY50-INDEX", old)        # "the owner's 5-year data"
+    store = KQStore(db)
+    changed = [Candle(c.timestamp, c.open + 1, c.high + 1, c.low + 1, c.close + 1, 5) for c in old]
+    assert store.add_candles("NSE:NIFTY50-INDEX", changed) == 0           # same minutes: nothing changed
+    assert store.load("NIFTY")[0].close == old[0].close
+    backups = list((tmp_path / "backups").glob("kunal_quant_before_kunal_quant_claude_*.db"))
+    assert len(backups) == 1
+    KQStore(db).add_candles("NSE:NIFTY50-INDEX", session(date(2026, 10, 26), base=25000.0))
+    assert len(list((tmp_path / "backups").glob("*.db"))) == 1            # one backup is enough
+    assert len(KQStore(backups[0]).load("NIFTY")) == 375
+
+
+def test_earlier_downloads_are_moved_in_and_yahoo_is_not_used(tmp_path):
+    import pytest
+    from market_data.research_store import ResearchStore
+    from research.data_loader import load
+    from scripts.fetch_data import move_old_downloads
+    research = ResearchStore(tmp_path / "research" / "market_data.db")
+    research.save_candles("STK_AAA", "fyers", "1m", session(date(2026, 10, 22)))
+    research.save_candles("NIFTY", "yahoo", "1m", session(date(2026, 10, 22), base=25000.0))   # never moved
+    store = shared(tmp_path)
+    assert move_old_downloads(store, research.path) == 375
+    assert len(store.load("STK_AAA")) == 375 and store.load("NIFTY") == []
+    with pytest.raises(SystemExit, match="FYERS data only"):
+        load("research", "NIFTY")
+
+
 def test_fyers_source_feeds_the_index_research_with_clean_days_only(tmp_path):
     from research.data_loader import load
     from scripts.fetch_data import main
     fake = FakeFyers(holes={("NSE:NIFTY50-INDEX", date(2026, 10, 20)): (10,)})    # mended by asking again
-    main(["--data-folder", str(tmp_path), "--only", "indexes", "--days", "10", "--pause", "0"],
+    db = tmp_path / "kunal_quant.db"
+    main(["--data-folder", str(tmp_path), "--kq-db", str(db), "--only", "indexes", "--days", "10", "--pause", "0"],
          client=fake, today=TODAY)
-    everything, clean = load("fyers", "NIFTY", research_db=tmp_path / "research" / "market_data.db")
+    everything, clean = load("fyers", "NIFTY", kq_db=db)
     assert len(everything) == len(clean) == 375 * weekdays(10)
 
 
 def test_data_audit_says_what_is_missing(tmp_path, capsys):
     from scripts.data_audit import main as audit
     from scripts.fetch_data import main as fetch
-    audit(["--data-folder", str(tmp_path), "--kq-db", str(tmp_path / "none.db")], today=TODAY)
+    db = ["--kq-db", str(tmp_path / "kunal_quant.db")]
+    audit(["--data-folder", str(tmp_path), *db], today=TODAY)
     out = capsys.readouterr().out
-    assert "NIFTY      NEED 0 clean" in out and "NEXT: python scripts\\fetch_data.py" in out
-    fetch(["--data-folder", str(tmp_path), "--days", "90", "--pause", "0"], client=FakeFyers(),
+    assert "NOT FOUND" in out and "NIFTY      NEED 0 clean" in out and "NEXT: python scripts\\fetch_data.py" in out
+    fetch(["--data-folder", str(tmp_path), *db, "--days", "90", "--pause", "0"], client=FakeFyers(),
           master=master_for([("AAA", 1, 500)]), today=TODAY)
-    audit(["--data-folder", str(tmp_path), "--kq-db", str(tmp_path / "none.db")], today=TODAY)
+    audit(["--data-folder", str(tmp_path), *db], today=TODAY)
     out = capsys.readouterr().out
-    assert "NIFTY      OK" in out and "F&O stocks (fyers) OK" in out and "prove_strategies.py" in out
+    assert "NIFTY      OK" in out and "F&O stocks OK" in out and "prove_strategies.py" in out
     assert (tmp_path / "research" / "data_audit_days.csv").exists()
 
 
@@ -132,12 +176,10 @@ def test_prove_runs_every_part_and_saves_one_report(tmp_path, monkeypatch):
     from scripts.fetch_data import main as fetch
     from scripts.prove_strategies import main
     master = master_for([("AAA", 1, 500), ("BBB", 2, 250)])
-    fetch(["--data-folder", str(tmp_path), "--days", "15", "--pause", "0"], client=FakeFyers(), master=master,
+    db = ["--kq-db", str(tmp_path / "kunal_quant.db")]
+    fetch(["--data-folder", str(tmp_path), *db, "--days", "15", "--pause", "0"], client=FakeFyers(), master=master,
           today=TODAY)
-    from market_data import stock_universe
-    monkeypatch.setattr(stock_universe, "load_fno_stocks",
-                        lambda folder, today, fetch=None: stock_universe.fno_stocks(master))
-    main(["--data-folder", str(tmp_path)])
+    main(["--data-folder", str(tmp_path), *db, "--days", "15"])
     report = (tmp_path / "research" / "proof_report.txt").read_text(encoding="utf-8")
     for title in ("Data check", "KTMI Uni Lite signal accuracy", "TSL Lab", "Gap Reversal, 1-minute",
                   "Gap Reversal, 5-minute", "Open High Low, 1-minute", "Open High Low, 5-minute"):

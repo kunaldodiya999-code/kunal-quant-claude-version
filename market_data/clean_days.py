@@ -16,6 +16,13 @@ from market_data.day_quality import STOCK_RULES, assess_series, group_by_day
 from market_data.resampling import Candle
 
 
+def stock_candles(store, stock: str, interval: str = "1m", *, since: date | None = None) -> list[Candle]:
+    """A stock's FYERS candles from the shared database (market_data/kq_store.py); 5m = built from the 1-minute ones."""
+    from market_data.kq_store import five_minute
+    minutes = store.load(f"STK_{stock}", since=since)
+    return minutes if interval == "1m" else five_minute(minutes)
+
+
 def calendar_from_store(db_path: str | Path, source: str, resolution: str) -> list[date]:
     """Every day (IST) on which any stock has candles in data/research/market_data.db."""
     with sqlite3.connect(db_path) as db:
@@ -35,4 +42,4 @@ def tradable_days(candles: Sequence[Candle], calendar: Iterable[date], *, minute
     return ok, {"days": len(reports), "clean": len(clean), "tradable": len(ok)}
 
 
-__all__ = ["calendar_from_store", "tradable_days"]
+__all__ = ["calendar_from_store", "stock_candles", "tradable_days"]

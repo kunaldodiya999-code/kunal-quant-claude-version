@@ -105,12 +105,14 @@
   tightening Chandelier, R-ladder; ONLY in the TSL Lab (rows "BETA"), never in PRESETS / live / dropdowns.
 - Open High Low first-candle filters (owner 2026-10-25, on/off, OFF default): VWAP (close above / below) and Bollinger
   (outer band default, or middle line; 20, 2 on 5-min with earlier days). `candle_filters`.
-- Data + proof (owner 2026-10-26: "3 months of CLEAN data, not 1 year of broken data"): `scripts/data_audit.py` (every
-  store on the PC, day by day, verdict + NEXT command) -> `scripts/fetch_data.py` (FYERS 1m, 90 d to the last finished
-  day, indexes+VIX+F&O stocks, 5m stocks derived, quality saved, broken days re-asked; source "fyers" in
-  data/research/market_data.db) -> `scripts/prove_strategies.py` (report data/research/proof_report.txt).
+- DATA (owner 2026-10-26): FYERS ONLY (no Yahoo anywhere: research/data_loader refuses other sources); ONE database
+  for both repos = KunalQuant\data\database\kunal_quant.db (`market_data/kq_store.py`, path: --kq-db > env KQ_DATABASE >
+  default). Writes are ADD-ONLY in KunalQuant's format (broker FYERS, resolution '1', source FYERS_HISTORY, INSERT OR
+  IGNORE), backup once before the first write. tests/conftest.py points KQ_DATABASE at a temp file (never the real one).
+  "3 months of CLEAN data, not 1 year of broken data": `scripts/data_audit.py` -> `scripts/fetch_data.py` (90 d to the
+  last finished day, broken days re-asked) -> `scripts/prove_strategies.py` (report data/research/proof_report.txt).
   Quality: `market_data/day_quality.py` INDEX_RULES strict, STOCK_RULES (to 15:14, <=3 quiet min, none in first 15,
-  split/bonus days out). Stock backtests trade only `market_data/clean_days.tradable_days` (`--all-days` off).
-  No price data is in either git repo (KunalQuant ignores data/ and *.db): it lives only on the owner's PC.
+  split/bonus days out). Stock backtests trade only `market_data/clean_days.tradable_days` (`--all-days` off);
+  5m stock candles are built from 1m (`kq_store.five_minute`). No price data is in git (only on the owner's PC).
 - OWNER RULE: when the owner says "we are done for the day", give ALL commands to run on their PC in order,
   step by step (folder for each), with what each one should show, plus everything still pending from their side.

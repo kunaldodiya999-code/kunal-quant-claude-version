@@ -41,7 +41,9 @@ def _line(name: str, s: dict) -> str:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Opening Scalp backtest on clean days.")
-    p.add_argument("--source", choices=("research", "fyers", "kq-db"), default="research")
+    p.add_argument("--source", choices=("fyers", "kq-db"), default="fyers",
+                   help="the shared FYERS database (KunalQuant); kq-db = the same")
+    p.add_argument("--days", type=int, default=None, help="test only the last N days (default: all)")
     p.add_argument("--index", default="NIFTY,BANKNIFTY,SENSEX")
     p.add_argument("--resolution", choices=("1m", "5m"), default="1m")
     p.add_argument("--kq-db", type=Path, default=None)
@@ -50,7 +52,7 @@ def main(argv=None) -> int:
     seconds = 60 if args.resolution == "1m" else 300
     indexes = [x.strip().upper() for x in args.index.split(",") if x.strip()]
     clean = {k: load(args.source, k, resolution=args.resolution, kq_db=args.kq_db,
-                     research_db=args.data_folder / "research" / "market_data.db")[1] for k in indexes}
+                     days=args.days)[1] for k in indexes}
     clean = {k: v for k, v in clean.items() if v}
     if not clean:
         raise SystemExit("No clean data found. Run  python scripts\\sweep_market_data.py  first.")

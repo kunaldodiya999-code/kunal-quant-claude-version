@@ -36,7 +36,8 @@ def main(argv=None, *, client=None, candles=None) -> int:
     p.add_argument("--stop", type=float, required=True)
     p.add_argument("--reward", default="2", help="Reward 1:[box] (default 2); empty with --tsl")
     p.add_argument("--tsl", default="NONE", help="a TSL preset, e.g. PSAR_0.04_0.04_0.10")
-    p.add_argument("--source", choices=("fyers", "cache"), default="fyers")
+    p.add_argument("--source", choices=("fyers", "cache"), default="fyers",
+                   help="fyers = ask FYERS now; cache = the shared FYERS database")
     p.add_argument("--day", default=None, help="YYYY-MM-DD (default today)")
     p.add_argument("--at", default=None, help="entry time HH:MM (default now)")
     p.add_argument("--exit-time", default="15:10")
@@ -54,10 +55,9 @@ def main(argv=None, *, client=None, candles=None) -> int:
     start_of_day = int(datetime.combine(day, datetime.min.time(), tzinfo=IST).timestamp())
     if candles is None:
         if args.source == "cache":
-            from market_data.research_store import ResearchStore
-            store = ResearchStore(args.data_folder / "research" / "market_data.db")
-            candles = store.load(f"STK_{stock}", "yahoo", "5m", clean_only=False) or \
-                store.load(f"STK_{stock}", "yahoo", "1m", clean_only=False)
+            from market_data.clean_days import stock_candles
+            from market_data.kq_store import KQStore
+            candles = stock_candles(KQStore(), stock, "5m")                  # the shared FYERS database
         else:
             if client is None:
                 from api.fyers_client import FyersClient

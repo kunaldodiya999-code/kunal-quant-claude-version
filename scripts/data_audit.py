@@ -1,14 +1,15 @@
-"""What price data is on this PC, which days are CLEAN, and what is missing up to today. Read-only, no login.
+"""What FYERS price data is on this PC, which days are CLEAN, and what is missing up to today. Read-only, no login.
 
 Run from C:\\Users\\USER\\Desktop\\Kunal\\kunal-quant-claude-version :
 
     python scripts\\data_audit.py
     python scripts\\data_audit.py --days 90        (the window the tests need; default 90 = about 3 months)
 
-Looks at every place candles are kept:
-  1. KunalQuant database   C:\\Users\\USER\\Desktop\\Kunal\\KunalQuant\\data\\database\\kunal_quant.db (5-year NIFTY ...)
-  2. research database     data\\research\\market_data.db (Yahoo sweep, FYERS download of scripts\\fetch_data.py)
-  3. live recordings       data\\paper_trading\\<INDEX>\\minute_candles.csv (+ futures) from the trading program
+Looks at:
+  1. the ONE shared database (both repos): C:\\Users\\USER\\Desktop\\Kunal\\KunalQuant\\data\\database\\kunal_quant.db
+     (market_data/kq_store.py): NIFTY, BANK NIFTY, SENSEX, India VIX and every stock with candles;
+  2. the live recordings of the trading program: data\\paper_trading\\<INDEX>\\minute_candles.csv (+ futures).
+Yahoo data (data\\research\\market_data.db) is NOT used any more (owner 26 Oct 2026: broker data only).
 Every 1-minute day is checked with market_data/day_quality.py (indexes strict; stocks: STOCK rules).
 Saved: data\\research\\data_audit.txt (this text) and data\\research\\data_audit_days.csv (every day + reason).
 At the end: what the strategy tests need and the command that fills the gap.
@@ -18,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import sqlite3
 import sys
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -30,13 +30,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from market_data.day_quality import INDEX_RULES, STOCK_RULES, assess_series  # noqa: E402
+from market_data.kq_store import KQStore, default_path  # noqa: E402
 from market_data.resampling import Candle  # noqa: E402
-from research.data_loader import DEFAULT_KQ_DB  # noqa: E402
 
 IST = ZoneInfo("Asia/Kolkata")
 INDEXES = ("NIFTY", "BANKNIFTY", "SENSEX")
-KQ_INDEX = {"NSE:NIFTY50-INDEX": "NIFTY", "NSE:NIFTYBANK-INDEX": "BANKNIFTY", "BSE:SENSEX-INDEX": "SENSEX",
-            "NSE:INDIAVIX-INDEX": "INDIAVIX"}
 ENOUGH = 0.8                     # 80% of the trading days in the window clean = enough to test
 
 
@@ -56,85 +54,53 @@ class Audit:
     def check(self, place: str, series: str, candles: list[Candle], *, stock: bool) -> dict:
         reports, _ = assess_series(candles, minutes=1, fix_closing_artifact=not stock,
                                    rules=STOCK_RULES if stock else INDEX_RULES)
-        for r in reports:
+        recent = [r for r in reports if self.start < r.day <= self.end]
+        for r in recent:
             self.rows.append({"place": place, "series": series, "day": r.day.isoformat(), "clean": int(r.clean),
                               "candles": r.actual, "reason": r.reason})
-        recent = [r for r in reports if self.start <= r.day <= self.end]
-        info = {"place": place, "series": series, "days": len(reports), "clean": sum(r.clean for r in reports),
-                "first": reports[0].day if reports else None, "last": reports[-1].day if reports else None,
-                "recent_days": {r.day for r in recent}, "recent_clean": {r.day for r in recent if r.clean},
-                "broken": [(r.day, r.reason) for r in recent if not r.clean]}
+        info = {"place": place, "series": series, "stock": stock, "recent_days": {r.day for r in recent},
+                "recent_clean": {r.day for r in recent if r.clean}, "last": recent[-1].day if recent else None,
+                "first": recent[0].day if recent else None, "broken": [(r.day, r.reason) for r in recent if not r.clean]}
         self.found.append(info)
         return info
 
 
-def _candles(rows) -> list[Candle]:
-    return [Candle(int(t), float(o), float(h), float(l), float(c), None if v is None else int(v))
-            for t, o, h, l, c, v in rows]
-
-
-def audit_kq_db(a: Audit, path: Path) -> None:
-    a.say(f"1. KunalQuant database: {path}")
-    if not path.exists():
-        a.say("   not found on this PC (fine: the tests use the research database below).")
+def audit_shared(a: Audit, store: KQStore) -> None:
+    a.say(f"1. Shared FYERS database (both repos): {store.path}")
+    if not store.exists():
+        a.say("   NOT FOUND. Check the path (or give it with --kq-db). scripts\\fetch_data.py creates it if needed.")
         return
-    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as db:
-        kinds = db.execute("SELECT i.instrument_type, COUNT(DISTINCT i.id) FROM instruments i "
-                           "GROUP BY i.instrument_type").fetchall()
-        a.say("   instruments: " + ", ".join(f"{k} {n}" for k, n in kinds))
-        for symbol, key in KQ_INDEX.items():
-            rows = db.execute("SELECT c.timestamp, c.open, c.high, c.low, c.close, c.volume FROM candles c JOIN "
-                              "instruments i ON i.id = c.instrument_id WHERE i.symbol = ? AND c.resolution = '1' "
-                              "GROUP BY c.timestamp ORDER BY c.timestamp", (symbol,)).fetchall()
-            if rows:
-                info = a.check("kq-db", key, _candles(rows), stock=False)
-                a.say(f"   {key:<10} 1-min: {info['clean']} clean of {info['days']} days, {info['first']} to "
-                      f"{info['last']}; last {a.window} days: {len(info['recent_clean'])} clean of "
-                      f"{len(info['recent_days'])}")
-        (n_opt,) = db.execute("SELECT COUNT(*) FROM instruments WHERE option_type IN ('CE', 'PE')").fetchone()
-        lo, hi = db.execute("SELECT MIN(timestamp), MAX(timestamp) FROM candles").fetchone()   # uses the index: fast
-        if lo:
-            a.say(f"   all candles: {datetime.fromtimestamp(lo, IST).date()} to {datetime.fromtimestamp(hi, IST).date()}"
-                  f"; option contracts listed: {n_opt}")
-
-
-def audit_research_db(a: Audit, path: Path) -> None:
-    a.say(f"2. Research database: {path}")
-    if not path.exists():
-        a.say("   not found yet (scripts\\fetch_data.py creates it).")
+    full = store.saved_range("NIFTY")
+    if full[0]:
+        a.say(f"   NIFTY history in total: {full[0]} to {full[1]}")
+    since = a.start - timedelta(days=5)
+    for key in (*INDEXES, "INDIAVIX"):
+        info = a.check("shared", key, store.load(key, since=since), stock=False)
+        a.say(f"   {key:<10} last {a.window} days: {len(info['recent_clean'])} clean of {len(info['recent_days'])} "
+              f"days with data" + (f", newest {info['last']}" if info["last"] else " (none)"))
+        for day, why in info["broken"][-3:]:
+            a.say(f"      not clean {day}: {why}")
+    stocks = store.stocks()
+    if not stocks:
+        a.say("   stocks: none yet")
         return
-    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as db:
-        series = db.execute("SELECT series, source, COUNT(*) FROM candles WHERE resolution='1m' "
-                            "GROUP BY series, source ORDER BY source, series").fetchall()
-        stocks: dict[str, list] = defaultdict(list)
-        for name, source, _n in series:
-            rows = db.execute("SELECT ts, open, high, low, close, volume FROM candles WHERE series=? AND source=? "
-                              "AND resolution='1m' ORDER BY ts", (name, source)).fetchall()
-            info = a.check(source, name, _candles(rows), stock=name.startswith("STK_"))
-            if name.startswith("STK_"):
-                stocks[source].append(info)
-            else:
-                a.say(f"   {source:<6} {name:<10} 1-min: {info['clean']} clean of {info['days']} days, {info['first']}"
-                      f" to {info['last']}; last {a.window} days: {len(info['recent_clean'])} clean of "
-                      f"{len(info['recent_days'])}")
-        for source, infos in stocks.items():
-            days = sum(len(i["recent_days"]) for i in infos)
-            clean = sum(len(i["recent_clean"]) for i in infos)
-            last = max((i["last"] for i in infos if i["last"]), default=None)
-            first = min((i["first"] for i in infos if i["first"]), default=None)
-            a.say(f"   {source:<6} F&O stocks: {len(infos)} stocks, {first} to {last}; last {a.window} days: {clean} "
-                  f"clean of {days} stock-days ({100 * clean // max(1, days)}%)")
-            reasons: dict[str, int] = defaultdict(int)
-            for i in infos:
-                for _d, why in i["broken"]:
-                    reasons[why.split(" (")[0].split(";")[0]] += 1
-            if reasons:
-                a.say("      most common problems: " + ", ".join(
-                    f"{k} x{v}" for k, v in sorted(reasons.items(), key=lambda x: -x[1])[:4]))
+    infos = [a.check("shared", f"STK_{s}", store.load(f"STK_{s}", since=since), stock=True) for s in stocks]
+    days = sum(len(i["recent_days"]) for i in infos)
+    clean = sum(len(i["recent_clean"]) for i in infos)
+    newest = max((i["last"] for i in infos if i["last"]), default=None)
+    a.say(f"   stocks: {len(stocks)} with candles; last {a.window} days: {clean} clean of {days} stock-days with data "
+          f"({100 * clean // max(1, days)}%), newest {newest}")
+    reasons: dict[str, int] = defaultdict(int)
+    for i in infos:
+        for _d, why in i["broken"]:
+            reasons[why.split(" (")[0].split(";")[0]] += 1
+    if reasons:
+        a.say("      most common problems: " + ", ".join(
+            f"{k} x{v}" for k, v in sorted(reasons.items(), key=lambda x: -x[1])[:4]))
 
 
 def audit_live(a: Audit, folder: Path) -> None:
-    a.say(f"3. Live recordings of the trading program: {folder}")
+    a.say(f"2. Live recordings of the trading program: {folder}")
     any_found = False
     for key in INDEXES:
         for name, label in (("minute_candles.csv", key), ("futures_minute_candles.csv", key + "_FUT")):
@@ -143,54 +109,53 @@ def audit_live(a: Audit, folder: Path) -> None:
                 continue
             with path.open(newline="", encoding="utf-8") as handle:
                 rows = [r for r in csv.DictReader(handle) if r.get("timestamp")]
-            candles = [Candle(int(r["timestamp"]), float(r["open"]), float(r["high"]), float(r["low"]),
-                              float(r["close"]), int(float(r.get("volume") or 0))) for r in rows]
+            candles = sorted({int(r["timestamp"]): Candle(int(r["timestamp"]), float(r["open"]), float(r["high"]),
+                                                          float(r["low"]), float(r["close"]),
+                                                          int(float(r.get("volume") or 0))) for r in rows}.values(),
+                             key=lambda c: c.timestamp)
             if candles:
                 any_found = True
-                info = a.check("live", label, sorted({c.timestamp: c for c in candles}.values(),
-                                                    key=lambda c: c.timestamp), stock=False)
-                a.say(f"   {label:<14} {info['clean']} clean of {info['days']} days, {info['first']} to {info['last']}"
-                      " (a day is clean only if the program ran the whole session)")
+                info = a.check("live", label, candles, stock=False)
+                a.say(f"   {label:<14} {len(info['recent_clean'])} clean of {len(info['recent_days'])} days "
+                      "(clean only if the program ran the whole session; extra, the tests use the shared database)")
     if not any_found:
         a.say("   nothing recorded yet.")
 
 
-def verdict(a: Audit) -> list[str]:
-    """What the tests need, from the best place for each, and the command that fills the gap."""
-    seen = set()
-    for info in a.found:
-        seen |= info["recent_days"]
+def trading_days(a: Audit) -> int:
+    """Weekdays in the window, except a weekday NIFTY has no candles for INSIDE its covered period (a holiday)."""
+    nifty = next((i for i in a.found if i["series"] == "NIFTY" and i["place"] == "shared"), None)
+    seen = nifty["recent_days"] if nifty else set()
     lo, hi = (min(seen), max(seen)) if seen else (None, None)
-    trading, day = 0, a.start + timedelta(days=1)
-    while day <= a.end:            # every weekday, except one INSIDE the covered period that no source has (holiday)
+    count, day = 0, a.start + timedelta(days=1)
+    while day <= a.end:
         if day.weekday() < 5 and (day in seen or lo is None or not (lo <= day <= hi)):
-            trading += 1
+            count += 1
         day += timedelta(days=1)
-    a.say(f"WHAT THE TESTS NEED: the last {a.window} days up to {a.end} = about {trading} trading days "
-          f"(weekdays; a weekday no source has inside the covered period counts as a holiday).")
+    return count
+
+
+def verdict(a: Audit) -> list[str]:
+    trading = trading_days(a)
+    fresh = a.end - timedelta(days=4)
+    a.say(f"WHAT THE TESTS NEED: the last {a.window} days up to {a.end} = about {trading} trading days, FYERS only.")
     todo = []
     for key in INDEXES:
-        options = [i for i in a.found if i["series"] == key]
-        best = max(options, key=lambda i: len(i["recent_clean"]), default=None)
-        have = len(best["recent_clean"]) if best else 0
-        ok = have >= ENOUGH * trading and best and best["last"] and best["last"] >= a.end - timedelta(days=4)
+        info = next((i for i in a.found if i["series"] == key and i["place"] == "shared"), None)
+        have = len(info["recent_clean"]) if info else 0
+        ok = have >= ENOUGH * trading and info and info["last"] and info["last"] >= fresh
         a.say(f"   {key:<10} {'OK  ' if ok else 'NEED'} {have} clean of {trading} days"
-              + (f" (best: {best['place']}, newest {best['last']})" if best else " (no data)"))
+              + (f", newest {info['last']}" if info and info["last"] else ""))
         if not ok:
             todo.append("indexes")
-    for place in ("fyers", "yahoo"):
-        infos = [i for i in a.found if i["place"] == place and i["series"].startswith("STK_")]
-        if not infos:
-            continue
-        clean = sum(len(i["recent_clean"]) for i in infos)
-        need = len(infos) * trading
-        newest = max(i["last"] for i in infos if i["last"])
-        ok = clean >= ENOUGH * need and newest >= a.end - timedelta(days=4) and place == "fyers"
-        a.say(f"   F&O stocks ({place}) {'OK  ' if ok else 'NEED'} {clean} clean of about {need} stock-days, "
-              f"newest {newest}" + ("" if place == "fyers" else "  (Yahoo stocks: only ~30 days; use FYERS)"))
-    if not any(i["place"] == "fyers" and i["series"].startswith("STK_") for i in a.found) or any(
-            i["place"] == "fyers" and i["series"].startswith("STK_") and i["last"] and
-            i["last"] < a.end - timedelta(days=4) for i in a.found):
+    stocks = [i for i in a.found if i["stock"]]
+    clean = sum(len(i["recent_clean"]) for i in stocks)
+    need = max(1, len(stocks)) * trading
+    newest = max((i["last"] for i in stocks if i["last"]), default=None)
+    ok = bool(stocks) and clean >= ENOUGH * need and newest is not None and newest >= fresh
+    a.say(f"   F&O stocks {'OK  ' if ok else 'NEED'} {len(stocks)} stocks, {clean} clean of about {need if stocks else 0}"
+          f" stock-days" + (f", newest {newest}" if newest else ""))
+    if not ok:
         todo.append("stocks")
     if todo:
         only = "" if len(set(todo)) > 1 else f" --only {todo[0]}"
@@ -201,20 +166,18 @@ def verdict(a: Audit) -> list[str]:
 
 
 def main(argv=None, *, today: date | None = None) -> int:
-    p = argparse.ArgumentParser(description="Check every price data store on this PC.")
+    p = argparse.ArgumentParser(description="Check the shared FYERS price data on this PC.")
     p.add_argument("--days", type=int, default=90)
     p.add_argument("--data-folder", type=Path, default=PROJECT_ROOT / "data")
-    p.add_argument("--kq-db", type=Path, default=DEFAULT_KQ_DB)
+    p.add_argument("--kq-db", type=Path, default=None, help="the shared database (default: KunalQuant's)")
     args = p.parse_args(argv)
     from scripts.fetch_data import last_finished_day
     a = Audit(args.days, today or last_finished_day(datetime.now(IST)))
     a.say(f"KUNAL QUANT - DATA CHECK  {datetime.now(IST):%Y-%m-%d %H:%M}  (window: {a.start} to {a.end})")
     a.say("A day is CLEAN when every minute 09:15-15:29 is there with sane prices (stocks: up to 15:14, a few quiet "
-          "minutes allowed, never in the first 15).")
+          "minutes allowed, never in the first 15, no split / bonus jump).")
     a.say()
-    audit_kq_db(a, args.kq_db)
-    a.say()
-    audit_research_db(a, args.data_folder / "research" / "market_data.db")
+    audit_shared(a, KQStore(args.kq_db or default_path()))
     a.say()
     audit_live(a, args.data_folder / "paper_trading")
     a.say()

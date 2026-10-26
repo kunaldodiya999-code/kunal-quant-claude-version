@@ -93,11 +93,10 @@ def _research(index: str) -> ChartData:
         return ChartData()
     from market_data.research_store import ResearchStore
     store = ResearchStore(path)
-    minutes = store.load(index, "fyers", "1m", clean_only=False) or store.load(index, "yahoo", "1m", clean_only=False)
+    minutes = store.load(index, "fyers", "1m", clean_only=False)          # FYERS only (owner 26 Oct 2026)
     futures = store.load(f"{index}_FUT", "fyers", "1m", clean_only=False)
-    hourly = store.load(index, "yahoo", "60m", clean_only=False)
     daily = [Candle(day[0].timestamp, day[0].open, max(c.high for c in day), min(c.low for c in day),
-                    day[-1].close, None) for _, day in sorted(group_by_day(hourly).items())]
+                    day[-1].close, None) for _, day in sorted(group_by_day(minutes).items())]
     return ChartData(minutes, futures, daily, None, f"{index} futures (FYERS sweep)" if futures else None)
 
 

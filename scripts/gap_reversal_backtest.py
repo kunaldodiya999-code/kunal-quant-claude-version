@@ -1,25 +1,20 @@
 """Gap Reversal backtest on F&O stocks (and indexes). Research only.
 
-Run from C:\\Users\\USER\\Desktop\\Kunal\\kunal-quant-claude-version :
+Run from C:\\Users\\USER\\Desktop\\Kunal\\kunal-quant-claude-version, after  python scripts\\fetch_data.py :
 
-    python scripts\\gap_reversal_backtest.py
-        (all F&O stocks, free Yahoo 1-minute data: last ~29 days, no login)
-    python scripts\\gap_reversal_backtest.py --source fyers --days 90
-        (FYERS 1-minute history, needs today's FYERS login; longer history)
+    python scripts\\gap_reversal_backtest.py                 every stock in the shared FYERS database, last 90 days
     python scripts\\gap_reversal_backtest.py --symbols HCLTECH,ADANIENT,SWIGGY
-    python scripts\\gap_reversal_backtest.py --source cache
-        (re-run on data already downloaded, e.g. after changing settings)
-    python scripts\\gap_reversal_backtest.py --interval 5m
-    python scripts\\gap_reversal_backtest.py --gap-pct 1
-        (test gaps of 1% or more; the dashboard setting stays as it is)
-        (Yahoo 5-minute data: about 60 days instead of 29; entries and stops less precise)
+    python scripts\\gap_reversal_backtest.py --interval 5m   (5-minute candles built from the 1-minute ones)
+    python scripts\\gap_reversal_backtest.py --gap-pct 1     (test gaps of 1% or more; the dashboard setting stays)
+    python scripts\\gap_reversal_backtest.py --days 365      (more days, if the database has them)
 
+FYERS data only, from the ONE shared database (market_data/kq_store.py); CLEAN days only (market_data/clean_days.py,
+--all-days to switch that off).
 Every trade is run with each exit plan: fixed targets 1:1.5, 1:2, 1:2.5, 1:3 and "TSL only" (empty reward
 box) for each TSL method with the owner's numbers. Money: --capital-per-trade (default 50,000) per entry,
 before and after estimated intraday charges.
 
-Uses the settings saved from the dashboard (data\\gap_reversal\\settings.json). Downloads are kept in
-data\\research\\market_data.db, so a second run is fast. Results in data\\gap_reversal\\:
+Uses the settings saved from the dashboard (data\\gap_reversal\\settings.json). Results in data\\gap_reversal\\:
 backtest_summary.csv, backtest_trades.csv, backtest_candidates.csv (with --interval 5m: *_5m.csv).
 """
 
@@ -37,18 +32,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from market_data.research_store import ResearchStore  # noqa: E402
-from market_data.stock_universe import load_fno_stocks  # noqa: E402
 from research.gap_reversal_backtest import (  # noqa: E402
     CAPITAL_PER_TRADE, apply_daily_cap, cap_study, run_symbol, summarize,
 )
 from strategies.gap_reversal import GapReversalStore  # noqa: E402
 
 IST = ZoneInfo("Asia/Kolkata")
-
-
-def series_name(stock: str) -> str:
-    return f"STK_{stock}"
 
 
 def write_csv(path: Path, rows: list[dict]) -> None:
@@ -60,26 +49,11 @@ def write_csv(path: Path, rows: list[dict]) -> None:
             writer.writerows(rows)
 
 
-def download(stock: str, source: str, store: ResearchStore, *, days: int, client=None, yahoo_get=None, pause=0.3,
-             interval: str = "1m"):
-    if source == "yahoo":
-        from market_data.sources import yahoo
-        kwargs = {"get": yahoo_get} if yahoo_get else {}
-        candles = yahoo.fetch(stock, interval, days=days, stock=True, pause=pause, **kwargs)
-    else:
-        from market_data.sources.fyers_history import fetch_history
-        today = datetime.now(IST).date()
-        candles = fetch_history(client, f"NSE:{stock}-EQ", resolution=interval.rstrip("m"),
-                                start=today - timedelta(days=days), end=today, pause=pause)
-    store.save_candles(series_name(stock), source, interval, candles)
-    return candles
-
-
-def main(argv=None, *, client=None, yahoo_get=None, master=None) -> int:
+def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Gap Reversal backtest on F&O stocks.")
-    p.add_argument("--source", choices=("yahoo", "fyers", "cache"), default="yahoo")
-    p.add_argument("--symbols", default="", help="comma list (default: every F&O stock)")
-    p.add_argument("--days", type=int, default=None, help="days back (default 29 for 1m, 59 for 5m)")
+    p.add_argument("--symbols", default="", help="comma list (default: every stock in the shared database)")
+    p.add_argument("--days", type=int, default=90, help="test the last N days (default 90)")
+    p.add_argument("--kq-db", type=Path, default=None, help="the shared database (default: KunalQuant's)")
     p.add_argument("--interval", choices=("1m", "5m"), default="1m")
     p.add_argument("--capital-per-trade", type=float, default=CAPITAL_PER_TRADE)
     p.add_argument("--gap-pct", type=float, default=None,
@@ -88,14 +62,11 @@ def main(argv=None, *, client=None, yahoo_get=None, master=None) -> int:
                    help="test another earliest entry time, e.g. 09:15 (the saved setting is not changed)")
     p.add_argument("--max-trades", type=int, default=None,
                    help="test another daily trade cap (0 = no limit); the saved setting is not changed")
-    p.add_argument("--cache-source", default="yahoo", help="with --source cache: which download to use")
     p.add_argument("--data-folder", type=Path, default=PROJECT_ROOT / "data")
-    p.add_argument("--credentials-folder", type=Path, default=None)
-    p.add_argument("--pause", type=float, default=0.3)
     p.add_argument("--all-days", action="store_true",
                    help="also trade days that are not clean (default: clean days only, market_data/clean_days.py)")
     args = p.parse_args(argv)
-    days = args.days or (29 if args.interval == "1m" else 59)
+    days = args.days
 
     settings = GapReversalStore(args.data_folder / "gap_reversal").settings
     if args.gap_pct is not None:
@@ -107,30 +78,23 @@ def main(argv=None, *, client=None, yahoo_get=None, master=None) -> int:
     if args.max_trades is not None:
         from dataclasses import replace
         settings = replace(settings, max_trades_per_day=args.max_trades)
-    if args.symbols.strip():
-        stocks = [x.strip().upper() for x in args.symbols.split(",") if x.strip()]
-    else:
-        stocks = [s["stock"] for s in load_fno_stocks(args.data_folder, today=datetime.now(IST).date(),
-                                                       fetch=(lambda url: master) if master else None)]
-    if args.source == "fyers" and client is None:
-        from api.fyers_client import FyersClient
-        from scripts.run_paper_session import find_credentials_folder
-        client = FyersClient(project_root=find_credentials_folder(args.credentials_folder))
-    store = ResearchStore(args.data_folder / "research" / "market_data.db")
-    print(f"Gap Reversal backtest: {len(stocks)} symbols, source {args.source}, gap >= {settings.gap_pct}%, "
-          f"{settings.timeframe}-min candles, first {settings.window_bars()} candles, entries from {settings.entry_from}")
-    from market_data.clean_days import calendar_from_store, tradable_days
-    data_source = args.cache_source if args.source == "cache" else args.source
-    calendar = calendar_from_store(store.path, data_source, args.interval)
+    from market_data.clean_days import stock_candles, tradable_days
+    from market_data.kq_store import KQStore, default_path
+    store = KQStore(args.kq_db or default_path())
+    stocks = [x.strip().upper() for x in args.symbols.split(",") if x.strip()] or store.stocks()
+    since = datetime.now(IST).date() - timedelta(days=days + 5)
+    calendar = store.trading_days(since)
+    print(f"Gap Reversal backtest: {len(stocks)} stocks, shared FYERS database, last {days} days, gap >= "
+          f"{settings.gap_pct}%, {settings.timeframe}-min candles, first {settings.window_bars()} candles, entries from "
+          f"{settings.entry_from}")
+    if not stocks:
+        print("No stocks in the shared database yet. Run  python scripts\\fetch_data.py  first.")
+        return 1
     counts = {"days": 0, "clean": 0, "tradable": 0}
     all_candidates, all_trades, failed = [], [], []
     for n, stock in enumerate(stocks, 1):
         try:
-            if args.source == "cache":
-                minutes = store.load(series_name(stock), args.cache_source, args.interval, clean_only=False)
-            else:
-                minutes = download(stock, args.source, store, days=days, client=client, yahoo_get=yahoo_get,
-                                   pause=args.pause, interval=args.interval)
+            minutes = stock_candles(store, stock, args.interval, since=since)
         except Exception as exc:             # one bad symbol must not stop the run
             failed.append(f"{stock}: {exc}")
             continue
@@ -159,7 +123,7 @@ def main(argv=None, *, client=None, yahoo_get=None, master=None) -> int:
     write_csv(out / f"backtest_cap_study{tag}.csv", study)
     days_seen = sorted({t["day"] for t in all_trades} | {c["day"] for c in all_candidates})
     (out / f"backtest_meta{tag}.json").write_text(json.dumps({
-        "generated_at": datetime.now(IST).isoformat(timespec="seconds"), "source": args.source,
+        "generated_at": datetime.now(IST).isoformat(timespec="seconds"), "source": "shared FYERS database",
         "interval": args.interval, "symbols": len(stocks), "failed": failed, "days_back": days,
         "capital_per_trade": args.capital_per_trade, "trade_rows_before_cap": uncapped, "first_day": days_seen[0] if days_seen else None,
         "last_day": days_seen[-1] if days_seen else None, "settings": settings.to_dict()},

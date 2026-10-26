@@ -48,25 +48,21 @@ class Tee:
         self.handle.flush()
 
 
-def parts(data: Path) -> list[tuple[str, str, object]]:
+def parts(data: Path, days: int, kq_db: Path | None) -> list[tuple[str, str, object]]:
     from scripts import data_audit, gap_reversal_backtest, ktmi_accuracy, open_high_low_backtest, tsl_lab
-    folder = ["--data-folder", str(data)]
+    common = ["--data-folder", str(data), "--days", str(days)] + (["--kq-db", str(kq_db)] if kq_db else [])
     return [
-        ("data", "Data check: clean days and what is missing", lambda: data_audit.main(folder)),
-        ("ktmi", "KTMI Uni Lite signal accuracy (indexes)",
-         lambda: ktmi_accuracy.main(["--source", "fyers", *folder])),
-        ("tsl", "Trailing stops on every KTMI signal (TSL Lab)",
-         lambda: tsl_lab.main(["--source", "fyers", *folder])),
+        ("data", "Data check: clean days and what is missing", lambda: data_audit.main(common)),
+        ("ktmi", "KTMI Uni Lite signal accuracy (indexes)", lambda: ktmi_accuracy.main(common)),
+        ("tsl", "Trailing stops on every KTMI signal (TSL Lab)", lambda: tsl_lab.main(common)),
         ("gap", "Gap Reversal, 1-minute candles (clean days)",
-         lambda: gap_reversal_backtest.main(["--source", "cache", "--cache-source", "fyers", "--interval", "1m",
-                                             *folder])),
+         lambda: gap_reversal_backtest.main(["--interval", "1m", *common])),
         ("gap", "Gap Reversal, 5-minute candles (clean days)",
-         lambda: gap_reversal_backtest.main(["--source", "cache", "--cache-source", "fyers", "--interval", "5m",
-                                             *folder])),
+         lambda: gap_reversal_backtest.main(["--interval", "5m", *common])),
         ("ohol", "Open High Low, 1-minute candles (clean days)",
-         lambda: open_high_low_backtest.main(["--cache-source", "fyers", "--interval", "1m", *folder])),
+         lambda: open_high_low_backtest.main(["--interval", "1m", *common])),
         ("ohol", "Open High Low, 5-minute candles (clean days)",
-         lambda: open_high_low_backtest.main(["--cache-source", "fyers", "--interval", "5m", *folder])),
+         lambda: open_high_low_backtest.main(["--interval", "5m", *common])),
     ]
 
 
@@ -74,6 +70,8 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Run every strategy test on the FYERS data, one report.")
     p.add_argument("--skip", default="", help="comma list of parts to leave out: data, ktmi, tsl, gap, ohol")
     p.add_argument("--data-folder", type=Path, default=PROJECT_ROOT / "data")
+    p.add_argument("--days", type=int, default=90, help="test the last N days (default 90 = about 3 months)")
+    p.add_argument("--kq-db", type=Path, default=None, help="the shared database (default: KunalQuant's)")
     args = p.parse_args(argv)
     skip = {x.strip().lower() for x in args.skip.split(",") if x.strip()}
     report = args.data_folder / "research" / "proof_report.txt"
@@ -84,7 +82,7 @@ def main(argv=None) -> int:
         sys.stdout = Tee(old, handle)
         try:
             print(f"KUNAL QUANT - STRATEGY PROOF REPORT  {datetime.now(IST):%Y-%m-%d %H:%M}  (FYERS data, paper maths)")
-            todo = [x for x in parts(args.data_folder) if x[0] not in skip]
+            todo = [x for x in parts(args.data_folder, args.days, args.kq_db) if x[0] not in skip]
             for n, (key, title, run) in enumerate(todo, 1):
                 print("\n" + "=" * 100)
                 print(f"PART {n} of {len(todo)}: {title}")
