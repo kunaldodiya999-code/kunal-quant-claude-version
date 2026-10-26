@@ -6,11 +6,13 @@ Run from C:\\Users\\USER\\Desktop\\Kunal\\kunal-quant-claude-version, AFTER  pyt
     python scripts\\prove_strategies.py --skip tsl        (leave out a part: ktmi, tsl, gap, ohol)
 
 Parts (each one also saves its own CSV files, as when run alone):
+  data  the data check (what is clean, what is missing)           scripts\\data_audit.py
   ktmi  KTMI Uni Lite signal accuracy (indexes, 3 and 5 min)        scripts\\ktmi_accuracy.py --source fyers
   tsl   every trailing stop on every KTMI signal (incl. BETA rows)  scripts\\tsl_lab.py --source fyers
-  gap   Gap Reversal, every F&O stock, 1-min (60 d) and 5-min (1 y) scripts\\gap_reversal_backtest.py --source cache
+  gap   Gap Reversal, every F&O stock, 1-min and 5-min candles      scripts\\gap_reversal_backtest.py --source cache
   ohol  Open High Low, same stocks and candles                      scripts\\open_high_low_backtest.py
-Results use the settings saved from the dashboard. A part that fails is reported; the others still run.
+CLEAN DAYS ONLY (owner 26 Oct 2026): indexes use the days scripts\\fetch_data.py marked clean, stocks the clean
+days of market_data/clean_days.py. Results use the settings saved from the dashboard. A part that fails is reported; the others still run.
 Everything printed is also saved in data\\research\\proof_report.txt (send that file to Claude).
 """
 
@@ -47,29 +49,30 @@ class Tee:
 
 
 def parts(data: Path) -> list[tuple[str, str, object]]:
-    from scripts import gap_reversal_backtest, ktmi_accuracy, open_high_low_backtest, tsl_lab
+    from scripts import data_audit, gap_reversal_backtest, ktmi_accuracy, open_high_low_backtest, tsl_lab
     folder = ["--data-folder", str(data)]
     return [
+        ("data", "Data check: clean days and what is missing", lambda: data_audit.main(folder)),
         ("ktmi", "KTMI Uni Lite signal accuracy (indexes)",
          lambda: ktmi_accuracy.main(["--source", "fyers", *folder])),
         ("tsl", "Trailing stops on every KTMI signal (TSL Lab)",
          lambda: tsl_lab.main(["--source", "fyers", *folder])),
-        ("gap", "Gap Reversal, 1-minute candles (last 60 days)",
+        ("gap", "Gap Reversal, 1-minute candles (clean days)",
          lambda: gap_reversal_backtest.main(["--source", "cache", "--cache-source", "fyers", "--interval", "1m",
                                              *folder])),
-        ("gap", "Gap Reversal, 5-minute candles (last year)",
+        ("gap", "Gap Reversal, 5-minute candles (clean days)",
          lambda: gap_reversal_backtest.main(["--source", "cache", "--cache-source", "fyers", "--interval", "5m",
                                              *folder])),
-        ("ohol", "Open High Low, 1-minute candles (last 60 days)",
+        ("ohol", "Open High Low, 1-minute candles (clean days)",
          lambda: open_high_low_backtest.main(["--cache-source", "fyers", "--interval", "1m", *folder])),
-        ("ohol", "Open High Low, 5-minute candles (last year)",
+        ("ohol", "Open High Low, 5-minute candles (clean days)",
          lambda: open_high_low_backtest.main(["--cache-source", "fyers", "--interval", "5m", *folder])),
     ]
 
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Run every strategy test on the FYERS data, one report.")
-    p.add_argument("--skip", default="", help="comma list of parts to leave out: ktmi, tsl, gap, ohol")
+    p.add_argument("--skip", default="", help="comma list of parts to leave out: data, ktmi, tsl, gap, ohol")
     p.add_argument("--data-folder", type=Path, default=PROJECT_ROOT / "data")
     args = p.parse_args(argv)
     skip = {x.strip().lower() for x in args.skip.split(",") if x.strip()}

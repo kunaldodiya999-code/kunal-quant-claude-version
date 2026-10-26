@@ -3,6 +3,16 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: clean data chain (3 months, clean days only), 2026-10-26
+- Owner: "3 months of clean data is better than 1 year of broken data; check what we have, complete it till date".
+  Both repos checked: NO price data in git (KunalQuant .gitignore: data/, *.db); it is only on the owner's PC.
+- `scripts/data_audit.py`: KunalQuant DB + research DB + live recordings, every day checked, verdict, NEXT command.
+- `market_data/day_quality.py`: STOCK_RULES (Yahoo stocks: 12 of 3,816 days passed the strict index rule, 3,501 pass
+  the stock rule; the strict rule failed them only on the 15:15-15:29 tail Yahoo never sends) + split/bonus days.
+- `scripts/fetch_data.py`: 90 days (was 365), up to the last finished day, 5m stocks derived from 1m, broken days
+  re-asked once, quality saved. `market_data/clean_days.py`: stock backtests trade clean days only (+ previous day).
+- `scripts/prove_strategies.py`: data check is part 1; parts say "clean days".
+
 ## claude/affectionate-bardeen-3k5sls: FYERS data download + one-command strategy proof, 2026-10-26
 - `scripts/fetch_data.py`: FYERS history, only new days on a re-run (run every evening = data grows with live days).
 - `scripts/prove_strategies.py`: all strategy tests on that data, report `data/research/proof_report.txt`.

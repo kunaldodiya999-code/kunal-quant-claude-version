@@ -64,6 +64,8 @@ def main(argv=None, *, yahoo_get=None, master=None) -> int:
     p.add_argument("--capital-per-trade", type=float, default=CAPITAL_PER_TRADE)
     p.add_argument("--data-folder", type=Path, default=PROJECT_ROOT / "data")
     p.add_argument("--pause", type=float, default=0.3)
+    p.add_argument("--all-days", action="store_true",
+                   help="also trade days that are not clean (default: clean days only, market_data/clean_days.py)")
     p.add_argument("--cache-source", default="yahoo",
                    help="which saved download to test: yahoo, or fyers (scripts\\fetch_data.py)")
     args = p.parse_args(argv)
@@ -105,8 +107,19 @@ def main(argv=None, *, yahoo_get=None, master=None) -> int:
     if not series:
         print("No candles. Run the Gap Reversal backtest first, or add --source yahoo.")
         return 1
+    allowed = None
+    if not args.all_days:
+        from market_data.clean_days import calendar_from_store, tradable_days
+        calendar = calendar_from_store(store.path, "yahoo" if args.source == "yahoo" else args.cache_source,
+                                       args.interval)
+        allowed, counts = {}, {"days": 0, "clean": 0, "tradable": 0}
+        for stock, mins in series.items():
+            allowed[stock], c = tradable_days(mins, calendar, minutes=int(args.interval.rstrip("m")))
+            counts = {k: counts[k] + c[k] for k in counts}
+        print(f"Clean data: {counts['tradable']} of {counts['days']} stock-days traded ({counts['clean']} clean; a "
+              "clean day also needs the stock's previous trading day). --all-days = every day.")
     candidates, trades = run(series, replace(s, top_n=max(10, s.top_n)), min_value_cr=args.min_value_cr,
-                             capital_per_trade=args.capital_per_trade)
+                             capital_per_trade=args.capital_per_trade, trade_days=allowed)
     study = top_n_study(trades)
     trades = [t for t in trades if t["rank"] <= s.top_n]
     summary = summarize(trades)

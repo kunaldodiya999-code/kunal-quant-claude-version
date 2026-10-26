@@ -60,7 +60,9 @@ def _session(minutes: Sequence) -> list:
 
 def run_symbol(symbol: str, minutes: Sequence, s: GapReversalSettings, entry_modes: Iterable[str] = ENTRY_MODES,
                exits: list[tuple[str, ExitPlan]] | None = None,
-               capital_per_trade: float = CAPITAL_PER_TRADE) -> tuple[list[dict], list[dict]]:
+               capital_per_trade: float = CAPITAL_PER_TRADE, trade_days: set | None = None
+               ) -> tuple[list[dict], list[dict]]:
+    """``trade_days``: only these days are traded (clean ones, market_data/clean_days.py); None = every day."""
     exits = default_exits(s) if exits is None else exits
     days = group_by_day(_session(minutes))
     order = sorted(days)
@@ -71,6 +73,8 @@ def run_symbol(symbol: str, minutes: Sequence, s: GapReversalSettings, entry_mod
     day_bars = {d: bars_from(session_bars(days[d], s.timeframe, now=days[d][-1].timestamp + step)) for d in order}
     candidates, trades = [], []
     for n, (prev, day) in enumerate(zip(order, order[1:]), 1):
+        if trade_days is not None and day not in trade_days:
+            continue
         prev_close = days[prev][-1].close
         bars, mins = day_bars[day], bars_from(days[day])
         warm = [b for d in order[max(0, n - WARMUP_DAYS):n] for b in day_bars[d]]

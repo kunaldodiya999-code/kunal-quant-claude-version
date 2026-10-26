@@ -38,7 +38,8 @@ def _session(minutes: Sequence) -> list:
     return out
 
 
-def day_candidates(symbol: str, minutes: Sequence, s: OpenHighLowSettings, min_value_cr: float) -> dict:
+def day_candidates(symbol: str, minutes: Sequence, s: OpenHighLowSettings, min_value_cr: float,
+                   trade_days: set | None = None) -> dict:
     """{day: candidate dict} for one stock: the open = low / high check at ``scan_at`` on the finished candles.
     Liquidity = the previous session's traded value in Rs crore (known before the open; Yahoo often has no
     volume on the first candles)."""
@@ -48,6 +49,8 @@ def day_candidates(symbol: str, minutes: Sequence, s: OpenHighLowSettings, min_v
     out = {}
     order = sorted(days)
     for prev, day in zip(order, order[1:]):
+        if trade_days is not None and day not in trade_days:       # only clean days (market_data/clean_days.py)
+            continue
         mins = days[day]
         scan_ts = int(datetime.combine(day, scan, tzinfo=IST).timestamp())
         done = [m for m in mins if m.timestamp + step <= scan_ts]
@@ -70,11 +73,14 @@ def day_candidates(symbol: str, minutes: Sequence, s: OpenHighLowSettings, min_v
 
 
 def run(series: dict[str, Sequence], s: OpenHighLowSettings, *, min_value_cr: float = 50.0,
-        capital_per_trade: float = CAPITAL_PER_TRADE) -> tuple[list[dict], list[dict]]:
-    """``series``: stock -> its candles (1-minute or 5-minute). Returns (candidates, trades)."""
+        capital_per_trade: float = CAPITAL_PER_TRADE, trade_days: dict | None = None
+        ) -> tuple[list[dict], list[dict]]:
+    """``series``: stock -> its candles (1-minute or 5-minute). ``trade_days``: stock -> the days it may trade
+    (clean ones); None = every day. Returns (candidates, trades)."""
     by_day: dict = {}
     for symbol, minutes in series.items():
-        for day, c in day_candidates(symbol, minutes, s, min_value_cr).items():
+        allowed = None if trade_days is None else trade_days.get(symbol, set())
+        for day, c in day_candidates(symbol, minutes, s, min_value_cr, allowed).items():
             by_day.setdefault(day, []).append(c)
     exits = default_exits(GapReversalSettings())
     candidates, trades = [], []

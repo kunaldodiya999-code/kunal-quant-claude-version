@@ -8,6 +8,13 @@ A day is CLEAN only if, inside 09:15-15:29 IST, it has:
 Bars after the cut-off (Yahoo stamps the official closing price on the last
 minutes) are dropped by ``session_cut`` before checking, and reported.
 
+STOCK rules (owner 26 Oct 2026, "3 months of clean data, not 1 year of broken data"): a stock may skip a minute
+when nobody trades it, so a stock day may miss up to 3 minutes, but NONE of the first 15 (09:15-09:29: the open,
+the gap and the first candles are what the stock strategies read); spikes count above 8% in one minute (a real
+gap stock can move 2-5%); only minutes up to 15:14 count (all strategies are out by 15:10; Yahoo stops stocks
+at 15:15); no frozen-feed check (a quiet stock can repeat a price). A split / bonus day (overnight
+price change near 1/2, 1/3, 1/5, 1/10, 2/3 ...) and the 3 days after it are not clean (unadjusted prices).
+
 Same checks as downloader/quality.py (duplicates, order, OHLC, completeness),
 but on plain candle lists so any source (Yahoo, FYERS, local DB) can use it.
 """
@@ -31,6 +38,21 @@ FROZEN_RUN = 10          # 10 identical candles in a row = frozen feed
 
 
 @dataclass(frozen=True)
+class Rules:
+    max_missing: int = 0              # missing minutes a day may have and still be clean
+    open_minutes: int = 0             # the first N minutes must ALL be there
+    spike_pct: float = SPIKE_PCT
+    check_frozen: bool = True
+    check_until: time | None = None   # STOCK: only up to 15:14 (every strategy is out by 15:10)
+
+
+INDEX_RULES = Rules()
+STOCK_RULES = Rules(max_missing=3, open_minutes=15, spike_pct=8.0, check_frozen=False, check_until=time(15, 14))
+SPLIT_RATIOS = (1 / 2, 1 / 3, 1 / 4, 1 / 5, 1 / 10, 2 / 3, 3 / 4, 2 / 5)
+AFTER_ACTION_DAYS = 3
+
+
+@dataclass(frozen=True)
 class DayQuality:
     day: date
     expected: int
@@ -43,18 +65,25 @@ class DayQuality:
     cut_after: str | None = None          # e.g. "15:14" when a dead tail was removed
     cut_too_early: bool = False          # e.g. "15:27" when closing artifacts were removed
     missing_times: tuple[str, ...] = field(default=(), compare=False)
+    allowed_missing: int = 0              # STOCK rules: a few quiet minutes are fine
+    open_missing: int = 0                 # missing minutes in the opening window (never fine)
+    corporate_action: str = ""            # e.g. "split/bonus x0.50 on 2026-09-12"
 
     @property
     def clean(self) -> bool:
-        return not (self.missing or self.duplicates or self.bad_ohlc or self.spikes or self.frozen_runs
-                    or self.cut_too_early)
+        return not (self.missing > self.allowed_missing or self.open_missing or self.duplicates or self.bad_ohlc
+                    or self.spikes or self.frozen_runs or self.cut_too_early or self.corporate_action)
 
     @property
     def reason(self) -> str:
         if self.clean:
             return "CLEAN" + (f" (cut after {self.cut_after})" if self.cut_after else "")
         parts = []
-        if self.missing:
+        if self.corporate_action:
+            parts.append(self.corporate_action)
+        if self.open_missing:
+            parts.append(f"{self.open_missing} missing in the first minutes")
+        if self.missing > self.allowed_missing:
             sample = ", ".join(self.missing_times[:3]) + ("..." if len(self.missing_times) > 3 else "")
             parts.append(f"{self.missing} missing ({sample})")
         if self.cut_too_early:
@@ -107,9 +136,9 @@ def closing_artifact_cut(day_candles: Sequence[Candle], *, min_flat: int = 3, ma
 
 
 def assess_day(day: date, day_candles: Sequence[Candle], *, minutes: float = 1,
-               cut_after: time | None = None) -> DayQuality:
+               cut_after: time | None = None, rules: Rules = INDEX_RULES) -> DayQuality:
     open_ts = int(datetime.combine(day, SESSION_OPEN, tzinfo=IST).timestamp())
-    last = cut_after or SESSION_LAST
+    last = cut_after or rules.check_until or SESSION_LAST
     last_ts = int(datetime.combine(day, last, tzinfo=IST).timestamp())
     expected = list(range(open_ts, last_ts + 1, int(round(60 * minutes))))
     if minutes < 1:   # seconds candles: the last minute holds several bars
@@ -125,28 +154,62 @@ def assess_day(day: date, day_candles: Sequence[Candle], *, minutes: float = 1,
     bad = sum(1 for c in ordered if min(c.open, c.high, c.low, c.close) <= 0
               or c.low > min(c.open, c.close) or c.high < max(c.open, c.close))
     spikes = sum(1 for a, b in zip(ordered, ordered[1:])
-                 if a.close > 0 and abs(b.close - a.close) / a.close * 100 > SPIKE_PCT * minutes ** 0.5)
+                 if a.close > 0 and abs(b.close - a.close) / a.close * 100 > rules.spike_pct * minutes ** 0.5)
     frozen, run, frozen_limit = 0, 1, max(FROZEN_RUN, int(FROZEN_RUN / minutes))
-    for a, b in zip(ordered, ordered[1:]):
+    for a, b in zip(ordered, ordered[1:]) if rules.check_frozen else ():
         run = run + 1 if (a.open, a.high, a.low, a.close) == (b.open, b.high, b.low, b.close) else 1
         if run == frozen_limit:
             frozen += 1
+    open_end = open_ts + 60 * rules.open_minutes
+    open_missing = sum(1 for ts in missing if ts < open_end)
     return DayQuality(
         day=day, expected=len(expected), actual=len(seen), missing=len(missing), duplicates=duplicates,
         bad_ohlc=bad, spikes=spikes, frozen_runs=frozen,
         cut_after=cut_after.strftime("%H:%M") if cut_after else None,
         cut_too_early=bool(cut_after and cut_after < TRADING_UNTIL),
         missing_times=tuple(_local(ts).strftime("%H:%M") for ts in missing),
+        allowed_missing=int(rules.max_missing * (1 if minutes >= 1 else 0) / max(1.0, minutes)),
+        open_missing=open_missing,
     )
 
 
-def assess_series(candles: Iterable[Candle], *, minutes: float = 1, fix_closing_artifact: bool = True
-                  ) -> tuple[list[DayQuality], list[Candle]]:
+def corporate_action_days(days: dict[date, list[Candle]]) -> dict[date, str]:
+    """Days whose open is the previous close times a split / bonus ratio (FYERS prices are not adjusted)."""
+    out: dict[date, str] = {}
+    order = sorted(days)
+    for prev, day in zip(order, order[1:]):
+        p_close = max(days[prev], key=lambda c: c.timestamp).close
+        d_open = min(days[day], key=lambda c: c.timestamp).open
+        if p_close <= 0 or d_open <= 0:
+            continue
+        ratio = d_open / p_close
+        if abs(ratio - 1) < 0.15:
+            continue
+        for r in SPLIT_RATIOS:
+            for x in (r, 1 / r):
+                if abs(ratio / x - 1) < 0.03:
+                    out[day] = f"split/bonus x{ratio:.2f} on {day.isoformat()}"
+    return out
+
+
+def assess_series(candles: Iterable[Candle], *, minutes: float = 1, fix_closing_artifact: bool = True,
+                  rules: Rules = INDEX_RULES) -> tuple[list[DayQuality], list[Candle]]:
     """Quality of every day, and the CLEAN candles only (artifact minutes removed)."""
+    from dataclasses import replace
     reports, clean = [], []
-    for day, bars in sorted(group_by_day(candles).items()):
+    grouped = group_by_day(candles)
+    actions: dict[date, str] = {}
+    if rules is STOCK_RULES:
+        order = sorted(grouped)
+        for day, why in corporate_action_days(grouped).items():
+            k = order.index(day)
+            for d in order[k:k + 1 + AFTER_ACTION_DAYS]:
+                actions.setdefault(d, why)
+    for day, bars in sorted(grouped.items()):
         cut = closing_artifact_cut(bars) if fix_closing_artifact and minutes == 1 else None
-        report = assess_day(day, bars, minutes=minutes, cut_after=cut)
+        report = assess_day(day, bars, minutes=minutes, cut_after=cut, rules=rules)
+        if day in actions:
+            report = replace(report, corporate_action=actions[day])
         reports.append(report)
         if report.clean:
             limit = cut or SESSION_LAST
@@ -169,5 +232,5 @@ def longest_clean_stretch(reports: Sequence[DayQuality]) -> tuple[date | None, d
     return best
 
 
-__all__ = ["DayQuality", "assess_day", "assess_series", "closing_artifact_cut", "group_by_day",
-           "longest_clean_stretch"]
+__all__ = ["DayQuality", "INDEX_RULES", "Rules", "STOCK_RULES", "assess_day", "assess_series", "closing_artifact_cut",
+           "corporate_action_days", "group_by_day", "longest_clean_stretch"]

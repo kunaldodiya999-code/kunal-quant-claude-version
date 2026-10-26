@@ -92,6 +92,8 @@ def main(argv=None, *, client=None, yahoo_get=None, master=None) -> int:
     p.add_argument("--data-folder", type=Path, default=PROJECT_ROOT / "data")
     p.add_argument("--credentials-folder", type=Path, default=None)
     p.add_argument("--pause", type=float, default=0.3)
+    p.add_argument("--all-days", action="store_true",
+                   help="also trade days that are not clean (default: clean days only, market_data/clean_days.py)")
     args = p.parse_args(argv)
     days = args.days or (29 if args.interval == "1m" else 59)
 
@@ -117,6 +119,10 @@ def main(argv=None, *, client=None, yahoo_get=None, master=None) -> int:
     store = ResearchStore(args.data_folder / "research" / "market_data.db")
     print(f"Gap Reversal backtest: {len(stocks)} symbols, source {args.source}, gap >= {settings.gap_pct}%, "
           f"{settings.timeframe}-min candles, first {settings.window_bars()} candles, entries from {settings.entry_from}")
+    from market_data.clean_days import calendar_from_store, tradable_days
+    data_source = args.cache_source if args.source == "cache" else args.source
+    calendar = calendar_from_store(store.path, data_source, args.interval)
+    counts = {"days": 0, "clean": 0, "tradable": 0}
     all_candidates, all_trades, failed = [], [], []
     for n, stock in enumerate(stocks, 1):
         try:
@@ -128,11 +134,19 @@ def main(argv=None, *, client=None, yahoo_get=None, master=None) -> int:
         except Exception as exc:             # one bad symbol must not stop the run
             failed.append(f"{stock}: {exc}")
             continue
-        candidates, trades = run_symbol(stock, minutes, settings, capital_per_trade=args.capital_per_trade)
+        allowed = None
+        if not args.all_days:
+            allowed, c = tradable_days(minutes, calendar, minutes=int(args.interval.rstrip("m")))
+            counts = {k: counts[k] + c[k] for k in counts}
+        candidates, trades = run_symbol(stock, minutes, settings, capital_per_trade=args.capital_per_trade,
+                                        trade_days=allowed)
         all_candidates += candidates
         all_trades += trades
         if n % 25 == 0:
             print(f"  {n}/{len(stocks)} symbols done, {len(all_candidates)} setups marked so far")
+    if not args.all_days:
+        print(f"Clean data: {counts['tradable']} of {counts['days']} stock-days traded ({counts['clean']} clean; a clean "
+              "day also needs the stock's previous trading day). --all-days = every day.")
     study = cap_study(all_trades, settings)
     uncapped = len(all_trades)
     all_trades = apply_daily_cap(all_trades, settings)

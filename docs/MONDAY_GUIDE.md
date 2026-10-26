@@ -46,18 +46,23 @@ streamlit run app.py
 ```
 Open **Live Paper Trading** in the browser.
 
-## Every evening after 15:35: download the day's data and prove the strategies
+## Every evening after 15:35: complete the data and prove the strategies
 
-Same folder (`C:\Users\USER\Desktop\Kunal\kunal-quant-claude-version`, `(.venv)` on, today's FYERS login):
+Same folder (`C:\Users\USER\Desktop\Kunal\kunal-quant-claude-version`, `(.venv)` on). Owner rule (26 Oct 2026):
+3 months of CLEAN data, never broken data.
 ```powershell
-python scripts\fetch_data.py
-python scripts\prove_strategies.py
+python scripts\data_audit.py          # 1. what data is on this PC, which days are clean, what is missing (no login)
+python scripts\fetch_data.py          # 2. download what is missing from FYERS (needs today's FYERS login)
+python scripts\data_audit.py          # 3. check again: every line should say OK
+python scripts\prove_strategies.py    # 4. all strategy tests on the clean days -> data\research\proof_report.txt
 ```
-`fetch_data.py`: FYERS history for the 3 indexes + VIX (1-minute, 1 year) and every F&O stock (1-minute 60 days,
-5-minute 1 year). FIRST run 20-40 minutes (progress every 10 stocks); later evenings only the new day (a few
-minutes), so the test data grows with every live market day. Data: `data\research\market_data.db` (~0.5-1 GB).
-`prove_strategies.py`: KTMI signal accuracy, TSL Lab, Gap Reversal and Open High Low on that data, one report
-`data\research\proof_report.txt` (send it to Claude). Takes 10-40 minutes; prints progress.
+* `data_audit.py` reads the KunalQuant database, `data\research\market_data.db` and the live recordings, checks
+  every day and ends with `NEXT: ...` (the command to run). Details: `data\research\data_audit_days.csv`.
+* `fetch_data.py`: last 90 days of 1-minute candles (3 indexes, India VIX, every F&O stock) up to the last FINISHED
+  day; 5-minute stock candles are built from them; each day checked; broken days asked for once more. First run
+  10-20 minutes; then only the new day. Stopped half-way (PC restart)? Just run it again: it continues.
+* Clean = every minute 09:15-15:29 with sane prices (indexes); stocks: up to 15:14, at most 3 quiet minutes, none
+  in the first 15, no split / bonus jump. Tests trade ONLY clean days (`--all-days` to switch that off).
 
 ## What you should see in window 1
 
