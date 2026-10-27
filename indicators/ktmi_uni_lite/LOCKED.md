@@ -6,6 +6,7 @@ Saved 2026-10-24 from the owner's TradingView source (pasted in chat).
 |---|---|---|
 | `KTMI_Uni_Lite_FINAL.pine` | Official source. Source of truth. | **Never edit.** `tests/test_ktmi_uni_lite.py` checks its SHA-256 (`47fcdf24...`). |
 | `KTMI_Uni_Lite_Compact.pine` | Same indicator, 139 lines instead of 866. | Same 32 inputs (names, order, defaults), plots, fills, arrows and alerts. A test compares them with the original. |
+| `KTMI_Uni_Lite_FYERS_SmartScript.pine` | Compact copy for FYERS Smart Script (27 Oct 2026): no `switch`, triggers = the owner's chart (Long 0.5, Short 0.5, Momentum off), 2 extra alerts. | A test keeps its maths equal to the Compact. |
 | `config.py`, `signals.py` | Python mirror used by the paper engine. | Tested against a line-by-line transcription of the Pine logic. |
 
 ## What the indicator does

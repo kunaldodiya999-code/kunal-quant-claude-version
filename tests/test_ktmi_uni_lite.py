@@ -252,3 +252,31 @@ def test_session_defaults_to_core_profile_and_rejects_unknown_profiles():
     assert set(SIGNAL_PROFILES) == {"UNI_LITE_CORE", "UNI_LITE_DEFAULTS", "LEGACY_UNIVERSAL"}
     with pytest.raises(ValueError):
         PaperSessionConfig(lot_size=65, signal_profile="MAGIC")
+
+
+# ------------------------------------------------------- FYERS Smart Script copy (owner 27 Oct 2026)
+
+FYERS = FOLDER / "KTMI_Uni_Lite_FYERS_SmartScript.pine"
+
+
+def test_fyers_smart_script_has_the_same_maths_and_signals_as_the_compact():
+    """Only two allowed differences: no 'switch' in getSource, and the owner's trigger defaults."""
+    fyers, compact = _flat(FYERS), _flat(COMPACT)
+    assert "switch" not in fyers
+    for part in ("ktmiModule(string src, int speedLen, int signalLen, bool invert) =>",
+                 "e3 = ta.ema(ta.ema(ta.ema(getSource(src), speedLen), speedLen), speedLen)",
+                 "100.0 * (e3 - e3[1]) / e3[1]", "raw := invert ? -raw : raw",
+                 "buyCond(bool on, float trig, float spd, float sig) => on and not na(trig) and ta.crossover(spd, trig) "
+                 "and spd > sig and spd > 0",
+                 "longBuy = buyCond(longEnable, longBuyTrigger, longSpeed, longSignal)",
+                 "shortBuy = buyCond(shortEnable, shortBuyTrigger, shortSpeed, shortSignal)"):
+        assert re.sub(r"\s+", " ", part) in fyers and re.sub(r"\s+", " ", part) in compact, part
+    f, c = _surface(FYERS), _surface(COMPACT)
+    for key in ("indicator", "options", "plots", "hlines", "fills", "shapes"):
+        assert f[key] == c[key], key
+    assert f["alerts"][:6] == c["alerts"] and [a[0] for a in f["alerts"][6:]] == ["KTMI BUY CALL", "KTMI BUY PUT"]
+    triggers = {name: default for kind, default, name in f["inputs"] if name.endswith("Trigger")}
+    assert triggers == {"Momentum Buy Trigger": '""', "Momentum Sell Trigger": '""', "Long Buy Trigger": '"0.5"',
+                        "Long Sell Trigger": '""', "Short Buy Trigger": '"0.5"', "Short Sell Trigger": '""'}
+    assert [i for i in f["inputs"] if not i[2].endswith("Trigger")] == \
+        [i for i in c["inputs"] if not i[2].endswith("Trigger")]

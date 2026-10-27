@@ -3,6 +3,10 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: KTMI on FYERS (Smart Script + Automate guide), 2026-10-27
+- `indicators/ktmi_uni_lite/KTMI_Uni_Lite_FYERS_SmartScript.pine` + test; `docs/FYERS_SMART_SCRIPT_AND_AUTOMATE.md`
+  (paste steps, Automate webhook workflow, what FYERS cannot do: TRIX/custom triggers, funds-based lots, backtest).
+
 ## claude/affectionate-bardeen-3k5sls: KTMI live money rules, FYERS Smart Script check, 2026-10-27
 - Smart Script (fyers.in/web/smartscript): indicator()-only, strategy() refused, alerts not sent yet -> it can draw KTMI
   but cannot place orders. Automate: built-in indicator triggers only, no funds-based lots. Rules built here instead.
