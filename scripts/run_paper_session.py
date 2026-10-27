@@ -180,6 +180,10 @@ def main(argv=None, *, client=None, raw_master=None, socket_factory=None, clock=
         return masters[name]
 
     policy = LiveOrderPolicy()
+    live_funds = None
+    if args.live_orders:
+        from live_trading.funds import funds_provider
+        live_funds = funds_provider(getattr(client, "model", client), log=say)
     desks: list[IndexDesk] = []
     for prof in profiles:
         paper_dir = args.data_folder / "paper_trading" / prof.key
@@ -206,6 +210,8 @@ def main(argv=None, *, client=None, raw_master=None, socket_factory=None, clock=
                 output_dir=paper_dir,
                 pending_journal_path=paper_dir / "pending_entries.csv",
                 underlying_symbol=prof.spot_symbol,
+                # live: size every entry by the REAL available funds in FYERS (owner 27 Oct 2026)
+                funds_provider=live_funds,
             ),
             resolver=StrikeLadderResolver(OptionContractResolver(contracts_db), underlying=prof.underlying,
                                           strike_step=prof.strike_step),

@@ -28,6 +28,7 @@ class FakeFyersModel:
         self.statuses = list(statuses)
         self.place_response = place_response
         self.last_qty = 0
+        self.available = 100000.0
 
     def place_order(self, data):
         self.calls.append(("place", dict(data)))
@@ -48,6 +49,12 @@ class FakeFyersModel:
         return {"s": "ok", "code": 200, "orderBook": [{
             "id": data["id"], "status": status, "filledQty": filled,
             "remainingQuantity": self.last_qty - filled, "tradedPrice": price, "message": msg[0] if msg else ""}]}
+
+    def funds(self):                                   # live mode sizes entries by the real available balance
+        self.calls.append(("funds", {}))
+        return {"s": "ok", "code": 200, "fund_limit": [
+            {"id": 1, "title": "Total Balance", "equityAmount": 120000.0},
+            {"id": 10, "title": "Available Balance", "equityAmount": self.available}]}
 
     def sent(self, kind):
         return [d for k, d in self.calls if k == kind]
@@ -131,7 +138,8 @@ def test_entry_chases_up_to_the_cap_then_cancels(tmp_path):
     result = executor(model, tmp_path, prices=(100, 101, 103, 110)).execute(
         kind="ENTRY", symbol=SYMBOL, qty=65, lot_size=65)
     assert result.status == "NOT_FILLED"
-    assert [d["limitPrice"] for d in model.sent("modify")] == [102.0, 104.0]   # capped at 100+3+1
+    # owner 27 Oct 2026: CMP 100 -> 101, then 102 at most (never higher, however fast the price runs)
+    assert [d["limitPrice"] for d in model.sent("modify")] == [102.0]
     assert len(model.sent("cancel")) == 1
 
 

@@ -120,5 +120,10 @@
   1:1.5-1:3 + each TSL preset alone; tags hour / VIX at open (terciles) / VIX up-down / NIFTY TREND-RANGE; stars by PF
   (-1 if not both halves + or <30 trades), ranked stars then net; walk-forward "honesty check"; 1-year NIFTY page.
   Output data/research/report_card/report_card.html (13 tabs, offline) + summary.txt (owner pastes it to Claude).
+- KTMI LIVE RULES (owner 2026-10-27, docs/LIVE_ORDERS.md): strike_mode AUTO_ATM_ATM1 = ATM or ATM+1 whichever buys more
+  lots (tie ATM, never beyond ATM+1), max_lot_cost (NIFTY 8000, also checked in MANUAL) - `strategies/funds_strike.py`,
+  orchestrator `strike_chooser`; live budget = real FYERS Available Balance (`live_trading/funds.py`, session
+  `funds_provider`) x allocation %; entry limit CMP+1 re-priced to CMP+2 max (`max_entry_chase_points` 1.0).
+  FYERS Smart Script = indicator drawing only (no strategy()/orders); Automate cannot run custom indicators.
 - OWNER RULE: when the owner says "we are done for the day", give ALL commands to run on their PC in order,
   step by step (folder for each), with what each one should show, plus everything still pending from their side.

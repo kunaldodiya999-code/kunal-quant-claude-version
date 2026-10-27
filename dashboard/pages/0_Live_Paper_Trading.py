@@ -142,8 +142,18 @@ with st.form(f"order_window_{index}"):
         "Ticked boxes override the dropdowns. ATM only = enter ATM. ATM+1 only = one strike out of the money "
         "(CALL: one strike above ATM, PUT: one strike below ATM). Both ticked = two trades per signal."
     )
+    a1, a2 = st.columns(2)
+    auto = a1.checkbox("AUTO: ATM or ATM+1, whichever buys MORE lots", value=current.strike_mode == "AUTO_ATM_ATM1",
+                       key=f"strike_auto_{index}",
+                       help="Never beyond ATM+1. Equal lots: ATM. Overrides the dropdowns and the boxes above.")
+    lot_cap = a2.number_input("Max cost of 1 lot (Rs, 0 = no cap)", 0.0, 1e7, float(current.max_lot_cost), 500.0,
+                              key=f"max_lot_cost_{index}",
+                              help="Owner rule for NIFTY: Rs 8,000. A strike whose 1 lot costs more is not bought.")
+    st.caption("Example: Rs 15,000 free, cap Rs 8,000: ATM at 135 (Rs 8,775 a lot) is skipped, ATM+1 at 115 "
+               "(Rs 7,475 a lot) buys 2 lots. Live orders: the money = the real FYERS available balance.")
     if st.form_submit_button("Save order window"):
-        store.update(call_strike=call_choice, put_strike=put_choice, use_atm=use_atm, use_atm_plus_1=use_plus1)
+        store.update(call_strike=call_choice, put_strike=put_choice, use_atm=use_atm, use_atm_plus_1=use_plus1,
+                     strike_mode="AUTO_ATM_ATM1" if auto else "MANUAL", max_lot_cost=float(lot_cap))
         st.success(f"Saved for {label}. Applies to the next signal.")
 
 # ---------------------------------------------------------------------- settings

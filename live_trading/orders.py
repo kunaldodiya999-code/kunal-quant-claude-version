@@ -16,7 +16,7 @@ class LiveOrderPolicy:
     tick_size: float = 0.05              # NIFTY options
     wait_seconds: float = 2.0            # wait for a fill before re-pricing
     max_reprice_attempts: int = 3
-    max_entry_chase_points: float = 3.0  # entry limit never above first reference + this
+    max_entry_chase_points: float = 1.0  # first limit = CMP + 1, re-priced up to CMP + 1 + this at most (owner 27 Oct: CMP 100 -> 101 or 102, never above)
     product_type: str = "INTRADAY"
     max_lots_per_order: int = 10
     max_orders_per_day: int = 40

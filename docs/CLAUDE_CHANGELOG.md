@@ -3,6 +3,12 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: KTMI live money rules, FYERS Smart Script check, 2026-10-27
+- Smart Script (fyers.in/web/smartscript): indicator()-only, strategy() refused, alerts not sent yet -> it can draw KTMI
+  but cannot place orders. Automate: built-in indicator triggers only, no funds-based lots. Rules built here instead.
+- AUTO strike (ATM or ATM+1 by more lots), max cost per lot (Rs 8,000 NIFTY), live sizing by the real FYERS
+  available balance, entry chase capped at CMP + 2. Dashboard Order window + `paper_settings.py --strike/--max-lot-cost`.
+
 ## claude/affectionate-bardeen-3k5sls: strategy report card (HTML), 2026-10-26
 - Owner's data check after fetch_data: NIFTY / BANKNIFTY / SENSEX 62 of 62 days clean, stocks 13,166 of 13,168
   stock-days clean, India VIX 51 of 62 (fast VIX moves flagged as spikes; VIX is used only as a daily level).

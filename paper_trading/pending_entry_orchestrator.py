@@ -47,6 +47,8 @@ class PendingEntry:
     underlying_price: float
     contract: ResolvedOptionContract
     queued_at: int
+    # AUTO strike (owner 27 Oct 2026): (label, offset, contract) of ATM and ATM+1; the money decides at the entry.
+    alternatives: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -77,7 +79,10 @@ class PendingEntryOrchestrator:
         underlying_symbol: str = "NSE:NIFTY50-INDEX",
         config: PendingEntryConfig | None = None,
         clock: Callable[[], datetime] | None = None,
+        strike_chooser: Callable[..., Any] | None = None,
     ) -> None:
+        """``strike_chooser(candidates=[(label, offset, premium)], timestamp=...)`` -> StrikeChoice
+        (strategies/funds_strike.py): picks ATM / ATM+1 for AUTO signals and applies the cost-per-lot cap."""
         self.resolver = resolver
         self.quote_cache = quote_cache
         self.coordinator = coordinator
@@ -85,6 +90,7 @@ class PendingEntryOrchestrator:
         self.underlying_symbol = underlying_symbol
         self.config = config or PendingEntryConfig()
         self.clock = clock or (lambda: datetime.now(MARKET_TZ))
+        self.strike_chooser = strike_chooser
         self._lock = threading.RLock()
         self._pending: dict[tuple[str, str, int, int], PendingEntry] = {}
         self._completed: set[tuple[str, str, int, int]] = set()
@@ -190,14 +196,25 @@ class PendingEntryOrchestrator:
                 )
                 underlying_price = float(underlying_quote["lp"])
                 offset = int(getattr(signal, "strike_offset", 0) or 0)
-                contract = self.resolver.resolve(
-                    **({"strike_offset": offset} if offset else {}),
-                    underlying_price=underlying_price,
-                    entry_date=now.date(),
-                    direction=signal.direction,
-                )
-                self.subscribe_symbols([contract.symbol])
-                pending = PendingEntry(signal, underlying_price, contract, decision_ts)
+                alternatives: tuple = ()
+                if getattr(signal, "strike_auto", False):
+                    from strategies.funds_strike import AUTO_CHOICES
+                    alternatives = tuple(
+                        (label, off, self.resolver.resolve(
+                            **({"strike_offset": off} if off else {}), underlying_price=underlying_price,
+                            entry_date=now.date(), direction=signal.direction))
+                        for label, off in AUTO_CHOICES)
+                    contract = alternatives[0][2]
+                    self.subscribe_symbols([c.symbol for _l, _o, c in alternatives])
+                else:
+                    contract = self.resolver.resolve(
+                        **({"strike_offset": offset} if offset else {}),
+                        underlying_price=underlying_price,
+                        entry_date=now.date(),
+                        direction=signal.direction,
+                    )
+                    self.subscribe_symbols([contract.symbol])
+                pending = PendingEntry(signal, underlying_price, contract, decision_ts, alternatives)
                 with self._lock:
                     if key in self._pending or key in self._completed:
                         continue
@@ -220,7 +237,22 @@ class PendingEntryOrchestrator:
         with self._lock:
             items = list(self._pending.items())
         for key, pending in items:
-            if decision_ts - pending.queued_at > self.config.timeout_seconds:
+            timed_out = decision_ts - pending.queued_at > self.config.timeout_seconds
+            if pending.alternatives or self.strike_chooser is not None:
+                picked = self._choose(pending, decision_ts, timed_out)
+                if picked is None:                        # still waiting for prices
+                    continue
+                if isinstance(picked, PendingEntryEvent):  # no trade within the money rules
+                    with self._lock:
+                        self._pending.pop(key, None)
+                        self._completed.add(key)
+                        self._record(picked)
+                    results.append(picked)
+                    continue
+                pending, quote = picked
+                results.append(self._enter(key, pending, quote, decision_ts))
+                continue
+            if timed_out:
                 event = PendingEntryEvent(
                     pending.signal, "TIMED_OUT", pending.contract.symbol, decision_ts,
                     f"No valid option quote within {self.config.timeout_seconds}s.",
@@ -240,29 +272,69 @@ class PendingEntryOrchestrator:
                 )
             except (LookupError, ValueError):
                 continue
-            try:
-                attempt = self.coordinator.process_signal(
-                    signal=pending.signal,
-                    underlying_price=pending.underlying_price,
-                    option_quote=quote,
-                    decision_timestamp=decision_ts,
-                )
-            except (LookupError, ValueError, TypeError, KeyError) as exc:
-                event = PendingEntryEvent(
-                    pending.signal, "REJECTED", pending.contract.symbol, decision_ts, str(exc)
-                )
-            else:
-                status = "ENTERED" if attempt.trade is not None else "REJECTED"
-                event = PendingEntryEvent(
-                    pending.signal, status, pending.contract.symbol, decision_ts,
-                    attempt.rejection_reason, attempt,
-                )
-            with self._lock:
-                self._pending.pop(key, None)
-                self._completed.add(key)
-                self._record(event)
-            results.append(event)
+            results.append(self._enter(key, pending, quote, decision_ts))
         return tuple(results)
+
+    def _fresh(self, symbol: str, decision_ts: int):
+        try:
+            return self.quote_cache.get_quote(symbol, decision_timestamp=decision_ts,
+                                              max_exchange_age_seconds=self.config.max_quote_age_seconds,
+                                              max_receive_age_seconds=self.config.max_receive_age_seconds)
+        except (LookupError, ValueError):
+            return None
+
+    def _choose(self, pending: PendingEntry, decision_ts: int, timed_out: bool):
+        """None = keep waiting; a PendingEntryEvent = no trade; (pending for the chosen strike, its quote) = enter.
+        AUTO waits until BOTH strikes have a fresh price (or the time is up, then uses the ones it has)."""
+        options = pending.alternatives or (("", int(getattr(pending.signal, "strike_offset", 0) or 0),
+                                             pending.contract),)
+        quotes = {label: self._fresh(c.symbol, decision_ts) for label, _o, c in options}
+        have = [(label, off, c) for label, off, c in options if quotes[label] is not None]
+        if not have or (len(have) < len(options) and not timed_out):
+            if timed_out:
+                return PendingEntryEvent(pending.signal, "TIMED_OUT", pending.contract.symbol, decision_ts,
+                                         f"No valid option quote within {self.config.timeout_seconds}s.")
+            return None
+        if self.strike_chooser is None:                              # AUTO without a chooser: plain ATM
+            label, off, contract = have[0]
+        else:
+            choice = self.strike_chooser(
+                candidates=[(label or "strike", off, float(quotes[label]["lp"])) for label, off, _c in have],
+                timestamp=decision_ts)
+            if choice.label is None:
+                return PendingEntryEvent(pending.signal, "REJECTED", pending.contract.symbol, decision_ts,
+                                         choice.reason)
+            label, off, contract = next(h for h in have if h[1] == choice.offset)
+            if pending.alternatives:                                 # journal why ATM or ATM+1
+                with self._lock:
+                    self._record(PendingEntryEvent(pending.signal, "STRIKE_CHOSEN", contract.symbol, decision_ts,
+                                                   choice.reason))
+        signal = pending.signal
+        if pending.alternatives:
+            from dataclasses import replace
+            signal = replace(signal, strike_offset=off, reason=f"{signal.reason}={label}")
+        chosen = PendingEntry(signal, pending.underlying_price, contract, pending.queued_at, pending.alternatives)
+        return chosen, quotes[label]
+
+    def _enter(self, key, pending: PendingEntry, quote, decision_ts: int) -> PendingEntryEvent:
+        try:
+            attempt = self.coordinator.process_signal(
+                signal=pending.signal,
+                underlying_price=pending.underlying_price,
+                option_quote=quote,
+                decision_timestamp=decision_ts,
+            )
+        except (LookupError, ValueError, TypeError, KeyError) as exc:
+            event = PendingEntryEvent(pending.signal, "REJECTED", pending.contract.symbol, decision_ts, str(exc))
+        else:
+            status = "ENTERED" if attempt.trade is not None else "REJECTED"
+            event = PendingEntryEvent(pending.signal, status, pending.contract.symbol, decision_ts,
+                                      attempt.rejection_reason, attempt)
+        with self._lock:
+            self._pending.pop(key, None)
+            self._completed.add(key)
+            self._record(event)
+        return event
 
     def pending(self) -> tuple[PendingEntry, ...]:
         with self._lock:

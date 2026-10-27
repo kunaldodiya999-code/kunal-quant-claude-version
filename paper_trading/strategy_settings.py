@@ -19,6 +19,9 @@ from strategies.strike_ladder import STRIKE_CHOICES
 SETTINGS_FILE = "strategy_settings.json"
 
 
+STRIKE_MODES = ("MANUAL", "AUTO_ATM_ATM1")
+
+
 @dataclass(frozen=True)
 class StrategySettings:
     timeframe_minutes: int = 3        # one of 1, 3, 5, 10, 15, 30, 60
@@ -35,6 +38,11 @@ class StrategySettings:
     use_atm_plus_1: bool = False
     # Dashboard "Trade in": False = watch this index (signals, chart) but take no entries.
     trading_enabled: bool = True
+    # Owner 27 Oct 2026: AUTO = buy ATM or ATM+1, whichever buys MORE lots with the money (never beyond ATM+1);
+    # MANUAL = the dropdowns / checkboxes above. max_lot_cost: one lot may cost at most this (Rs, 0 = no cap),
+    # in both modes (NIFTY: Rs 8,000). strategies/funds_strike.py.
+    strike_mode: str = "MANUAL"
+    max_lot_cost: float = 0.0
 
     def __post_init__(self) -> None:
         for name in (self.call_strike, self.put_strike):
@@ -42,6 +50,10 @@ class StrategySettings:
                 raise ValueError(f"strike choice must be one of {tuple(STRIKE_CHOICES)}")
         if not all(isinstance(v, bool) for v in (self.use_atm, self.use_atm_plus_1, self.trading_enabled)):
             raise ValueError("use_atm, use_atm_plus_1 and trading_enabled must be true or false")
+        if self.strike_mode not in STRIKE_MODES:
+            raise ValueError(f"strike_mode must be one of {STRIKE_MODES}")
+        if not (isinstance(self.max_lot_cost, (int, float)) and self.max_lot_cost >= 0):
+            raise ValueError("max_lot_cost must be 0 (no cap) or a positive rupee amount")
         if self.timeframe_minutes not in SUPPORTED_RESOLUTIONS:
             raise ValueError(f"timeframe must be one of {SUPPORTED_RESOLUTIONS} minutes")
         if self.trade_direction not in TRADE_DIRECTIONS:
@@ -51,7 +63,10 @@ class StrategySettings:
 
 
 def entry_strike_offsets(settings: StrategySettings, direction: str) -> list[tuple[str, int]]:
-    """(label, offset) for every trade one signal should open, in slot order."""
+    """(label, offset) for every trade one signal should open, in slot order. AUTO: one trade, strike chosen at
+    the entry from ATM / ATM+1 by the money (label "AUTO")."""
+    if settings.strike_mode == "AUTO_ATM_ATM1":
+        return [("AUTO", 0)]
     if settings.use_atm or settings.use_atm_plus_1:
         plan = []
         if settings.use_atm:
@@ -109,4 +124,4 @@ class StrategySettingsStore:
         return self._settings
 
 
-__all__ = ["SETTINGS_FILE", "StrategySettings", "StrategySettingsStore", "entry_strike_offsets"]
+__all__ = ["STRIKE_MODES", "SETTINGS_FILE", "StrategySettings", "StrategySettingsStore", "entry_strike_offsets"]

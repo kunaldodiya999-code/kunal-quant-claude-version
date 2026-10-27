@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from api.fyers_client import FyersClient
 from market_data.fyers_quote_cache import FyersQuoteCache
@@ -88,6 +88,9 @@ class PaperSessionConfig:
     kill_hours: float = 12.0
     kama_exit_enabled: bool = False
     mark_max_age_seconds: int = 30   # option price older than this cannot value an open position
+    # Live orders (owner 27 Oct 2026: "according to the funds we have"): the REAL available funds in FYERS, in
+    # rupees. When set, the entry budget = the allocation applied to these funds (paper account ignored).
+    funds_provider: Optional[Callable[[], float]] = None
 
     def __post_init__(self) -> None:
         if self.lot_size < 1:
@@ -185,7 +188,7 @@ def build_paper_session(
                 continue
             slots = (PaperStrategyId.STRATEGY_A, PaperStrategyId.STRATEGY_A_2)
             for slot, (label, offset) in zip(slots, entry_strike_offsets(current, signal.direction)):
-                out.append(replace(signal, strategy_id=slot, strike_offset=offset,
+                out.append(replace(signal, strategy_id=slot, strike_offset=offset, strike_auto=label == "AUTO",
                                    reason=f"{signal.reason}|{label}"))
         return out
 
@@ -252,6 +255,12 @@ def build_paper_session(
     def entry_budget(*, timestamp: int, entry_price: float) -> float:
         """Rupee budget for the next entry: the chosen allocation (percent of AVAILABLE CASH by default,
         or of the account balance), capped by balance and free cash."""
+        if config.funds_provider is not None:              # live: the real money in the FYERS account
+            try:
+                real = max(float(config.funds_provider()), 0.0)
+            except Exception:                              # funds unknown: no entry (never guess with real money)
+                real = 0.0
+            return allocation_store.setting.budget(balance=real, available_cash=real).budget
         snap = account.snapshot(timestamp)
         base = snap.available_cash if trade_store.settings.allocation_basis == "AVAILABLE_CASH" else snap.balance
         return allocation_store.setting.budget(
@@ -350,6 +359,16 @@ def build_paper_session(
         on_tick=on_tick,
         socket_factory=socket_factory,
     )
+    def strike_chooser(*, candidates, timestamp):
+        """AUTO: ATM or ATM+1 by the money; every mode: one lot may cost at most max_lot_cost (owner 27 Oct 2026)."""
+        from strategies.funds_strike import StrikeChoice, choose_strike
+        current = settings_store.refresh()
+        if len(candidates) == 1 and not current.max_lot_cost:        # manual strike, no cap: nothing to decide
+            label, offset, premium = candidates[0]
+            return StrikeChoice(label, offset, premium, 0, 0.0, "manual strike")
+        return choose_strike(candidates, budget=entry_budget(timestamp=timestamp, entry_price=0.0),
+                             lot_size=config.lot_size, max_lot_cost=current.max_lot_cost)
+
     orchestrator = PendingEntryOrchestrator(
         resolver=resolver,
         quote_cache=quote_cache,
@@ -362,6 +381,7 @@ def build_paper_session(
             max_receive_age_seconds=config.max_receive_age_seconds,
             journal_path=config.pending_journal_path,
         ),
+        strike_chooser=strike_chooser,
     )
     holder["orchestrator"] = orchestrator
 

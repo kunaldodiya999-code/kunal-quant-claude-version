@@ -27,6 +27,28 @@ The switch (`data\live_trading\live_switch.json`) covers all indexes.
 - FYERS "201 not acknowledged" is never re-sent automatically: check the FYERS order book.
 - Settings: `LiveOrderPolicy` in `live_trading/orders.py` (buffer in points, ticks or percent).
 
+## Owner's live rules for KTMI (27 Oct 2026)
+
+| Rule | Where | Setting |
+|---|---|---|
+| Strike = ATM or ATM+1, whichever buys MORE lots, never beyond ATM+1 (equal lots: ATM) | `strategies/funds_strike.py`, entry step `paper_trading/pending_entry_orchestrator.py` | dashboard Order window "AUTO", or `paper_settings.py --strike AUTO` |
+| 1 NIFTY lot may cost at most Rs 8,000 (Rs 15,000 free -> 2 lots of Rs 115) | same | "Max cost of 1 lot", or `--max-lot-cost 8000` |
+| Lots by the money we have: live = the REAL FYERS "Available Balance" (`live_trading/funds.py`, asked at most every 15 s; unknown = no entry) x the "money per trade" % (set 100% to use all of it) | `paper_trading/session.py` `funds_provider` | dashboard money-per-trade |
+| New entries 09:30-15:00, force exit 15:10 | strategy settings (defaults) | `--start 09:30 --end 15:00 --force-exit 15:10` |
+| Stop = 30% of the entry price; target 1:2 (whole trade) | trade_management.json | dashboard: Initial stop 30%, "Reward 1:[2]", TSL OFF |
+| LIMIT orders with a buffer, never market: BUY at CMP + 1, re-priced up to CMP + 2 at most; SELL (stop, target, 15:10) at CMP - 2, re-priced | `live_trading/orders.py` (`max_entry_chase_points` 1.0) | - |
+
+Each AUTO decision is journaled (`pending_entries.csv`, status STRIKE_CHOSEN, with both prices and lot counts).
+
+## FYERS Smart Script / Automate (checked 27 Oct 2026)
+
+- **Smart Script** (FYERS charts, beta) runs Pine-v6-style `indicator()` scripts: KTMI Uni Lite can be DRAWN there.
+  It cannot trade: `strategy()` scripts are refused and script alerts are "not yet sent as notifications".
+- **Automate** places orders (options ATM/ITM/OTM, lots, SL / target / trailing), but its indicator triggers are
+  built-in ones (RSI, EMA, MACD...), not custom scripts, and it has no "lots by available funds" or
+  "ATM or ATM+1 by more lots" rule. A webhook trigger exists (outside signal -> Automate order).
+- So the KTMI live rules stay in THIS program (same orders through the FYERS API, every rule above, tested).
+
 ## Known limits (honest list)
 
 - Mirror mode: the paper engine decides entries/exits from its own simulated fills;

@@ -211,3 +211,14 @@ def test_open_trade_shows_its_tsl_and_takes_a_manual_stop(folder):
     app.run()
     assert json.loads((folder / "NIFTY" / "manual_stops.json").read_text()) == {
         "STRATEGY_A:1:NSE:NIFTY26O2722000CE": 95.5}
+
+
+def test_auto_strike_and_lot_cost_cap_are_saved(folder):
+    """Owner 27 Oct 2026: AUTO (ATM or ATM+1 by the money) and 'max Rs 8,000 for 1 lot' for NIFTY."""
+    app = run(folder)
+    app.checkbox(key="strike_auto_NIFTY").check()
+    app.number_input(key="max_lot_cost_NIFTY").set_value(8000.0)
+    click(app, "Save order window")
+    app.run()
+    saved = json.loads((folder / "NIFTY" / "strategy_settings.json").read_text())
+    assert saved["strike_mode"] == "AUTO_ATM_ATM1" and saved["max_lot_cost"] == 8000.0

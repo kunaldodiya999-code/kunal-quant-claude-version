@@ -40,6 +40,8 @@ class PaperSignal:
     close_timestamp: int | None = None
     # Strikes away from ATM, out-of-the-money direction (-1 ITM1, 0 ATM, +1 OTM1...).
     strike_offset: int = 0
+    # AUTO strike (owner 27 Oct 2026): ATM or ATM+1 is chosen at the entry by the money (strategies/funds_strike.py).
+    strike_auto: bool = False
 
 
 def _bar_value(bar: object, name: str) -> float:

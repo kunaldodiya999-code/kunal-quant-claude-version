@@ -45,6 +45,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force-exit", dest="force_exit", help="close open trades at this time, HH:MM")
     p.add_argument("--trade", choices=("ON", "OFF"), type=str.upper,
                    help="ON = this index takes entries, OFF = watch only (same as the dashboard 'Trade in')")
+    p.add_argument("--strike", choices=("AUTO", "MANUAL"), type=str.upper,
+                   help="AUTO = buy ATM or ATM+1, whichever buys more lots (never beyond ATM+1); MANUAL = dropdowns")
+    p.add_argument("--max-lot-cost", dest="max_lot_cost", type=float,
+                   help="one lot may cost at most this many rupees (e.g. 8000 for NIFTY; 0 = no cap)")
     p.add_argument("--index", default="ALL", help="NIFTY, BANKNIFTY, SENSEX, a comma list, or ALL (default)")
     p.add_argument("--folder", type=Path, default=PROJECT_ROOT / "data" / "paper_trading",
                    help="paper-trading data folder (default: data\\paper_trading)")
@@ -62,7 +66,11 @@ def show(settings: StrategySettings, path: Path | None, label: str = "") -> None
     print(f"No new trades from : {settings.entry_end} IST")
     print(f"Force exit at      : {settings.force_exit} IST")
     boxes = " + ".join(n for n, on in (("ATM", settings.use_atm), ("ATM+1", settings.use_atm_plus_1)) if on)
-    print(f"Strikes            : {boxes + ' (checkboxes)' if boxes else f'CALL {settings.call_strike}, PUT {settings.put_strike} (dropdowns)'}")
+    if settings.strike_mode == "AUTO_ATM_ATM1":
+        print("Strikes            : AUTO - ATM or ATM+1, whichever buys more lots (never beyond ATM+1)")
+    else:
+        print(f"Strikes            : {boxes + ' (checkboxes)' if boxes else f'CALL {settings.call_strike}, PUT {settings.put_strike} (dropdowns)'}")
+    print(f"Max cost of 1 lot  : {f'Rs {settings.max_lot_cost:,.0f}' if settings.max_lot_cost else 'no cap'}")
     print("Entries happen only after the signal candle has CLOSED.")
     print(f"Saved in           : {path}")
     print("=" * 64)
@@ -80,6 +88,8 @@ def main(argv=None) -> int:
             "entry_end": args.end,
             "force_exit": args.force_exit,
             "trading_enabled": None if args.trade is None else args.trade == "ON",
+            "strike_mode": None if args.strike is None else ("AUTO_ATM_ATM1" if args.strike == "AUTO" else "MANUAL"),
+            "max_lot_cost": args.max_lot_cost,
         }.items()
         if value is not None
     }
