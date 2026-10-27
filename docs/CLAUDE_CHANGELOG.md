@@ -3,6 +3,10 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: KTMI arrows on the FYERS price candles, 2026-10-27
+- FYERS Smart Script KTMI: BUY CALL green up-triangle below the candle, BUY PUT red down-triangle above it
+  (`force_overlay`, switchable); backup overlay script `KTMI_Uni_Lite_FYERS_Arrows.pine`; tests keep maths equal.
+
 ## claude/affectionate-bardeen-3k5sls: KTMI on FYERS (Smart Script + Automate guide), 2026-10-27
 - `indicators/ktmi_uni_lite/KTMI_Uni_Lite_FYERS_SmartScript.pine` + test; `docs/FYERS_SMART_SCRIPT_AND_AUTOMATE.md`
   (paste steps, Automate webhook workflow, what FYERS cannot do: TRIX/custom triggers, funds-based lots, backtest).

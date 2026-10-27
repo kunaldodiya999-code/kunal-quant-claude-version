@@ -272,11 +272,31 @@ def test_fyers_smart_script_has_the_same_maths_and_signals_as_the_compact():
                  "shortBuy = buyCond(shortEnable, shortBuyTrigger, shortSpeed, shortSignal)"):
         assert re.sub(r"\s+", " ", part) in fyers and re.sub(r"\s+", " ", part) in compact, part
     f, c = _surface(FYERS), _surface(COMPACT)
-    for key in ("indicator", "options", "plots", "hlines", "fills", "shapes"):
+    for key in ("indicator", "options", "plots", "hlines", "fills"):
         assert f[key] == c[key], key
+    assert f["shapes"] == c["shapes"]                     # the 6 pane arrows unchanged
+    price_arrows = re.findall(r'plotshape\(showPriceArrows and \w+, ?title ?= ?"([^"]+)", ?style ?= ?([\w.]+), '
+                              r'?location ?= ?([\w.]+), ?color ?= ?(color\.rgb\([^)]*\))', fyers)
+    assert price_arrows == [("BUY CALL on price", "shape.triangleup", "location.belowbar", "color.rgb(0, 200, 83)"),
+                               ("BUY PUT on price", "shape.triangledown", "location.abovebar", "color.rgb(255, 23, 68)")]
+    fyers_text = FYERS.read_text(encoding="utf-8")
+    assert "showPriceArrows and longBuy" in fyers_text and "showPriceArrows and shortBuy" in fyers_text
+    assert fyers_text.count("force_overlay=true") == 2
     assert f["alerts"][:6] == c["alerts"] and [a[0] for a in f["alerts"][6:]] == ["KTMI BUY CALL", "KTMI BUY PUT"]
     triggers = {name: default for kind, default, name in f["inputs"] if name.endswith("Trigger")}
     assert triggers == {"Momentum Buy Trigger": '""', "Momentum Sell Trigger": '""', "Long Buy Trigger": '"0.5"',
                         "Long Sell Trigger": '""', "Short Buy Trigger": '"0.5"', "Short Sell Trigger": '""'}
     assert [i for i in f["inputs"] if not i[2].endswith("Trigger")] == \
-        [i for i in c["inputs"] if not i[2].endswith("Trigger")]
+        [i for i in c["inputs"] if not i[2].endswith("Trigger")] + [("bool", "true", "Arrows on the price chart")]
+
+
+def test_fyers_arrows_backup_uses_the_same_maths():
+    arrows, compact = _flat(FOLDER / "KTMI_Uni_Lite_FYERS_Arrows.pine"), _flat(COMPACT)
+    for part in ("e3 = ta.ema(ta.ema(ta.ema(", "100.0 * (e3 - e3[1]) / e3[1]", "raw := invert ? -raw : raw",
+                 "[raw * DISPLAY_MULTIPLIER, ta.ema(raw, signalLen) * DISPLAY_MULTIPLIER]"):
+        assert part in arrows and part in compact, part
+    assert "ktmiModule(high, speedLength, signalLength, false)" in arrows        # Long = High source
+    assert "ktmiModule(low, speedLength, signalLength, true)" in arrows          # Short = Low source, flipped
+    assert "ta.crossover(longSpeed, longBuyTrigger) and longSpeed > longSignal and longSpeed > 0" in arrows
+    assert "ta.crossover(shortSpeed, shortBuyTrigger) and shortSpeed > shortSignal and shortSpeed > 0" in arrows
+    assert "overlay=true" in arrows and "location.belowbar" in arrows and "location.abovebar" in arrows

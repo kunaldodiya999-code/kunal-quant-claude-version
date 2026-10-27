@@ -29,6 +29,12 @@ screen looks different, the idea is the same.
    If FYERS refuses the script, it names the missing part in red: send Claude a screenshot.
 7. Later it is under **Indicators -> My Smart Scripts**.
 
+**Arrows on the price candles** (owner 27 Oct 2026): the script also draws the two trade signals ON THE PRICE CHART:
+green up-triangle BELOW the candle = BUY CALL, red down-triangle ABOVE the candle = BUY PUT (setting "Arrows on the
+price chart", on by default). If FYERS shows them in the KTMI pane instead, use the small backup script
+`indicators\ktmi_uni_lite\KTMI_Uni_Lite_FYERS_Arrows.pine` (same maths, arrows only, sits on the price chart):
+paste it as a second Smart Script named **KTMI Arrows**.
+
 ## Part B: KTMI arrow -> FYERS Automate order (TradingView route)
 
 You already have KTMI on TradingView. TradingView sends the alert, FYERS Automate places the order.

@@ -8,6 +8,8 @@ indicator("KTMI Uni Lite", shorttitle="KTMI Uni Lite", overlay=false, precision=
 //   2. Trigger defaults = the owner's TradingView chart (24 Oct 2026): Momentum Buy / Sell EMPTY (off),
 //      Long Buy 0.5, Short Buy 0.5  ->  Long Momentum Buy = BUY CALL, Short Momentum Buy = BUY PUT.
 // Two extra alerts name the trade: "KTMI BUY CALL" and "KTMI BUY PUT".
+// Owner 27 Oct 2026: the same two trade signals are also drawn ON THE PRICE CANDLES (force_overlay):
+// BUY CALL = green up-triangle below the candle, BUY PUT = red down-triangle above the candle.
 
 DISPLAY_MULTIPLIER = 100.0
 
@@ -59,6 +61,7 @@ shortSellTrigger = str.tonumber(input.string("", "Short Sell Trigger", group=gT)
 showFill        = input.bool(true, "Fill Speed / Signal", group="EXTRAS")
 oversoldScale   = input.float(-3.0, "Oversold Scale", step=0.1, group="SCALE SETTINGS")
 overboughtScale = input.float(3.0, "Overbought Scale", step=0.1, group="SCALE SETTINGS")
+showPriceArrows = input.bool(true, "Arrows on the price chart", group="PRICE CHART ARROWS")
 
 // ---- CALCULATIONS
 getSource(string name) =>
@@ -127,6 +130,10 @@ plotshape(longBuy, title="Long Momentum Buy", style=shape.triangleup, location=l
 plotshape(longSell, title="Long Momentum Sell", style=shape.triangledown, location=location.top, color=color.rgb(150, 100, 44), size=size.tiny, editable=true)
 plotshape(shortBuy, title="Short Momentum Buy", style=shape.triangleup, location=location.bottom, color=color.rgb(244, 48, 72), size=size.tiny, editable=true)
 plotshape(shortSell, title="Short Momentum Sell", style=shape.triangledown, location=location.top, color=color.rgb(140, 34, 146), size=size.tiny, editable=true)
+
+// ---- SAME TRADE SIGNALS ON THE PRICE CANDLES (owner 27 Oct 2026)
+plotshape(showPriceArrows and longBuy, title="BUY CALL on price", style=shape.triangleup, location=location.belowbar, color=color.rgb(0, 200, 83), size=size.small, editable=true, force_overlay=true)
+plotshape(showPriceArrows and shortBuy, title="BUY PUT on price", style=shape.triangledown, location=location.abovebar, color=color.rgb(255, 23, 68), size=size.small, editable=true, force_overlay=true)
 
 alertcondition(momBuy, title="Momentum Buy", message="KTMI Uni Lite: Momentum Buy trigger crossed")
 alertcondition(momSell, title="Momentum Sell", message="KTMI Uni Lite: Momentum Sell trigger crossed")

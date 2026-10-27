@@ -1,0 +1,34 @@
+//@version=6
+indicator("KTMI Arrows", shorttitle="KTMI Arrows", overlay=true)
+
+// BACKUP for FYERS Smart Script (owner 27 Oct 2026): ONLY the two KTMI Uni Lite trade arrows, drawn on the price
+// candles. Use it if the main script's "Arrows on the price chart" do not show on the price chart.
+// Same maths as KTMI_Uni_Lite_Compact.pine (= the locked KTMI_Uni_Lite_FINAL.pine), owner's triggers:
+//   Long Momentum Buy  (Long Speed crosses above 0.5)  = BUY CALL = green up-triangle BELOW the candle
+//   Short Momentum Buy (Short Speed crosses above 0.5) = BUY PUT  = red down-triangle ABOVE the candle
+
+DISPLAY_MULTIPLIER = 100.0
+speedLength     = input.int(5, "Speed Length", minval=1)
+signalLength    = input.int(9, "Signal Length", minval=1)
+longBuyTrigger  = input.float(0.5, "Long Buy Trigger (BUY CALL)", step=0.1)
+shortBuyTrigger = input.float(0.5, "Short Buy Trigger (BUY PUT)", step=0.1)
+
+// TRIX = % change of a triple EMA. Speed/Signal are scaled x100 for display.
+// invert=true flips the raw TRIX before the Signal EMA (Short Momentum).
+ktmiModule(float src, int speedLen, int signalLen, bool invert) =>
+    e3 = ta.ema(ta.ema(ta.ema(src, speedLen), speedLen), speedLen)
+    float raw = not na(e3[1]) and e3[1] != 0.0 ? 100.0 * (e3 - e3[1]) / e3[1] : na
+    raw := invert ? -raw : raw
+    [raw * DISPLAY_MULTIPLIER, ta.ema(raw, signalLen) * DISPLAY_MULTIPLIER]
+
+[longSpeed, longSignal]   = ktmiModule(high, speedLength, signalLength, false)
+[shortSpeed, shortSignal] = ktmiModule(low, speedLength, signalLength, true)
+
+longBuy  = ta.crossover(longSpeed, longBuyTrigger) and longSpeed > longSignal and longSpeed > 0
+shortBuy = ta.crossover(shortSpeed, shortBuyTrigger) and shortSpeed > shortSignal and shortSpeed > 0
+
+plotshape(longBuy, title="BUY CALL", style=shape.triangleup, location=location.belowbar, color=color.rgb(0, 200, 83), size=size.small)
+plotshape(shortBuy, title="BUY PUT", style=shape.triangledown, location=location.abovebar, color=color.rgb(255, 23, 68), size=size.small)
+
+alertcondition(longBuy, title="KTMI BUY CALL", message="KTMI BUY CALL {{ticker}} {{interval}} close {{close}}")
+alertcondition(shortBuy, title="KTMI BUY PUT", message="KTMI BUY PUT {{ticker}} {{interval}} close {{close}}")

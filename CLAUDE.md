@@ -127,7 +127,8 @@
   FYERS Smart Script = indicator drawing only (no strategy()/orders); Automate cannot run custom indicators.
 - FYERS (owner 2026-10-27, docs/FYERS_SMART_SCRIPT_AND_AUTOMATE.md): Smart Script copy of KTMI
   `indicators/ktmi_uni_lite/KTMI_Uni_Lite_FYERS_SmartScript.pine` (= Compact, no `switch`, owner trigger defaults, alerts
-  KTMI BUY CALL / PUT; test keeps maths equal). Automate: no TRIX / custom indicators, so KTMI orders only via webhook
+  KTMI BUY CALL / PUT; price-candle arrows via force_overlay, owner 27 Oct; backup overlay `KTMI_Uni_Lite_FYERS_Arrows.pine`;
+  tests keep maths equal). Automate: no TRIX / custom indicators, so KTMI orders only via webhook
   (TradingView alert or our program); Automate cannot backtest webhook signals.
 - OWNER RULE: when the owner says "we are done for the day", give ALL commands to run on their PC in order,
   step by step (folder for each), with what each one should show, plus everything still pending from their side.
