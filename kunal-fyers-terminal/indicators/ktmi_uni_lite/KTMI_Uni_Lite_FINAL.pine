@@ -1,0 +1,866 @@
+//@version=6
+indicator("KTMI Uni Lite", shorttitle="KTMI Uni Lite", overlay=false, precision=2)
+
+// ============================================================================
+// KTMI UNI LITE
+// ============================================================================
+//
+// Lightweight KTMI version.
+//
+// KEPT:
+// - Multiple Input Sources
+// - Speed / Signal
+// - EMA only
+// - TRIX only
+// - Enable / Disable
+// - Momentum / Long / Short
+// - Signal Triggers
+// - Adjustable Overbought / Oversold Scale
+// - Speed / Signal fills
+// - Signal arrows
+// - Alerts
+//
+// REMOVED:
+// - ROC
+// - MACD
+// - Other smoothing methods
+// - Confluence Background
+// - Table
+//
+// ============================================================================
+
+
+DISPLAY_MULTIPLIER = 100.0
+
+
+// ============================================================================
+// GENERAL SETTINGS
+// ============================================================================
+
+groupGeneral = "GENERAL SETTINGS"
+
+showLevels = input.bool(true, "Show Level Lines", group=groupGeneral)
+
+centerLevel = input.float(
+     0.0,
+     "Center Line",
+     step=0.1,
+     group=groupGeneral
+)
+
+upperLevel = input.float(
+     0.5,
+     "Upper Level",
+     step=0.1,
+     group=groupGeneral
+)
+
+lowerLevel = input.float(
+     -0.5,
+     "Lower Level",
+     step=0.1,
+     group=groupGeneral
+)
+
+levelColor = input.color(
+     color.rgb(121, 123, 133),
+     "Level Color",
+     group=groupGeneral
+)
+
+
+// ============================================================================
+// 1. MOMENTUM SETTINGS
+// ============================================================================
+
+groupMomentum = "1. MOMENTUM SETTINGS"
+
+momSource = input.string(
+     "Close",
+     "Input Source",
+     options=[
+         "Close",
+         "Open",
+         "High",
+         "Low",
+         "HL2",
+         "HLC3",
+         "OHLC4"
+     ],
+     group=groupMomentum
+)
+
+momSpeedLength = input.int(
+     5,
+     "Speed Length",
+     minval=1,
+     group=groupMomentum
+)
+
+momSignalLength = input.int(
+     9,
+     "Signal Length",
+     minval=1,
+     group=groupMomentum
+)
+
+momSmoothing = input.string(
+     "EMA",
+     "Smoothing Type",
+     options=["EMA"],
+     group=groupMomentum
+)
+
+momEnable = input.bool(
+     true,
+     "Enable Momentum",
+     group=groupMomentum
+)
+
+momCalculation = input.string(
+     "TRIX",
+     "Calculation Method",
+     options=["TRIX"],
+     group=groupMomentum
+)
+
+
+// ============================================================================
+// 2. LONG MOMENTUM SETTINGS
+// ============================================================================
+
+groupLong = "2. LONG MOMENTUM SETTINGS"
+
+longSource = input.string(
+     "High",
+     "Input Source",
+     options=[
+         "Close",
+         "Open",
+         "High",
+         "Low",
+         "HL2",
+         "HLC3",
+         "OHLC4"
+     ],
+     group=groupLong
+)
+
+longSpeedLength = input.int(
+     5,
+     "Speed Length",
+     minval=1,
+     group=groupLong
+)
+
+longSignalLength = input.int(
+     9,
+     "Signal Length",
+     minval=1,
+     group=groupLong
+)
+
+longSmoothing = input.string(
+     "EMA",
+     "Smoothing Type",
+     options=["EMA"],
+     group=groupLong
+)
+
+longEnable = input.bool(
+     true,
+     "Enable Long Momentum",
+     group=groupLong
+)
+
+longCalculation = input.string(
+     "TRIX",
+     "Calculation Method",
+     options=["TRIX"],
+     group=groupLong
+)
+
+
+// ============================================================================
+// 3. SHORT MOMENTUM SETTINGS
+// ============================================================================
+
+groupShort = "3. SHORT MOMENTUM SETTINGS"
+
+shortSource = input.string(
+     "Low",
+     "Input Source",
+     options=[
+         "Close",
+         "Open",
+         "High",
+         "Low",
+         "HL2",
+         "HLC3",
+         "OHLC4"
+     ],
+     group=groupShort
+)
+
+shortSpeedLength = input.int(
+     5,
+     "Speed Length",
+     minval=1,
+     group=groupShort
+)
+
+shortSignalLength = input.int(
+     9,
+     "Signal Length",
+     minval=1,
+     group=groupShort
+)
+
+shortSmoothing = input.string(
+     "EMA",
+     "Smoothing Type",
+     options=["EMA"],
+     group=groupShort
+)
+
+shortEnable = input.bool(
+     true,
+     "Enable Short Momentum",
+     group=groupShort
+)
+
+shortCalculation = input.string(
+     "TRIX",
+     "Calculation Method",
+     options=["TRIX"],
+     group=groupShort
+)
+
+
+// ============================================================================
+// ARROW / SIGNAL TRIGGERS
+// ============================================================================
+
+groupTriggers = "ARROW / SIGNAL TRIGGERS"
+
+momBuyTriggerText = input.string(
+     "0.5",
+     "Momentum Buy Trigger",
+     group=groupTriggers
+)
+
+momSellTriggerText = input.string(
+     "-0.5",
+     "Momentum Sell Trigger",
+     group=groupTriggers
+)
+
+longBuyTriggerText = input.string(
+     "0.5",
+     "Long Buy Trigger",
+     group=groupTriggers
+)
+
+longSellTriggerText = input.string(
+     "",
+     "Long Sell Trigger",
+     group=groupTriggers
+)
+
+shortBuyTriggerText = input.string(
+     "0.5",
+     "Short Buy Trigger",
+     group=groupTriggers
+)
+
+shortSellTriggerText = input.string(
+     "",
+     "Short Sell Trigger",
+     group=groupTriggers
+)
+
+
+// ============================================================================
+// EXTRAS
+// ============================================================================
+
+groupExtras = "EXTRAS"
+
+showFill = input.bool(
+     true,
+     "Fill Speed / Signal",
+     group=groupExtras
+)
+
+
+// ============================================================================
+// SCALE SETTINGS
+// ============================================================================
+//
+// CURRENT DEFAULTS:
+// Oversold  = -3
+// Overbought = +3
+//
+// These two inputs control BOTH:
+// 1. Visible horizontal scale lines
+// 2. Overbought / Oversold fill boundaries
+//
+// ============================================================================
+
+groupScale = "SCALE SETTINGS"
+
+oversoldScale = input.float(
+     -3.0,
+     "Oversold Scale",
+     step=0.1,
+     group=groupScale
+)
+
+overboughtScale = input.float(
+     3.0,
+     "Overbought Scale",
+     step=0.1,
+     group=groupScale
+)
+
+
+// ============================================================================
+// SOURCE FUNCTION
+// ============================================================================
+
+getSource(string sourceName) =>
+    switch sourceName
+        "Close" => close
+        "Open" => open
+        "High" => high
+        "Low" => low
+        "HL2" => hl2
+        "HLC3" => hlc3
+        "OHLC4" => ohlc4
+        => close
+
+
+// ============================================================================
+// TRIX
+// ============================================================================
+
+trix(float sourceValue, int lengthValue) =>
+    ema1 = ta.ema(sourceValue, lengthValue)
+    ema2 = ta.ema(ema1, lengthValue)
+    ema3 = ta.ema(ema2, lengthValue)
+
+    float result = na
+
+    if not na(ema3[1]) and ema3[1] != 0.0
+        result := 100.0 * (ema3 - ema3[1]) / ema3[1]
+
+    result
+
+
+// ============================================================================
+// TRIGGER VALUES
+// ============================================================================
+
+momBuyTrigger = str.tonumber(momBuyTriggerText)
+momSellTrigger = str.tonumber(momSellTriggerText)
+
+longBuyTrigger = str.tonumber(longBuyTriggerText)
+longSellTrigger = str.tonumber(longSellTriggerText)
+
+shortBuyTrigger = str.tonumber(shortBuyTriggerText)
+shortSellTrigger = str.tonumber(shortSellTriggerText)
+
+
+// ============================================================================
+// MOMENTUM
+// ============================================================================
+
+momRaw = trix(getSource(momSource), momSpeedLength)
+momSignalRaw = ta.ema(momRaw, momSignalLength)
+
+momSpeed = momRaw * DISPLAY_MULTIPLIER
+momSignal = momSignalRaw * DISPLAY_MULTIPLIER
+
+
+// ============================================================================
+// LONG MOMENTUM
+// ============================================================================
+
+longRaw = trix(getSource(longSource), longSpeedLength)
+longSignalRaw = ta.ema(longRaw, longSignalLength)
+
+longSpeed = longRaw * DISPLAY_MULTIPLIER
+longSignal = longSignalRaw * DISPLAY_MULTIPLIER
+
+
+// ============================================================================
+// SHORT MOMENTUM
+// ============================================================================
+
+shortRawUnreversed = trix(getSource(shortSource), shortSpeedLength)
+shortRaw = -shortRawUnreversed
+
+shortSignalRaw = ta.ema(shortRaw, shortSignalLength)
+
+shortSpeed = shortRaw * DISPLAY_MULTIPLIER
+shortSignal = shortSignalRaw * DISPLAY_MULTIPLIER
+
+
+// ============================================================================
+// SIGNAL ENGINE
+// ============================================================================
+
+momBuy = (
+     momEnable and
+     not na(momBuyTrigger) and
+     ta.crossover(momSpeed, momBuyTrigger) and
+     momSpeed > momSignal and
+     momSpeed > 0
+)
+
+momSell = (
+     momEnable and
+     not na(momSellTrigger) and
+     ta.crossunder(momSpeed, momSellTrigger) and
+     momSpeed < momSignal and
+     momSpeed < 0
+)
+
+longBuy = (
+     longEnable and
+     not na(longBuyTrigger) and
+     ta.crossover(longSpeed, longBuyTrigger) and
+     longSpeed > longSignal and
+     longSpeed > 0
+)
+
+longSell = (
+     longEnable and
+     not na(longSellTrigger) and
+     ta.crossunder(longSpeed, longSellTrigger) and
+     longSpeed < longSignal and
+     longSpeed < 0
+)
+
+shortBuy = (
+     shortEnable and
+     not na(shortBuyTrigger) and
+     ta.crossover(shortSpeed, shortBuyTrigger) and
+     shortSpeed > shortSignal and
+     shortSpeed > 0
+)
+
+shortSell = (
+     shortEnable and
+     not na(shortSellTrigger) and
+     ta.crossunder(shortSpeed, shortSellTrigger) and
+     shortSpeed < shortSignal and
+     shortSpeed < 0
+)
+
+
+// ============================================================================
+// GENERAL LEVEL LINES
+// ============================================================================
+
+centerHLine = hline(
+     centerLevel,
+     "Center Line",
+     color=levelColor,
+     linestyle=hline.style_solid,
+     linewidth=2,
+     editable=true,
+     display=showLevels ? display.all : display.none
+)
+
+upperHLine = hline(
+     upperLevel,
+     "Upper Level",
+     color=levelColor,
+     linestyle=hline.style_dashed,
+     linewidth=2,
+     editable=true,
+     display=showLevels ? display.all : display.none
+)
+
+lowerHLine = hline(
+     lowerLevel,
+     "Lower Level",
+     color=levelColor,
+     linestyle=hline.style_dashed,
+     linewidth=2,
+     editable=true,
+     display=showLevels ? display.all : display.none
+)
+
+
+// ============================================================================
+// OVERBOUGHT / OVERSOLD SCALE LINES
+// ============================================================================
+//
+// TRUE HLINE OBJECTS.
+// They extend across the complete indicator pane.
+//
+// ============================================================================
+
+overboughtHLine = hline(
+     overboughtScale,
+     "Overbought Scale",
+     color=color.rgb(112, 48, 160),
+     linestyle=hline.style_solid,
+     linewidth=1,
+     editable=true
+)
+
+oversoldHLine = hline(
+     oversoldScale,
+     "Oversold Scale",
+     color=color.rgb(112, 48, 160),
+     linestyle=hline.style_solid,
+     linewidth=1,
+     editable=true
+)
+
+
+// ============================================================================
+// HIDDEN FILL BOUNDARIES
+// ============================================================================
+//
+// These are invisible implementation plots.
+//
+// They use the EXACT SAME values as the visible hlines.
+//
+// editable=false prevents them from creating unnecessary Style controls.
+//
+// ============================================================================
+
+pOverboughtScale = plot(
+     overboughtScale,
+     "Overbought Fill Boundary",
+     color=na,
+     linewidth=1,
+     display=display.none,
+     editable=false
+)
+
+pOversoldScale = plot(
+     oversoldScale,
+     "Oversold Fill Boundary",
+     color=na,
+     linewidth=1,
+     display=display.none,
+     editable=false
+)
+
+
+// ============================================================================
+// COLORS
+// ============================================================================
+
+momSpeedColor = color.rgb(254, 154, 42)
+momSignalColor = color.rgb(249, 239, 84)
+
+longSpeedColor = color.rgb(0, 154, 130)
+longSignalColor = color.rgb(56, 180, 91)
+
+shortSpeedColor = color.rgb(244, 9, 99)
+shortSignalColor = color.rgb(244, 48, 72)
+
+
+// ============================================================================
+// SPEED / SIGNAL PLOTS
+// ============================================================================
+
+pMomSpeed = plot(
+     momEnable ? momSpeed : na,
+     "Momentum Speed",
+     color=momSpeedColor,
+     linewidth=2,
+     style=plot.style_line,
+     editable=true
+)
+
+pMomSignal = plot(
+     momEnable ? momSignal : na,
+     "Momentum Signal",
+     color=momSignalColor,
+     linewidth=2,
+     style=plot.style_line,
+     editable=true
+)
+
+pLongSpeed = plot(
+     longEnable ? longSpeed : na,
+     "Long Momentum Speed",
+     color=longSpeedColor,
+     linewidth=2,
+     style=plot.style_line,
+     editable=true
+)
+
+pLongSignal = plot(
+     longEnable ? longSignal : na,
+     "Long Momentum Signal",
+     color=longSignalColor,
+     linewidth=2,
+     style=plot.style_line,
+     editable=true
+)
+
+pShortSpeed = plot(
+     shortEnable ? shortSpeed : na,
+     "Short Momentum Speed",
+     color=shortSpeedColor,
+     linewidth=2,
+     style=plot.style_line,
+     editable=true
+)
+
+pShortSignal = plot(
+     shortEnable ? shortSignal : na,
+     "Short Momentum Signal",
+     color=shortSignalColor,
+     linewidth=2,
+     style=plot.style_line,
+     editable=true
+)
+
+
+// ============================================================================
+// NORMAL SPEED / SIGNAL FILLS
+// ============================================================================
+
+fill(
+     pMomSpeed,
+     pMomSignal,
+     color=showFill and momEnable ? color.new(momSpeedColor, 88) : na,
+     title="Momentum Fill",
+     editable=true
+)
+
+fill(
+     pLongSpeed,
+     pLongSignal,
+     color=showFill and longEnable ? color.new(longSpeedColor, 88) : na,
+     title="Long Fill",
+     editable=true
+)
+
+fill(
+     pShortSpeed,
+     pShortSignal,
+     color=showFill and shortEnable ? color.new(shortSpeedColor, 88) : na,
+     title="Short Fill",
+     editable=true
+)
+
+
+// ============================================================================
+// OVERBOUGHT / OVERSOLD CONDITIONS
+// ============================================================================
+//
+// IMPORTANT:
+//
+// >= means the fill activates when Speed reaches the scale exactly.
+// <= means the fill activates when Speed reaches the scale exactly.
+//
+// ============================================================================
+
+momOverbought = (
+     momEnable and
+     momSpeed >= overboughtScale
+)
+
+momOversold = (
+     momEnable and
+     momSpeed <= oversoldScale
+)
+
+longOverbought = (
+     longEnable and
+     longSpeed >= overboughtScale
+)
+
+longOversold = (
+     longEnable and
+     longSpeed <= oversoldScale
+)
+
+shortOverbought = (
+     shortEnable and
+     shortSpeed >= overboughtScale
+)
+
+shortOversold = (
+     shortEnable and
+     shortSpeed <= oversoldScale
+)
+
+
+// ============================================================================
+// MOMENTUM OVERBOUGHT / OVERSOLD FILL
+// ============================================================================
+
+fill(
+     pMomSpeed,
+     pOverboughtScale,
+     color=momOverbought ? color.new(color.green, 82) : na,
+     title="Momentum Overbought Fill",
+     editable=true
+)
+
+fill(
+     pMomSpeed,
+     pOversoldScale,
+     color=momOversold ? color.new(color.red, 82) : na,
+     title="Momentum Oversold Fill",
+     editable=true
+)
+
+
+// ============================================================================
+// LONG OVERBOUGHT / OVERSOLD FILL
+// ============================================================================
+
+fill(
+     pLongSpeed,
+     pOverboughtScale,
+     color=longOverbought ? color.new(color.green, 82) : na,
+     title="Long Overbought Fill",
+     editable=true
+)
+
+fill(
+     pLongSpeed,
+     pOversoldScale,
+     color=longOversold ? color.new(color.red, 82) : na,
+     title="Long Oversold Fill",
+     editable=true
+)
+
+
+// ============================================================================
+// SHORT OVERBOUGHT / OVERSOLD FILL
+// ============================================================================
+
+fill(
+     pShortSpeed,
+     pOverboughtScale,
+     color=shortOverbought ? color.new(color.green, 82) : na,
+     title="Short Overbought Fill",
+     editable=true
+)
+
+fill(
+     pShortSpeed,
+     pOversoldScale,
+     color=shortOversold ? color.new(color.red, 82) : na,
+     title="Short Oversold Fill",
+     editable=true
+)
+
+
+// ============================================================================
+// SIGNAL ARROWS
+// ============================================================================
+
+plotshape(
+     momBuy,
+     title="Momentum Buy",
+     style=shape.triangleup,
+     location=location.bottom,
+     color=color.rgb(23, 140, 86),
+     size=size.tiny,
+     editable=true
+)
+
+plotshape(
+     momSell,
+     title="Momentum Sell",
+     style=shape.triangledown,
+     location=location.top,
+     color=color.rgb(145, 47, 59),
+     size=size.tiny,
+     editable=true
+)
+
+plotshape(
+     longBuy,
+     title="Long Momentum Buy",
+     style=shape.triangleup,
+     location=location.bottom,
+     color=color.rgb(0, 154, 130),
+     size=size.tiny,
+     editable=true
+)
+
+plotshape(
+     longSell,
+     title="Long Momentum Sell",
+     style=shape.triangledown,
+     location=location.top,
+     color=color.rgb(150, 100, 44),
+     size=size.tiny,
+     editable=true
+)
+
+plotshape(
+     shortBuy,
+     title="Short Momentum Buy",
+     style=shape.triangleup,
+     location=location.bottom,
+     color=color.rgb(244, 48, 72),
+     size=size.tiny,
+     editable=true
+)
+
+plotshape(
+     shortSell,
+     title="Short Momentum Sell",
+     style=shape.triangledown,
+     location=location.top,
+     color=color.rgb(140, 34, 146),
+     size=size.tiny,
+     editable=true
+)
+
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+
+alertcondition(
+     momBuy,
+     title="Momentum Buy",
+     message="KTMI Uni Lite: Momentum Buy trigger crossed"
+)
+
+alertcondition(
+     momSell,
+     title="Momentum Sell",
+     message="KTMI Uni Lite: Momentum Sell trigger crossed"
+)
+
+alertcondition(
+     longBuy,
+     title="Long Momentum Buy",
+     message="KTMI Uni Lite: Long Momentum Buy trigger crossed"
+)
+
+alertcondition(
+     longSell,
+     title="Long Momentum Sell",
+     message="KTMI Uni Lite: Long Momentum Sell trigger crossed"
+)
+
+alertcondition(
+     shortBuy,
+     title="Short Momentum Buy",
+     message="KTMI Uni Lite: Short Momentum Buy trigger crossed"
+)
+
+alertcondition(
+     shortSell,
+     title="Short Momentum Sell",
+     message="KTMI Uni Lite: Short Momentum Sell trigger crossed"
+)
