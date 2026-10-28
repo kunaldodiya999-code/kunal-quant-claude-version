@@ -6,12 +6,15 @@ indicator("KTMI Arrows", shorttitle="KTMI Arrows", overlay=true)
 // Same maths as KTMI_Uni_Lite_Compact.pine (= the locked KTMI_Uni_Lite_FINAL.pine), owner's triggers:
 //   Long Momentum Buy  (Long Speed crosses above 0.5)  = BUY CALL = green up-triangle BELOW the candle
 //   Short Momentum Buy (Short Speed crosses above 0.5) = BUY PUT  = red down-triangle ABOVE the candle
+// Owner 28 Oct 2026: on a 1-MINUTE chart it builds N-minute candles from 09:15 (default 3) and works on those,
+// like a 3-minute chart (FYERS Smart Charts have no 3-minute chart). "Candle size" 1 = the chart's own candles.
 
 DISPLAY_MULTIPLIER = 100.0
 speedLength     = input.int(5, "Speed Length", minval=1)
 signalLength    = input.int(9, "Signal Length", minval=1)
 longBuyTrigger  = input.float(0.5, "Long Buy Trigger (BUY CALL)", step=0.1)
 shortBuyTrigger = input.float(0.5, "Short Buy Trigger (BUY PUT)", step=0.1)
+candleMinutes   = input.int(3, "Candle size in minutes (on a 1-minute chart; 1 = chart candles)", minval=1, maxval=60)
 
 // TRIX = % change of a triple EMA. Speed/Signal are scaled x100 for display.
 // invert=true flips the raw TRIX before the Signal EMA (Short Momentum).
@@ -26,6 +29,64 @@ ktmiModule(float src, int speedLen, int signalLen, bool invert) =>
 
 longBuy  = ta.crossover(longSpeed, longBuyTrigger) and longSpeed > longSignal and longSpeed > 0
 shortBuy = ta.crossover(shortSpeed, shortBuyTrigger) and shortSpeed > shortSignal and shortSpeed > 0
+
+// ---- N-MINUTE CANDLES FROM A 1-MINUTE CHART (same code as KTMI_Uni_Lite_FYERS_SmartScript.pine)
+useAgg = candleMinutes > 1 and timeframe.isminutes and timeframe.multiplier == 1
+sessMin = hour * 60 + minute - 555
+inSession = sessMin >= 0 and sessMin <= 374
+bucketKey = ((year * 13 + month) * 32 + dayofmonth) * 1000 + math.floor(sessMin / candleMinutes)
+var int aKey = na
+var float aHigh = na
+var float aLow = na
+if useAgg and inSession
+    if na(aKey) or bucketKey != aKey
+        aKey := bucketKey
+        aHigh := high
+        aLow := low
+    else
+        aHigh := math.max(aHigh, high)
+        aLow := math.min(aLow, low)
+done = useAgg and inSession and ((sessMin + 1) % candleMinutes == 0 or sessMin == 374)
+
+emaOn(float x, int len, bool upd) =>
+    var float e = na
+    var float total = 0.0
+    var int count = 0
+    if upd and not na(x)
+        if na(e)
+            count += 1
+            total += x
+            if count >= len
+                e := total / len
+        else
+            e := e + 2.0 / (len + 1) * (x - e)
+    e
+
+ktmiAgg(float src, int speedLen, int signalLen, bool invert, bool upd) =>
+    e1 = emaOn(src, speedLen, upd)
+    e2 = emaOn(e1, speedLen, upd)
+    e3 = emaOn(e2, speedLen, upd)
+    var float prevE3 = na
+    var float raw = na
+    if upd and not na(e3)
+        raw := not na(prevE3) and prevE3 != 0.0 ? 100.0 * (e3 - prevE3) / prevE3 : na
+        raw := invert and not na(raw) ? -raw : raw
+        prevE3 := e3
+    sig = emaOn(raw, signalLen, upd)
+    [raw * DISPLAY_MULTIPLIER, sig * DISPLAY_MULTIPLIER]
+
+[aLongSpeed, aLongSignal]   = ktmiAgg(aHigh, speedLength, signalLength, false, done)
+[aShortSpeed, aShortSignal] = ktmiAgg(aLow, speedLength, signalLength, true, done)
+var float pLong = na
+var float pShort = na
+aLongBuy  = done and not na(pLong) and not na(aLongSpeed) and pLong <= longBuyTrigger and aLongSpeed > longBuyTrigger and aLongSpeed > aLongSignal and aLongSpeed > 0
+aShortBuy = done and not na(pShort) and not na(aShortSpeed) and pShort <= shortBuyTrigger and aShortSpeed > shortBuyTrigger and aShortSpeed > aShortSignal and aShortSpeed > 0
+if done
+    pLong := aLongSpeed
+    pShort := aShortSpeed
+if useAgg
+    longBuy := aLongBuy
+    shortBuy := aShortBuy
 
 plotshape(longBuy, title="BUY CALL", style=shape.triangleup, location=location.belowbar, color=color.rgb(0, 200, 83), size=size.small)
 plotshape(shortBuy, title="BUY PUT", style=shape.triangledown, location=location.abovebar, color=color.rgb(255, 23, 68), size=size.small)

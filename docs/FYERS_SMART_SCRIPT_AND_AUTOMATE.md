@@ -29,6 +29,15 @@ screen looks different, the idea is the same.
    If FYERS refuses the script, it names the missing part in red: send Claude a screenshot.
 7. Later it is under **Indicators -> My Smart Scripts**.
 
+**3-minute KTMI on FYERS Smart Charts** (owner 28 Oct 2026): Smart Charts offer only 1 / 5 / 15 / 30 min and 1 hour,
+and the other FYERS "Charts" (TradingView) cannot load our script. So: put the Smart Chart on **1 minute**; the script
+builds 3-minute candles itself (09:15-09:17, 09:18-09:20, ... like a 3-minute chart) and runs KTMI on them. Setting
+**"Candle size in minutes"** = 3 (default; 5 = a 5-minute KTMI on the 1-minute chart, 1 = the chart's own candles).
+The lines move once every 3 minutes (steps) and an arrow sits on the LAST minute of its 3-minute candle (e.g. 09:44
+for the 09:42-09:44 candle = the moment that candle closes). On any chart other than 1 minute the setting is ignored.
+Checked: a Python copy of this code gave the same arrows as our trading engine on 2 months of NIFTY (125 / 125 on 3-min,
+71 / 71 on 5-min); `tests/test_ktmi_fyers_candles.py` repeats it.
+
 **Arrows on the price candles** (owner 27 Oct 2026): the script also draws the two trade signals ON THE PRICE CHART:
 green up-triangle BELOW the candle = BUY CALL, red down-triangle ABOVE the candle = BUY PUT (setting "Arrows on the
 price chart", on by default). If FYERS shows them in the KTMI pane instead, use the small backup script

@@ -287,7 +287,9 @@ def test_fyers_smart_script_has_the_same_maths_and_signals_as_the_compact():
     assert triggers == {"Momentum Buy Trigger": '""', "Momentum Sell Trigger": '""', "Long Buy Trigger": '"0.5"',
                         "Long Sell Trigger": '""', "Short Buy Trigger": '"0.5"', "Short Sell Trigger": '""'}
     assert [i for i in f["inputs"] if not i[2].endswith("Trigger")] == \
-        [i for i in c["inputs"] if not i[2].endswith("Trigger")] + [("bool", "true", "Arrows on the price chart")]
+        [i for i in c["inputs"] if not i[2].endswith("Trigger")] + [
+            ("bool", "true", "Arrows on the price chart"),
+            ("int", "3", "Candle size in minutes (on a 1-minute chart; 1 = chart candles)")]
 
 
 def test_fyers_arrows_backup_uses_the_same_maths():

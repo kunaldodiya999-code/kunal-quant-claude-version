@@ -3,6 +3,11 @@
 Short, append-only record of what Claude changed, so every AI and the owner can see the state.
 Newest entry first. Test counts are real runs; "needs local DB" errors/skips are the 5 candle-database tests.
 
+## claude/affectionate-bardeen-3k5sls: 3-minute KTMI on FYERS Smart Charts, 2026-10-28
+- Smart Charts have no 3-min chart and FYERS "Charts" cannot load our script: both FYERS KTMI scripts build N-minute
+  candles from a 1-minute chart ("Candle size", default 3). Python copy = engine arrows (real NIFTY: 125/125 3-min,
+  71/71 5-min); `tests/test_ktmi_fyers_candles.py`.
+
 ## claude/affectionate-bardeen-3k5sls: KTMI arrows on the FYERS price candles, 2026-10-27
 - FYERS Smart Script KTMI: BUY CALL green up-triangle below the candle, BUY PUT red down-triangle above it
   (`force_overlay`, switchable); backup overlay script `KTMI_Uni_Lite_FYERS_Arrows.pine`; tests keep maths equal.
