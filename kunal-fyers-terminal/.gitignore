@@ -1,8 +1,0 @@
-# secrets and today's token: NEVER in git
-.env
-data/
-static/live/
-__pycache__/
-*.pyc
-.venv/
-.pytest_cache/
