@@ -24,6 +24,9 @@
 - KTMI Cross over (owner 11 Nov 2026): separate indicator `indicators/ktmi_uni_lite/KTMI_Cross_Over.pine` = Uni Lite
   line for line + Speed-crosses-above-Signal arrows (Long = BUY CALL, Short = BUY PUT), filter box per side (empty =
   all; value + Above/Below on the Speed). Python twin `crossover.py`; tests/test_ktmi_cross_over.py.
+- BB Reversal R:R (owner 11 Nov 2026): TradingView study `indicators/bb_reversal/BB_Reversal_RR.pine` (BB 20/2 settable,
+  setups 1-4 tick-boxes: 1 open+close outside = owner's default; SHORT upper / LONG lower; stop = candle high/low;
+  target 1:2; BE at 1R; one trade at a time; boxes + table; no orders). Python twin bb_rr.py, tests/test_bb_reversal.py.
 - Current trading rule = profile `UNI_LITE_CORE`:
   Long Speed crosses above +0.5 -> BUY CE; Short Speed crosses above +0.5 -> BUY PE.
   Arrow = cross above trigger AND speed > signal AND speed > 0 (Pine `ta.crossover`).

@@ -1,0 +1,268 @@
+//@version=6
+indicator("BB Reversal R:R", shorttitle="BB R:R", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
+
+// ============================================================================
+// BB REVERSAL R:R  (owner, 11 Nov 2026)
+// ============================================================================
+//
+// Bollinger Bands (length 20, multiplier 2 by default - every number is a setting; the timeframe is the chart's).
+// SHORT at the UPPER band, LONG at the LOWER band (mirror image), with one or more entry setups (tick-boxes):
+//   1. candle OPENS and CLOSES outside the band              (owner's setup, ON by default)
+//   2. candle CLOSES outside the band
+//   3. previous candle closed outside, this one closes back INSIDE
+//   4. wick goes outside the band, candle closes inside (rejection)
+// Entry  = close of the signal candle (only once the candle has closed).
+// Stop   = that candle's HIGH for a short / LOW for a long (+ optional buffer).
+// Target = entry -/+ R x risk (default 1:2).
+// Breakeven: once price reaches 1:1 (setting), the stop moves to the entry price.
+// One trade at a time; signals while a trade is open are ignored.
+// Drawn: green box = reward zone, red box = risk zone, from entry to exit; small table with the results.
+// This is a drawing / study tool: it places no orders.
+// ============================================================================
+
+
+// ============================================================================
+// BOLLINGER BANDS
+// ============================================================================
+
+grpBB = "BOLLINGER BANDS"
+
+bbLen = input.int(20, "Length", minval=1, group=grpBB)
+bbMult = input.float(2.0, "Multiplier (standard deviations)", minval=0.1, step=0.1, group=grpBB)
+bbSrc = input.source(close, "Source", group=grpBB)
+bbMaType = input.string("SMA", "Basis average", options=["SMA", "EMA", "SMMA (RMA)", "WMA", "VWMA"], group=grpBB)
+showBB = input.bool(true, "Show the bands", group=grpBB)
+
+basis = switch bbMaType
+    "EMA" => ta.ema(bbSrc, bbLen)
+    "SMMA (RMA)" => ta.rma(bbSrc, bbLen)
+    "WMA" => ta.wma(bbSrc, bbLen)
+    "VWMA" => ta.vwma(bbSrc, bbLen)
+    => ta.sma(bbSrc, bbLen)
+
+dev = bbMult * ta.stdev(bbSrc, bbLen)
+upper = basis + dev
+lower = basis - dev
+
+
+// ============================================================================
+// ENTRY SETUPS (tick one or more)
+// ============================================================================
+
+grpSet = "ENTRY SETUPS (tick one or more)"
+
+set1 = input.bool(true, "1. Candle OPENS and CLOSES outside the band", group=grpSet)
+set2 = input.bool(false, "2. Candle CLOSES outside the band", group=grpSet)
+set3 = input.bool(false, "3. Previous candle closed outside, this one closes back INSIDE", group=grpSet)
+set4 = input.bool(false, "4. Wick outside the band, candle closes INSIDE (rejection)", group=grpSet)
+needColour = input.bool(false, "Only when the candle colour agrees (red for short, green for long)", group=grpSet)
+tradeShort = input.bool(true, "SHORT trades (upper band)", group=grpSet)
+tradeLong = input.bool(true, "LONG trades (lower band)", group=grpSet)
+
+
+// ============================================================================
+// RISK / REWARD
+// ============================================================================
+
+grpRisk = "RISK / REWARD"
+
+rrTarget = input.float(2.0, "Target R:R (1 : x)", minval=0.1, step=0.1, group=grpRisk)
+beOn = input.bool(true, "Move the stop to breakeven", group=grpRisk)
+beAt = input.float(1.0, "Breakeven when price reaches (R)", minval=0.1, step=0.1, group=grpRisk)
+slBuffer = input.float(0.0, "Stop buffer beyond the candle (points)", minval=0.0, step=0.05, group=grpRisk)
+sameBar = input.string("Stop first (safer)", "Stop and target hit in the same candle", options=["Stop first (safer)", "Target first"], group=grpRisk)
+
+
+// ============================================================================
+// DISPLAY
+// ============================================================================
+
+grpShow = "DISPLAY"
+
+showBoxes = input.bool(true, "Show risk / reward boxes", group=grpShow)
+showLabels = input.bool(true, "Show entry / exit labels", group=grpShow)
+showTable = input.bool(true, "Show results table", group=grpShow)
+colProfit = input.color(color.new(color.teal, 80), "Reward box", group=grpShow)
+colRisk = input.color(color.new(color.red, 80), "Risk box", group=grpShow)
+colBE = input.color(color.new(color.gray, 60), "Breakeven line", group=grpShow)
+
+
+// ============================================================================
+// SIGNALS (judged on the closed candle)
+// ============================================================================
+
+redCandle = close < open
+greenCandle = close > open
+
+shortRaw = (set1 and open > upper and close > upper) or
+     (set2 and close > upper) or
+     (set3 and close[1] > upper[1] and close <= upper) or
+     (set4 and high > upper and close <= upper)
+
+longRaw = (set1 and open < lower and close < lower) or
+     (set2 and close < lower) or
+     (set3 and close[1] < lower[1] and close >= lower) or
+     (set4 and low < lower and close >= lower)
+
+shortSignal = tradeShort and shortRaw and (not needColour or redCandle) and not na(upper)
+longSignal = tradeLong and longRaw and (not needColour or greenCandle) and not na(lower)
+
+
+// ============================================================================
+// TRADE ENGINE
+// ============================================================================
+
+var int tDir = 0                // 1 = long, -1 = short, 0 = flat
+var float tEntry = na
+var float tStop = na
+var float tTarget = na
+var float tRisk = na
+var int tBar = na
+var bool tBE = false
+var box bReward = na
+var box bRisk = na
+
+var int nTrades = 0
+var int nWin = 0
+var int nLoss = 0
+var int nBE = 0
+var float sumR = 0.0
+
+enterLong = false
+enterShort = false
+
+// 1) the open trade: exit first (stop / target), then breakeven - from the candle AFTER the entry candle
+if tDir != 0 and bar_index > tBar
+    hitStop = tDir == 1 ? low <= tStop : high >= tStop
+    hitTarget = tDir == 1 ? high >= tTarget : low <= tTarget
+    exitPrice = float(na)
+    exitWhy = ""
+    if hitStop and hitTarget
+        if sameBar == "Target first"
+            exitPrice := tTarget
+            exitWhy := "TARGET"
+        else
+            exitPrice := tDir == 1 ? math.min(open, tStop) : math.max(open, tStop)
+            exitWhy := tBE ? "BREAKEVEN" : "STOP"
+    else if hitStop
+        exitPrice := tDir == 1 ? math.min(open, tStop) : math.max(open, tStop)     // a gap fills worse
+        exitWhy := tBE ? "BREAKEVEN" : "STOP"
+    else if hitTarget
+        exitPrice := tTarget
+        exitWhy := "TARGET"
+
+    if not na(exitPrice)
+        r = (exitPrice - tEntry) * tDir / tRisk
+        nTrades += 1
+        sumR += r
+        if exitWhy == "TARGET"
+            nWin += 1
+        else if r < 0
+            nLoss += 1
+        else
+            nBE += 1
+        if showBoxes
+            box.set_right(bReward, bar_index)
+            box.set_right(bRisk, bar_index)
+        if showLabels
+            label.new(bar_index, tDir == 1 ? high : low, exitWhy + "  " + str.tostring(r, "#.##") + "R",
+                 style=tDir == 1 ? label.style_label_down : label.style_label_up, size=size.tiny,
+                 color=exitWhy == "TARGET" ? color.teal : exitWhy == "STOP" ? color.red : color.gray,
+                 textcolor=color.white)
+        alert("BB R:R: " + (tDir == 1 ? "LONG " : "SHORT ") + exitWhy + " " + str.tostring(r, "#.##") + "R",
+             alert.freq_once_per_bar_close)
+        tDir := 0
+    else
+        if showBoxes
+            box.set_right(bReward, bar_index)
+            box.set_right(bRisk, bar_index)
+        if beOn and not tBE
+            beLevel = tEntry + tDir * beAt * tRisk
+            if tDir == 1 ? high >= beLevel : low <= beLevel
+                tBE := true
+                tStop := tEntry
+                if showBoxes
+                    line.new(bar_index, tEntry, bar_index + 1, tEntry, extend=extend.none, color=colBE,
+                         style=line.style_dashed, width=2)
+                if showLabels
+                    label.new(bar_index, tEntry, "BE", style=label.style_label_left, size=size.tiny,
+                         color=color.gray, textcolor=color.white)
+
+// 2) a new trade on a closed candle, only when flat
+if tDir == 0 and barstate.isconfirmed and (shortSignal != longSignal)
+    if shortSignal
+        stopPx = high + slBuffer
+        riskPx = stopPx - close
+        if riskPx > 0
+            tDir := -1
+            enterShort := true
+            tEntry := close
+            tStop := stopPx
+            tRisk := riskPx
+            tTarget := close - rrTarget * riskPx
+    else
+        stopPx = low - slBuffer
+        riskPx = close - stopPx
+        if riskPx > 0
+            tDir := 1
+            enterLong := true
+            tEntry := close
+            tStop := stopPx
+            tRisk := riskPx
+            tTarget := close + rrTarget * riskPx
+    if tDir != 0
+        tBar := bar_index
+        tBE := false
+        if showBoxes
+            bReward := box.new(bar_index, math.max(tEntry, tTarget), bar_index + 1, math.min(tEntry, tTarget),
+                 border_color=color.new(color.teal, 30), bgcolor=colProfit)
+            bRisk := box.new(bar_index, math.max(tEntry, tStop), bar_index + 1, math.min(tEntry, tStop),
+                 border_color=color.new(color.red, 30), bgcolor=colRisk)
+        if showLabels
+            label.new(bar_index, tDir == 1 ? low : high, (tDir == 1 ? "LONG" : "SHORT") + " 1:" + str.tostring(rrTarget),
+                 style=tDir == 1 ? label.style_label_up : label.style_label_down, size=size.tiny,
+                 color=tDir == 1 ? color.teal : color.red, textcolor=color.white)
+
+
+// ============================================================================
+// PLOTS
+// ============================================================================
+
+pUpper = plot(showBB ? upper : na, "Upper band", color=color.new(color.red, 20))
+plot(showBB ? basis : na, "Basis", color=color.new(color.orange, 20))
+pLower = plot(showBB ? lower : na, "Lower band", color=color.new(color.teal, 20))
+fill(pUpper, pLower, color=showBB ? color.new(color.blue, 94) : na, title="Band fill")
+
+plotshape(enterShort, "Short entry", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny)
+plotshape(enterLong, "Long entry", style=shape.triangleup, location=location.belowbar, color=color.teal, size=size.tiny)
+
+
+// ============================================================================
+// RESULTS TABLE
+// ============================================================================
+
+var table stats = table.new(position.top_right, 2, 7, bgcolor=color.new(color.black, 30), border_width=1)
+if showTable and barstate.islast
+    winRate = nTrades > 0 ? 100.0 * nWin / nTrades : 0.0
+    table.cell(stats, 0, 0, "Trades", text_color=color.white, text_size=size.small)
+    table.cell(stats, 1, 0, str.tostring(nTrades), text_color=color.white, text_size=size.small)
+    table.cell(stats, 0, 1, "Target hit", text_color=color.white, text_size=size.small)
+    table.cell(stats, 1, 1, str.tostring(nWin), text_color=color.teal, text_size=size.small)
+    table.cell(stats, 0, 2, "Stop hit", text_color=color.white, text_size=size.small)
+    table.cell(stats, 1, 2, str.tostring(nLoss), text_color=color.red, text_size=size.small)
+    table.cell(stats, 0, 3, "Breakeven", text_color=color.white, text_size=size.small)
+    table.cell(stats, 1, 3, str.tostring(nBE), text_color=color.gray, text_size=size.small)
+    table.cell(stats, 0, 4, "Win rate", text_color=color.white, text_size=size.small)
+    table.cell(stats, 1, 4, str.tostring(winRate, "#.#") + " %", text_color=color.white, text_size=size.small)
+    table.cell(stats, 0, 5, "Net R", text_color=color.white, text_size=size.small)
+    table.cell(stats, 1, 5, str.tostring(sumR, "#.##"), text_color=sumR >= 0 ? color.teal : color.red, text_size=size.small)
+    table.cell(stats, 0, 6, "Open trade", text_color=color.white, text_size=size.small)
+    table.cell(stats, 1, 6, tDir == 1 ? "LONG" : tDir == -1 ? "SHORT" : "-", text_color=color.white, text_size=size.small)
+
+
+// ============================================================================
+// ALERTS
+// ============================================================================
+
+alertcondition(enterShort, title="BB R:R Short entry", message="BB R:R: SHORT entry (candle closed outside the upper band)")
+alertcondition(enterLong, title="BB R:R Long entry", message="BB R:R: LONG entry (candle closed outside the lower band)")
