@@ -21,6 +21,9 @@
 ## LOCKED: KTMI Uni Lite (the strategy indicator)
 - `indicators/ktmi_uni_lite/`; read `LOCKED.md` there.
 - `KTMI_Uni_Lite_FINAL.pine` must never be edited (SHA-256 test).
+- KTMI Cross over (owner 11 Nov 2026): separate indicator `indicators/ktmi_uni_lite/KTMI_Cross_Over.pine` = Uni Lite
+  line for line + Speed-crosses-above-Signal arrows (Long = BUY CALL, Short = BUY PUT), filter box per side (empty =
+  all; value + Above/Below on the Speed). Python twin `crossover.py`; tests/test_ktmi_cross_over.py.
 - Current trading rule = profile `UNI_LITE_CORE`:
   Long Speed crosses above +0.5 -> BUY CE; Short Speed crosses above +0.5 -> BUY PE.
   Arrow = cross above trigger AND speed > signal AND speed > 0 (Pine `ta.crossover`).
