@@ -11,6 +11,7 @@ indicator("BB Reversal R:R", shorttitle="BB R:R", overlay=true, max_boxes_count=
 //   2. candle CLOSES outside the band
 //   3. previous candle closed outside, this one closes back INSIDE
 //   4. wick goes outside the band, candle closes inside (rejection)
+//   5. WHOLE candle outside the band: open, high, low and close all beyond it (owner, 12 Nov 2026)
 // Entry  = close of the signal candle (only once the candle has closed).
 // Stop   = that candle's HIGH for a short / LOW for a long (+ optional buffer).
 // Target = entry -/+ R x risk (default 1:2).
@@ -55,6 +56,7 @@ set1 = input.bool(true, "1. Candle OPENS and CLOSES outside the band", group=grp
 set2 = input.bool(false, "2. Candle CLOSES outside the band", group=grpSet)
 set3 = input.bool(false, "3. Previous candle closed outside, this one closes back INSIDE", group=grpSet)
 set4 = input.bool(false, "4. Wick outside the band, candle closes INSIDE (rejection)", group=grpSet)
+set5 = input.bool(false, "5. WHOLE candle outside the band (open, high, low and close)", group=grpSet)
 needColour = input.bool(false, "Only when the candle colour agrees (red for short, green for long)", group=grpSet)
 tradeShort = input.bool(true, "SHORT trades (upper band)", group=grpSet)
 tradeLong = input.bool(true, "LONG trades (lower band)", group=grpSet)
@@ -97,12 +99,14 @@ greenCandle = close > open
 shortRaw = (set1 and open > upper and close > upper) or
      (set2 and close > upper) or
      (set3 and close[1] > upper[1] and close <= upper) or
-     (set4 and high > upper and close <= upper)
+     (set4 and high > upper and close <= upper) or
+     (set5 and low > upper)
 
 longRaw = (set1 and open < lower and close < lower) or
      (set2 and close < lower) or
      (set3 and close[1] < lower[1] and close >= lower) or
-     (set4 and low < lower and close >= lower)
+     (set4 and low < lower and close >= lower) or
+     (set5 and high < lower)
 
 shortSignal = tradeShort and shortRaw and (not needColour or redCandle) and not na(upper)
 longSignal = tradeLong and longRaw and (not needColour or greenCandle) and not na(lower)

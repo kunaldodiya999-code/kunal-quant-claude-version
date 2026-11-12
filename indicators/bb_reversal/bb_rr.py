@@ -24,7 +24,7 @@ class Bar:
 class BBSettings:
     length: int = 20
     mult: float = 2.0
-    setups: tuple = (1,)                      # any of 1, 2, 3, 4
+    setups: tuple = (1,)                      # any of 1, 2, 3, 4, 5 (5 = whole candle outside the band)
     need_colour: bool = False
     trade_short: bool = True
     trade_long: bool = True
@@ -76,10 +76,12 @@ def signals(bars: Sequence[Bar], s: BBSettings) -> list[tuple[bool, bool]]:
         pc = bars[i - 1].close if i else None
         sh = ((1 in s.setups and b.open > up and b.close > up) or (2 in s.setups and b.close > up)
               or (3 in s.setups and pup is not None and pc > pup and b.close <= up)
-              or (4 in s.setups and b.high > up and b.close <= up))
+              or (4 in s.setups and b.high > up and b.close <= up)
+              or (5 in s.setups and b.low > up))
         lg = ((1 in s.setups and b.open < lo and b.close < lo) or (2 in s.setups and b.close < lo)
               or (3 in s.setups and plo is not None and pc < plo and b.close >= lo)
-              or (4 in s.setups and b.low < lo and b.close >= lo))
+              or (4 in s.setups and b.low < lo and b.close >= lo)
+              or (5 in s.setups and b.high < lo))
         sh = s.trade_short and sh and (not s.need_colour or b.close < b.open)
         lg = s.trade_long and lg and (not s.need_colour or b.close > b.open)
         out.append((sh, lg))

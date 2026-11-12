@@ -73,3 +73,15 @@ def test_pine_file_has_the_same_rules_and_settings():
                    "set1 and open < lower and close < lower", "stopPx = high + slBuffer", "stopPx = low - slBuffer",
                    "tStop := tEntry", "barstate.isconfirmed", "box.new(", "alertcondition(enterShort"):
         assert needed in PINE, needed
+
+
+def test_setup_5_whole_candle_outside_the_band():
+    whole = flat() + [Bar(110, 112, 109.5, 111)]     # low 109.5 above the upper band: all of it outside
+    touch = flat() + [Bar(110, 112, 100.0, 111)]     # opens/closes outside but the low dips inside
+    s5 = BBSettings(setups=(5,))
+    assert signals(whole, s5)[-1] == (True, False) and signals(touch, s5)[-1] == (False, False)
+    assert signals(touch, BBSettings())[-1] == (True, False)        # setup 1 (default) still takes it
+    down = flat() + [Bar(90, 90.5, 88, 89)]          # high 90.5 below the lower band
+    assert signals(down, s5)[-1] == (False, True)
+    assert "set5 and low > upper" in PINE and "set5 and high < lower" in PINE
+    assert 'input.bool(false, "5. WHOLE candle outside the band' in PINE
