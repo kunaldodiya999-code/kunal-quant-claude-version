@@ -1,0 +1,74 @@
+//@version=6
+indicator("Position Sizer: Capital + Risk (lots)", shorttitle="Pos Sizer", overlay=true)
+
+// ============================================================================
+// POSITION SIZER: CAPITAL + RISK
+// ============================================================================
+//
+// How many lots can I buy? The SMALLER of two limits, always whole lots:
+//   lots by capital = floor( capital x allocation% / (entry x lot size) )
+//   lots by risk    = floor( max risk / (|entry - stop| x lot size) )
+// Click Entry and Stop on the chart when you add it (you can drag them later); the target follows the R:R.
+// "Strict" adds the limit-order buffer to both sides (worst normal fill) so the real loss stays under the cap.
+// Works for anything with a lot size: index / stock options (entry = premium), futures, or shares (lot = 1).
+// It only calculates and draws. It places no orders and gives no trade advice.
+// ============================================================================
+
+grpMoney = "MONEY"
+capital = input.float(50000, "Capital (Rs)", minval=0, step=1000, group=grpMoney)
+allocPct = input.float(50, "Capital allocation %", minval=0.1, maxval=100, step=1, group=grpMoney)
+maxRisk = input.float(5000, "Max risk per trade (Rs)", minval=1, step=500, group=grpMoney)
+lotSize = input.int(65, "Lot size (1 for shares)", minval=1, group=grpMoney)
+
+grpLevels = "LEVELS (click on the chart, drag later)"
+entry = input.price(100, "Entry", confirm=true, group=grpLevels)
+stop = input.price(80, "Stop", confirm=true, group=grpLevels)
+rr = input.float(2.0, "Target R:R (1 : x)", minval=0.1, step=0.1, group=grpLevels)
+
+grpRules = "RULES"
+strict = input.bool(false, "Strict sizing (count the limit buffer)", group=grpRules)
+buffer = input.float(2.0, "Limit buffer (Rs)", minval=0, step=0.5, group=grpRules)
+
+dir = stop < entry ? 1 : -1                            // stop below = long, above = short
+entryUsed = strict ? entry + dir * buffer : entry
+stopUsed = strict ? stop - dir * buffer : stop
+riskPerUnit = math.abs(entryUsed - stopUsed)
+budget = capital * allocPct / 100.0
+
+lotsCapital = entryUsed > 0 ? math.floor(budget / (entryUsed * lotSize)) : 0
+lotsRisk = riskPerUnit > 0 ? math.floor(maxRisk / (riskPerUnit * lotSize)) : 0
+lots = math.max(0, math.min(lotsCapital, lotsRisk))
+qty = lots * lotSize
+target = entry + dir * rr * math.abs(entry - stop)
+decidedBy = lotsCapital == lotsRisk ? "both" : lotsCapital < lotsRisk ? "capital" : "risk"
+
+var line lEntry = na
+var line lStop = na
+var line lTarget = na
+var table t = table.new(position.top_right, 2, 8, bgcolor=color.new(color.black, 25), border_width=1)
+
+if barstate.islast
+    line.delete(lEntry)
+    line.delete(lStop)
+    line.delete(lTarget)
+    x1 = bar_index - 30
+    x2 = bar_index + 15
+    lEntry := line.new(x1, entry, x2, entry, color=color.blue, width=2)
+    lStop := line.new(x1, stop, x2, stop, color=color.red, width=2)
+    lTarget := line.new(x1, target, x2, target, color=color.teal, width=2)
+    table.cell(t, 0, 0, "Lots", text_color=color.white, text_size=size.small)
+    table.cell(t, 1, 0, str.tostring(lots) + "  (" + str.tostring(qty) + " qty)", text_color=color.white, text_size=size.small)
+    table.cell(t, 0, 1, "Decided by", text_color=color.white, text_size=size.small)
+    table.cell(t, 1, 1, decidedBy, text_color=color.white, text_size=size.small)
+    table.cell(t, 0, 2, "Lots by capital", text_color=color.white, text_size=size.small)
+    table.cell(t, 1, 2, str.tostring(lotsCapital), text_color=color.white, text_size=size.small)
+    table.cell(t, 0, 3, "Lots by risk", text_color=color.white, text_size=size.small)
+    table.cell(t, 1, 3, str.tostring(lotsRisk), text_color=color.white, text_size=size.small)
+    table.cell(t, 0, 4, "Money used", text_color=color.white, text_size=size.small)
+    table.cell(t, 1, 4, "Rs " + str.tostring(entryUsed * qty, "#,###"), text_color=color.white, text_size=size.small)
+    table.cell(t, 0, 5, "Risk", text_color=color.white, text_size=size.small)
+    table.cell(t, 1, 5, "Rs " + str.tostring(riskPerUnit * qty, "#,###"), text_color=color.red, text_size=size.small)
+    table.cell(t, 0, 6, "Reward", text_color=color.white, text_size=size.small)
+    table.cell(t, 1, 6, "Rs " + str.tostring(math.abs(target - entry) * qty, "#,###"), text_color=color.teal, text_size=size.small)
+    table.cell(t, 0, 7, "Target", text_color=color.white, text_size=size.small)
+    table.cell(t, 1, 7, str.tostring(target, format.mintick) + "  (1:" + str.tostring(rr) + ")", text_color=color.white, text_size=size.small)

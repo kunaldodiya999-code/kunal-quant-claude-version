@@ -27,6 +27,9 @@
 - BB Reversal R:R (owner 11 Nov 2026): TradingView study `indicators/bb_reversal/BB_Reversal_RR.pine` (BB 20/2 settable,
   setups 1-5 tick-boxes: 1 open+close outside = owner's default, 5 whole candle outside; SHORT upper / LONG lower; stop = candle high/low;
   target 1:2; BE at 1R; one trade at a time; boxes + table; no orders). Python twin bb_rr.py, tests/test_bb_reversal.py.
+- Position Sizer (owner 12 Nov 2026, portfolio script): `indicators/position_sizer/Position_Sizer_RR.pine` (capital limit vs risk
+  limit, whole lots, strict buffer; tests/test_position_sizer.py). Owner's freelance plan + copy-paste texts:
+  `docs/freelance/FREELANCE_STARTER_KIT.md` (+ PDF via make_pdf.py). Never publish KTMI code openly (owner's edge).
 - Current trading rule = profile `UNI_LITE_CORE`:
   Long Speed crosses above +0.5 -> BUY CE; Short Speed crosses above +0.5 -> BUY PE.
   Arrow = cross above trigger AND speed > signal AND speed > 0 (Pine `ta.crossover`).
